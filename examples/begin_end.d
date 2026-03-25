@@ -3,5 +3,7 @@ BEGIN {
 }
 
 END {
+  c = '\n';
+  print(c);
   print("end");
 }

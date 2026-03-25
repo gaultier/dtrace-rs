@@ -13,6 +13,7 @@ pub enum ErrorKind {
     UnknownToken,
     InvalidLiteralNumber,
     InvalidLiteralString,
+    InvalidLiteralCharacter,
     ParseStatement,
     ParseDeclaration,
     ParseFunctionDeclaration,

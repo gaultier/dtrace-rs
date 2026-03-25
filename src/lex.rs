@@ -18,6 +18,7 @@ pub struct Lexer {
 pub enum TokenKind {
     LiteralNumber,
     LiteralString,
+    LiteralCharacter,
     LiteralBool,
     Identifier,
     Plus,
@@ -186,7 +187,7 @@ impl Lexer {
         self.tokens.push(Token { kind, origin });
     }
 
-    fn lex_string(&mut self, it: &mut Peekable<Chars<'_>>) {
+    fn lex_literal_string(&mut self, it: &mut Peekable<Chars<'_>>) {
         let start_origin = self.origin;
         let first = it.next().unwrap();
         assert_eq!(first, '"');
@@ -217,6 +218,42 @@ impl Lexer {
 
         self.tokens.push(Token {
             kind: TokenKind::LiteralString,
+            origin,
+        });
+    }
+
+    fn lex_literal_character(&mut self, it: &mut Peekable<Chars<'_>>) {
+        let start_origin = self.origin;
+        let first = it.next().unwrap();
+        assert_eq!(first, '\'');
+        self.origin.column += 1;
+        self.origin.offset += 1;
+
+        loop {
+            match it.peek() {
+                Some(c @ '\'') => {
+                    self.advance(*c, it);
+                    break;
+                }
+                Some('\n') | None => {
+                    self.add_error_at(ErrorKind::InvalidLiteralCharacter, self.origin);
+                    return;
+                }
+                Some(c) => {
+                    self.advance(*c, it);
+                }
+            }
+        }
+
+        let len = self.origin.offset - start_origin.offset;
+        // TODO: Limit length.
+        let origin = Origin {
+            len,
+            ..start_origin
+        };
+
+        self.tokens.push(Token {
+            kind: TokenKind::LiteralCharacter,
             origin,
         });
     }
@@ -424,7 +461,10 @@ impl Lexer {
                     self.advance(c, &mut it);
                 }
                 '"' => {
-                    self.lex_string(&mut it);
+                    self.lex_literal_string(&mut it);
+                }
+                '\'' => {
+                    self.lex_literal_character(&mut it);
                 }
                 _ if c.is_whitespace() => {
                     self.advance(c, &mut it);
