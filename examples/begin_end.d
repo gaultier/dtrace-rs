@@ -4,6 +4,7 @@ BEGIN {
 
 END {
   c = '\n';
+  @ = count();
   print(c);
   print("end");
 }
