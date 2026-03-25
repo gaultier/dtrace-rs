@@ -587,50 +587,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // ForStmt   = "for" [ Condition | ForClause | RangeClause ] Block .
-    // Condition = Expression .
-    fn parse_statement_for(&mut self) -> Option<NodeId> {
-        if self.error_mode {
-            return None;
-        }
-
-        let keyword_for = self.match_kind(TokenKind::KeywordFor)?;
-        let cond: Option<NodeId> = if let Some(token) = self.peek_token()
-            && token.kind == TokenKind::LeftCurly
-        {
-            None
-        } else {
-            let cond = if let Some(cond) = self.parse_expr() {
-                cond
-            } else {
-                self.add_error_with_explanation(
-                    ErrorKind::MissingExpr,
-                    keyword_for.origin,
-                    String::from("expected expression following for keyword"),
-                );
-                return None;
-            };
-
-            Some(cond)
-        };
-
-        let block = self.parse_block().or_else(|| {
-            let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
-            self.add_error_with_explanation(
-                ErrorKind::MissingExpected(TokenKind::LeftCurly),
-                keyword_for.origin,
-                format!("expect block following for, found: {:?}", found),
-            );
-
-            None
-        })?;
-
-        Some(self.new_node(Node {
-            kind: NodeKind::For { cond, block },
-            origin: keyword_for.origin,
-        }))
-    }
-
     // Block         = "{" StatementList "}" .
     // StatementList = { Statement ";" } .
     fn parse_block(&mut self) -> Option<NodeId> {
@@ -707,7 +663,6 @@ impl<'a> Parser<'a> {
     // VarDecl = "var" ( VarSpec | "(" { VarSpec ";" } ")" ) .
     // VarSpec = IdentifierList ( Type [ "=" ExpressionList ] | "=" ExpressionList ) .
     fn parse_statement_var_decl(&mut self) -> Option<NodeId> {
-        let var = self.match_kind(TokenKind::KeywordVar)?;
         let identifier = self.expect_token_one(TokenKind::Identifier, "var declaration")?;
         let eq = self.expect_token_one(TokenKind::Eq, "var declaration")?;
         let expr = if let Some(expr) = self.parse_expr() {
@@ -729,7 +684,7 @@ impl<'a> Parser<'a> {
 
         Some(self.new_node(Node {
             kind: NodeKind::VarDecl(identifier_str.to_owned(), expr),
-            origin: var.origin,
+            origin: identifier.origin,
         }))
     }
 
@@ -787,20 +742,6 @@ impl<'a> Parser<'a> {
         None
     }
 
-    // BreakStmt = "break" [ Label ] .
-    fn parse_break_stmt(&mut self) -> Option<NodeId> {
-        if self.error_mode {
-            return None;
-        }
-
-        let keyword = self.match_kind(TokenKind::KeywordBreak)?;
-
-        Some(self.new_node(Node {
-            kind: NodeKind::Break,
-            origin: keyword.origin,
-        }))
-    }
-
     // Statement  = Declaration | LabeledStmt | SimpleStmt |
     //              GoStmt | ReturnStmt | BreakStmt | ContinueStmt | GotoStmt |
     //              FallthroughStmt | Block | IfStmt | SwitchStmt | SelectStmt | ForStmt |
@@ -810,19 +751,11 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if let Some(stmt) = self.parse_statement_for() {
-            return Some(stmt);
-        };
-
         if let Some(stmt) = self.parse_statement_if() {
             return Some(stmt);
         };
 
         if let Some(stmt) = self.parse_block() {
-            return Some(stmt);
-        };
-
-        if let Some(stmt) = self.parse_break_stmt() {
             return Some(stmt);
         };
 

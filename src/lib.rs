@@ -3,7 +3,6 @@ pub mod error;
 pub mod lex;
 mod origin;
 mod type_checker;
-mod utils;
 
 use std::collections::HashMap;
 

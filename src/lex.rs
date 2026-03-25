@@ -36,9 +36,6 @@ pub enum TokenKind {
     KeywordFunc,
     KeywordIf,
     KeywordElse,
-    KeywordFor,
-    KeywordVar,
-    KeywordBreak,
     Unknown,
 }
 
@@ -97,9 +94,6 @@ impl Lexer {
             "func" => TokenKind::KeywordFunc,
             "if" => TokenKind::KeywordIf,
             "else" => TokenKind::KeywordElse,
-            "for" => TokenKind::KeywordFor,
-            "var" => TokenKind::KeywordVar,
-            "break" => TokenKind::KeywordBreak,
             _ => TokenKind::Identifier,
         };
 
