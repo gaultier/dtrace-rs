@@ -12,6 +12,7 @@ use crate::{
 pub enum ErrorKind {
     UnknownToken,
     InvalidLiteralNumber,
+    InvalidLiteralString,
     ParseStatement,
     ParseDeclaration,
     ParseFunctionDeclaration,

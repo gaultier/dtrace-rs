@@ -17,6 +17,7 @@ pub struct Lexer {
 #[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone)]
 pub enum TokenKind {
     LiteralNumber,
+    LiteralString,
     LiteralBool,
     Identifier,
     Plus,
@@ -29,6 +30,7 @@ pub enum TokenKind {
     Eq,
     EqEq,
     Comma,
+    SemiColon,
     Colon,
     ColonEq,
     Eof,
@@ -182,6 +184,41 @@ impl Lexer {
         };
 
         self.tokens.push(Token { kind, origin });
+    }
+
+    fn lex_string(&mut self, it: &mut Peekable<Chars<'_>>) {
+        let start_origin = self.origin;
+        let first = it.next().unwrap();
+        assert_eq!(first, '"');
+        self.origin.column += 1;
+        self.origin.offset += 1;
+
+        loop {
+            match it.peek() {
+                Some(c @ '"') => {
+                    self.advance(*c, it);
+                    break;
+                }
+                Some('\n') | None => {
+                    self.add_error_at(ErrorKind::InvalidLiteralString, self.origin);
+                    return;
+                }
+                Some(c) => {
+                    self.advance(*c, it);
+                }
+            }
+        }
+
+        let len = self.origin.offset - start_origin.offset;
+        let origin = Origin {
+            len,
+            ..start_origin
+        };
+
+        self.tokens.push(Token {
+            kind: TokenKind::LiteralString,
+            origin,
+        });
     }
 
     fn lex_literal_number(&mut self, it: &mut Peekable<Chars<'_>>) {
@@ -374,6 +411,20 @@ impl Lexer {
                         origin,
                     });
                     self.advance(c, &mut it);
+                }
+                ';' => {
+                    let origin = Origin {
+                        len: 1,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::SemiColon,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                }
+                '"' => {
+                    self.lex_string(&mut it);
                 }
                 _ if c.is_whitespace() => {
                     self.advance(c, &mut it);

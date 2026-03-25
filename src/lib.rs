@@ -175,6 +175,7 @@ pub fn compile(
             ..Default::default()
         };
     }
+    trace!("tokens={:#?}", &lexer.tokens);
 
     //let mut parser = Parser::new(input, &lexer, file_id_to_name);
     //parser.parse();
