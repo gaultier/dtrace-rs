@@ -1,33 +1,19 @@
-pub mod amd64;
-pub mod asm;
 pub mod ast;
-mod cfg;
-pub mod elf;
 pub mod error;
-pub(crate) mod ir;
 pub mod lex;
-pub mod macho;
 mod origin;
-pub mod register_alloc;
-pub mod type_checker;
+mod type_checker;
 mod utils;
 
-use std::{
-    collections::{BTreeMap, HashMap},
-    fmt::Write,
-};
+use std::collections::HashMap;
 
 use log::trace;
 
 use crate::{
-    asm::{Encoding, Target},
     ast::{Node, Parser},
     error::Error,
-    ir::VirtualRegister,
     lex::{Lexer, Token},
     origin::FileId,
-    register_alloc::RegisterMapping,
-    type_checker::Size,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -174,20 +160,12 @@ pub struct CompileResult {
     pub errors: Vec<Error>,
     pub lex_tokens: Vec<Token>,
     pub ast_nodes: Vec<Node>,
-    pub ir_fn_defs: Vec<ir::FnDef>,
-    pub ir_text: String,
-    pub ir_eval: ir::Eval,
-    pub vreg_to_memory_locations: Vec<RegisterMapping>,
-    pub asm_instructions: Vec<asm::Instruction>,
-    pub asm_text: String,
-    pub asm_encoded: Encoding,
 }
 
 pub fn compile(
     input: &str,
     file_id: FileId,
     file_id_to_name: &HashMap<FileId, String>,
-    target: &Target,
 ) -> CompileResult {
     let mut lexer = Lexer::new(file_id);
     lexer.lex(input);
@@ -196,88 +174,18 @@ pub fn compile(
     parser.parse();
     trace!("parser errors: {:?}", parser.errors);
 
-    let mut errors = parser.errors;
-    errors.extend(type_checker::check_nodes(
-        &parser.nodes,
-        &mut parser.node_to_type,
-        &parser.name_to_def,
-    ));
-
-    if !errors.is_empty() {
+    if !parser.errors.is_empty() {
         return CompileResult {
             lex_tokens: parser.tokens,
             ast_nodes: parser.nodes,
-            errors,
+            errors: parser.errors,
             ..Default::default()
         };
     }
 
-    let mut ir_emitter = ir::Emitter::new(&parser.nodes, &parser.node_to_type, &parser.name_to_def);
-    ir_emitter.emit_nodes();
-
-    let mut ir_text = String::with_capacity(input.len() * 3);
-    for fn_def in &ir_emitter.fn_defs {
-        writeln!(&mut ir_text, "\n{} {{", fn_def).unwrap();
-
-        for (i, ins) in fn_def.instructions.iter().enumerate() {
-            writeln!(&mut ir_text, "{:04}| {}", i, ins).unwrap();
-        }
-
-        writeln!(&mut ir_text, "}}").unwrap();
-    }
-    trace!("ir_text: {}", &ir_text);
-
-    //let ir_eval = ir::eval(&ir_emitter.instructions);
-    //trace!("ir_eval: {:#?}", ir_eval);
-
-    let mut asm_text = String::with_capacity(input.len() * 10); // Heuristic. TODO: Revisit.
-    let mut asm_instructions = Vec::with_capacity(input.len() * 10);
-
-    for fn_def in &ir_emitter.fn_defs {
-        let vreg_to_size = fn_def
-            .instructions
-            .iter()
-            .filter_map(|x| x.res_vreg.map(|vreg| (vreg, x.typ.size.unwrap())))
-            .collect::<BTreeMap<VirtualRegister, Size>>();
-
-        let (vreg_to_memory_location, stack_offset) =
-            register_alloc::regalloc(&fn_def.live_ranges, &vreg_to_size, &asm::abi(&target.arch));
-        trace!("vreg_to_memory_location: {:?}", vreg_to_memory_location);
-
-        let (fn_asm_instructions, _) = asm::emit_fn_def(
-            fn_def,
-            &vreg_to_memory_location,
-            stack_offset,
-            target,
-            file_id_to_name,
-        );
-
-        writeln!(&mut asm_text, "{}:", &fn_def.name).unwrap();
-
-        for ins in &fn_asm_instructions {
-            writeln!(&mut asm_text, "  {}", ins.display(file_id_to_name)).unwrap();
-        }
-        writeln!(&mut asm_text, "\n").unwrap();
-        // FIXME: Keep fn_def.instructions structure to be able to record each fn location in order
-        // to be able to call functions.
-        asm_instructions.extend(fn_asm_instructions);
-    }
-
-    trace!("asm_text: {}", &asm_text);
-
-    let encoding = asm::encode(&asm_instructions, target, file_id_to_name);
-    trace!("asm encoded: entrypoint={:#X}", encoding.entrypoint,);
-
     CompileResult {
         lex_tokens: parser.tokens,
         ast_nodes: vec![], //parser.nodes,
-        errors,
-        ir_fn_defs: ir_emitter.fn_defs,
-        ir_text,
-        ir_eval: ir::Eval::default(),
-        vreg_to_memory_locations: Vec::new(),
-        asm_instructions,
-        asm_text,
-        asm_encoded: encoding,
+        errors: parser.errors,
     }
 }
