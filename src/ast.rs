@@ -800,18 +800,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // PackageClause = "package" PackageName .
-    // PackageName   = identifier .
-    fn parse_package_clause(&mut self) -> Option<NodeId> {
-        self.expect_token_one(TokenKind::KeywordPackage, "package clause")?;
-        let package = self.expect_token_one(TokenKind::Identifier, "package clause")?;
-
-        Some(self.new_node(Node {
-            kind: NodeKind::Package(Self::str_from_source(self.input, &package.origin).to_owned()),
-            origin: package.origin,
-        }))
-    }
-
     fn str_from_source(src: &'a str, origin: &Origin) -> &'a str {
         &src[origin.offset as usize..origin.offset as usize + origin.len as usize]
     }
@@ -831,64 +819,6 @@ impl<'a> Parser<'a> {
             );
             None
         }
-    }
-
-    // FunctionDecl = "func" FunctionName [ TypeParameters ] Signature [ FunctionBody ] .
-    // FunctionName = identifier .
-    //Signature     = Parameters [ Result ] .
-    // Result        = Parameters | Type .
-    // Parameters    = "(" [ ParameterList [ "," ] ] ")" .
-    // ParameterList = ParameterDecl { "," ParameterDecl } .
-    // ParameterDecl = [ IdentifierList ] [ "..." ] Type .
-    // FunctionBody = Block .
-    fn parse_function_declaration(&mut self) -> Option<NodeId> {
-        let func = self.match_kind(TokenKind::KeywordFunc)?;
-        let name = self.expect_token_one(TokenKind::Identifier, "function declaration")?;
-
-        let _args = self.parse_arguments().or_else(|| {
-            let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
-            self.add_error_with_explanation(
-                ErrorKind::MissingArguments,
-                name.origin,
-                format!(
-                    "expected arguments in function declaration, found: {:?}",
-                    found
-                ),
-            );
-            None
-        })?;
-
-        // TODO: Store args.
-
-        // TODO: Return type.
-
-        let body = if let Some(b) = self.parse_block() {
-            b
-        } else {
-            let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
-            self.add_error_with_explanation(
-                ErrorKind::MissingExpected(TokenKind::LeftCurly),
-                name.origin,
-                format!(
-                    "expected block following function signature, found: {:?}",
-                    found
-                ),
-            );
-
-            return None;
-        };
-
-        let name = Self::str_from_source(self.input, &name.origin).to_owned();
-        let node_id = self.new_node(Node {
-            kind: NodeKind::FnDef(FnDef {
-                name,
-                args: vec![], // TODO
-                ret: None,    // TODO
-                body,
-            }),
-            origin: func.origin,
-        });
-        Some(node_id)
     }
 
     // Declaration  = ConstDecl | TypeDecl | VarDecl .
@@ -913,10 +843,6 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if let Some(fn_def) = self.parse_function_declaration() {
-            return Some(fn_def);
-        }
-
         if let Some(fn_def) = self.parse_declaration() {
             return Some(fn_def);
         }
@@ -931,10 +857,6 @@ impl<'a> Parser<'a> {
         assert!(!self.error_mode);
         self.builtins();
         assert!(!self.error_mode);
-
-        self.parse_package_clause();
-
-        // TODO: imports.
 
         for _i in 0..self.tokens.len() {
             let token = match self.peek_token().map(|t| t.kind) {
