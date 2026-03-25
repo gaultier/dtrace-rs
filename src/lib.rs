@@ -168,23 +168,30 @@ pub fn compile(
 ) -> CompileResult {
     let mut lexer = Lexer::new(file_id);
     lexer.lex(input);
-
-    let mut parser = Parser::new(input, &lexer, file_id_to_name);
-    parser.parse();
-    trace!("parser errors: {:?}", parser.errors);
-
-    if !parser.errors.is_empty() {
+    if !lexer.errors.is_empty() {
         return CompileResult {
-            lex_tokens: parser.tokens,
-            ast_nodes: parser.nodes,
-            errors: parser.errors,
+            lex_tokens: lexer.tokens,
+            errors: lexer.errors,
             ..Default::default()
         };
     }
 
+    //let mut parser = Parser::new(input, &lexer, file_id_to_name);
+    //parser.parse();
+    //trace!("parser errors: {:?}", parser.errors);
+    //
+    //if !parser.errors.is_empty() {
+    //    return CompileResult {
+    //        lex_tokens: parser.tokens,
+    //        ast_nodes: parser.nodes,
+    //        errors: parser.errors,
+    //        ..Default::default()
+    //    };
+    //}
+
     CompileResult {
-        lex_tokens: parser.tokens,
+        lex_tokens: lexer.tokens,
         ast_nodes: vec![], //parser.nodes,
-        errors: parser.errors,
+        errors: lexer.errors,
     }
 }
