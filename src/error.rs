@@ -79,10 +79,15 @@ impl Error {
         input: &str,
         file_id_to_name: &HashMap<FileId, String>,
     ) -> std::io::Result<()> {
-        w.write_all(format!("{}", self.origin.display(file_id_to_name)).as_bytes())?;
-
-        w.write_all(b": Error: ")?;
-        w.write_all(self.explanation.as_bytes())?;
+        write!(
+            w,
+            "{}: Error {:?}",
+            self.origin.display(file_id_to_name),
+            self.kind,
+        )?;
+        if !self.explanation.is_empty() {
+            write!(w, ": {}", self.explanation)?;
+        }
         w.write_all(b": ")?;
 
         {
