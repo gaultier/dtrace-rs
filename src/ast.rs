@@ -618,9 +618,9 @@ impl<'a> Parser<'a> {
             }
             // TODO: More operators.
             _ => {
-                return self.parse_postfix_expr();
+                self.parse_postfix_expr()
             }
-        };
+        }
     }
 
     //postfix_expression      → primary_expression
