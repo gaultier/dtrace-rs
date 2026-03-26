@@ -345,6 +345,8 @@ impl<'a> Parser<'a> {
                     break;
                 }
             };
+            self.eat_token();
+
             let rhs = match self.parse_multiplicative_expr() {
                 None => {
                     self.add_error_with_explanation(
@@ -392,6 +394,8 @@ impl<'a> Parser<'a> {
                     break;
                 }
             };
+            self.eat_token();
+
             let rhs = match self.parse_cast_expr() {
                 None => {
                     self.add_error_with_explanation(
@@ -471,7 +475,8 @@ impl<'a> Parser<'a> {
                 },
             ) => {
                 let op = *op;
-                self.tokens_consumed += 1;
+                self.eat_token();
+
                 let node = match self.parse_cast_expr() {
                     None => self.new_node_unknown(),
                     Some(n) => n,
@@ -838,6 +843,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
             };
+            self.eat_token();
 
             let rhs = match self.parse_relational_expr() {
                 None => {
@@ -886,6 +892,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
             };
+            self.eat_token();
 
             let rhs = match self.parse_shift_expr() {
                 None => {
