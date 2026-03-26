@@ -37,6 +37,8 @@ pub enum TokenKind {
     SemiColon,
     Colon,
     ColonEq,
+    Gt,
+    Lt,
     Eof,
     KeywordAuto,
     KeywordBreak,
@@ -395,6 +397,28 @@ impl Lexer {
                     };
                     self.tokens.push(Token {
                         kind: TokenKind::Star,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                }
+                '>' => {
+                    let origin = Origin {
+                        len: 1,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::Gt,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                }
+                '<' => {
+                    let origin = Origin {
+                        len: 1,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::Lt,
                         origin,
                     });
                     self.advance(c, &mut it);

@@ -308,7 +308,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::LeftParen) => {
                 self.eat_token().unwrap();
                 let e = self.parse_expr().or_else(|| {
-                    let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
+                    let found = self.current_token_kind_for_err();
                     self.errors.push(Error::new(
                         ErrorKind::MissingExpr,
                         origin,
@@ -434,7 +434,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::EqEq) => {
                 let op = *self.eat_token().unwrap();
                 let rhs = self.parse_bin_expr_equality().or_else(|| {
-                    let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
+                    let found = self.current_token_kind_for_err();
                     self.errors.push(Error::new(
                         ErrorKind::MissingExpr,
                         op.origin,
@@ -466,7 +466,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Plus) => {
                 let op = *self.eat_token().unwrap();
                 let rhs = self.parse_bin_expr_add().or_else(|| {
-                    let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
+                    let found = self.current_token_kind_for_err();
                     self.errors.push(Error::new(
                         ErrorKind::MissingExpr,
                         op.origin,
@@ -494,7 +494,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Star) | Some(TokenKind::Slash) if !self.in_predicate => {
                 let op = *self.eat_token().unwrap();
                 let rhs = self.parse_bin_expr_mul().or_else(|| {
-                    let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
+                    let found = self.current_token_kind_for_err();
                     self.errors.push(Error::new(
                         ErrorKind::MissingExpr,
                         op.origin,
@@ -571,7 +571,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Plus | TokenKind::Star) => {
                 let token = *self.eat_token().unwrap();
                 let expr = self.parse_unary_expr().or_else(|| {
-                    let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
+            let found = self.current_token_kind_for_err();
                     self.errors.push(Error::new(
                         ErrorKind::MissingExpr,
                         token.origin,
@@ -623,7 +623,7 @@ impl<'a> Parser<'a> {
         let then_block = if let Some(b) = self.parse_block() {
             b
         } else {
-            let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
+            let found = self.current_token_kind_for_err();
             self.add_error_with_explanation(
                 ErrorKind::MissingExpected(TokenKind::LeftCurly),
                 keyword_if.origin,
@@ -635,7 +635,7 @@ impl<'a> Parser<'a> {
 
         let else_block = if self.match_kind(TokenKind::KeywordElse).is_some() {
             let block = self.parse_block().or_else(|| {
-                let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
+                let found = self.current_token_kind_for_err();
                 self.add_error_with_explanation(
                     ErrorKind::MissingExpected(TokenKind::LeftCurly),
                     keyword_if.origin,
@@ -668,7 +668,7 @@ impl<'a> Parser<'a> {
         let expr = if let Some(expr) = self.parse_expr() {
             expr
         } else {
-            let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
+            let found = self.current_token_kind_for_err();
             self.add_error_with_explanation(
                 ErrorKind::MissingExpr,
                 eq.origin,
@@ -704,7 +704,7 @@ impl<'a> Parser<'a> {
 
         let eq = self.expect_token_one(TokenKind::Eq, "assignment")?;
         let rhs = self.parse_expr().or_else(|| {
-            let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
+            let found = self.current_token_kind_for_err();
             self.add_error_with_explanation(
                 ErrorKind::MissingExpr,
                 eq.origin,
@@ -872,9 +872,14 @@ impl<'a> Parser<'a> {
         None
     }
 
+    //statement               → ";"
+    //                        | expression ";"
+    //                        | "if" "(" expression ")" statement_or_block
+    //                        | "if" "(" expression ")" statement_or_block
+    //                          "else" statement_or_block ;
     fn parse_statement_list(&mut self) -> Option<Vec<NodeId>> {
-        // TODO
-        None
+        // TODO: if.
+        self.parse_expr().map(|x| vec![x])
     }
 
     fn parse_probe_specifier_list(&mut self) -> Option<NodeId> {
@@ -885,7 +890,7 @@ impl<'a> Parser<'a> {
         let probe_specifier = if let Some(x) = self.parse_probe_specifier() {
             x
         } else {
-            let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
+            let found = self.current_token_kind_for_err();
             self.errors.push(Error::new(
                 ErrorKind::MissingProbeSpecifier,
                 self.current_or_last_token_origin()
@@ -929,7 +934,7 @@ impl<'a> Parser<'a> {
             self.current_origin_for_err(),
             format!(
                 "a predicate or action must follow a probe specifier in file mode, found: {:?}",
-                self.current_token_for_err()
+                self.current_token_kind_for_err()
             ),
         );
         None
@@ -940,8 +945,8 @@ impl<'a> Parser<'a> {
         tok.map(|t| t.origin).unwrap_or(Origin::new_unknown())
     }
 
-    fn current_token_for_err(&self) -> Token {
-        self.peek_token().copied().unwrap_or_default()
+    fn current_token_kind_for_err(&self) -> TokenKind {
+        self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof)
     }
 
     fn parse_probe_specifiers(&mut self) -> Option<NodeId> {
