@@ -422,47 +422,6 @@ impl<'a> Parser<'a> {
         None
     }
 
-    // TODO
-    fn parse_bin_expr_logic_or(&mut self) -> Option<NodeId> {
-        self.parse_bin_expr_logic_and()
-    }
-
-    fn parse_bin_expr_logic_and(&mut self) -> Option<NodeId> {
-        self.parse_bin_expr_equality()
-    }
-
-    fn parse_bin_expr_equality(&mut self) -> Option<NodeId> {
-        let lhs = self.parse_bin_expr_cmp()?;
-
-        match self.peek_token().map(|t| t.kind) {
-            Some(TokenKind::EqEq) => {
-                let op = *self.eat_token().unwrap();
-                let rhs = self.parse_bin_expr_equality().or_else(|| {
-                    let found = self.current_token_kind_for_err();
-                    self.errors.push(Error::new(
-                        ErrorKind::MissingExpr,
-                        op.origin,
-                        format!(
-                            "expected expression after {:?} but found: {:?}",
-                            op.kind, found
-                        ),
-                    ));
-                    None
-                })?;
-
-                Some(self.new_node(Node {
-                    kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
-                    origin: op.origin,
-                }))
-            }
-            _ => Some(lhs),
-        }
-    }
-
-    fn parse_bin_expr_cmp(&mut self) -> Option<NodeId> {
-        self.parse_additive_expr()
-    }
-
     //additive_expression     → multiplicative_expression
     //                        | additive_expression "+" multiplicative_expression
     //                        | additive_expression "-" multiplicative_expression ;
@@ -844,9 +803,9 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let mut lhs = self.parse_logical_or_expr()?;
+        let mut lhs = self.parse_inclusive_or_expr()?;
         while let Some(op) = self.match_kind(TokenKind::AmpersandAmpersand) {
-            let rhs = match self.parse_logical_or_expr() {
+            let rhs = match self.parse_inclusive_or_expr() {
                 None => {
                     self.add_error_with_explanation(
                         ErrorKind::MissingExpected,
@@ -1071,29 +1030,6 @@ impl<'a> Parser<'a> {
         self.parse_additive_expr()
     }
 
-    // SimpleStmt = EmptyStmt | ExpressionStmt | SendStmt | IncDecStmt | Assignment | ShortVarDecl .
-    fn parse_simple_statement(&mut self) -> Option<NodeId> {
-        if self.error_mode {
-            return None;
-        }
-
-        if let Some(stmt) = self.parse_assignment_expr() {
-            return Some(stmt);
-        };
-
-        // TODO: EmptyStmt ???
-        if let Some(expr_stmt) = self.parse_expr() {
-            return Some(expr_stmt);
-        }
-
-        // TODO: SendStmt.
-        // TODO: IncDecStmt.
-
-        // TODO: ShortVarDecl.
-
-        None
-    }
-
     // Statement  = Declaration | LabeledStmt | SimpleStmt |
     //              GoStmt | ReturnStmt | BreakStmt | ContinueStmt | GotoStmt |
     //              FallthroughStmt | Block | IfStmt | SwitchStmt | SelectStmt | ForStmt |
@@ -1102,34 +1038,7 @@ impl<'a> Parser<'a> {
         if self.error_mode {
             return None;
         }
-
-        if let Some(stmt) = self.parse_statement_if() {
-            return Some(stmt);
-        };
-
-        if let Some(stmt) = self.parse_block() {
-            return Some(stmt);
-        };
-
-        if let Some(stmt) = self.parse_simple_statement() {
-            return Some(stmt);
-        }
-
-        if let Some(stmt) = self.parse_external_declaration() {
-            return Some(stmt);
-        }
-
-        // TODO: Labeled stmt.
-
-        // TODO: Go stmt.
-        // TODO: Return stmt.
-        // TODO: Break stmt.
-        // TODO: Continue stmt.
-        // TODO: Goto stmt.
-        // TODO: Fallthrough stmt.
-
-        // TODO: Switch stmt.
-        // TODO: Select stmt.
+        // TODO
 
         None
     }
