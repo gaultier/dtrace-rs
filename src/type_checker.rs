@@ -1,8 +1,5 @@
 use std::{collections::HashMap, fmt::Display};
 
-#[cfg(test)]
-use proptest_derive::Arbitrary;
-
 use serde::Serialize;
 
 use crate::{
@@ -21,7 +18,6 @@ pub enum TypeKind {
 }
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(test, derive(Arbitrary))]
 pub enum Size {
     _8,
     _16,
@@ -149,19 +145,17 @@ pub fn check_node(
                 check_node(*decl, nodes, errs, node_to_type, name_to_def);
             }
         }
-        NodeKind::Break | NodeKind::Package(_) => {}
+        NodeKind::Break => {}
         NodeKind::VarDecl(_identifier, expr) => {
             check_node(*expr, nodes, errs, node_to_type, name_to_def);
 
             let expr_typ = node_to_type.get(expr).unwrap();
             node_to_type.insert(node_id, expr_typ.clone());
         }
-        NodeKind::For { cond, block } => {
-            if let Some(cond) = cond {
-                check_node(*cond, nodes, errs, node_to_type, name_to_def);
+        NodeKind::TranslationUnit(decls) => {
+            for decl in decls {
+                check_node(*decl, nodes, errs, node_to_type, name_to_def);
             }
-
-            check_node(*block, nodes, errs, node_to_type, name_to_def);
         }
         NodeKind::FnDef(crate::ast::FnDef {
             name: _,

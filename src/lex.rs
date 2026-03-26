@@ -26,6 +26,8 @@ pub enum TokenKind {
     Slash,
     LeftParen,
     RightParen,
+    LeftSquareBracket,
+    RightSquareBracket,
     LeftCurly,
     RightCurly,
     Eq,
@@ -445,6 +447,28 @@ impl Lexer {
                     };
                     self.tokens.push(Token {
                         kind: TokenKind::Comma,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                }
+                '[' => {
+                    let origin = Origin {
+                        len: 1,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::LeftSquareBracket,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                }
+                ']' => {
+                    let origin = Origin {
+                        len: 1,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::RightSquareBracket,
                         origin,
                     });
                     self.advance(c, &mut it);

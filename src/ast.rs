@@ -46,15 +46,11 @@ pub enum NodeKind {
         args: NodeId,
     },
     FnDef(FnDef),
-    Package(String),
+    TranslationUnit(Vec<NodeId>),
     If {
         cond: NodeId,
         then_block: NodeId,
         else_block: Option<NodeId>,
-    },
-    For {
-        cond: Option<NodeId>,
-        block: NodeId,
     },
     Block(Vec<NodeId>),
     VarDecl(String, NodeId), // TODO: Vec in case of identifier list.
@@ -763,7 +759,7 @@ impl<'a> Parser<'a> {
             return Some(stmt);
         }
 
-        if let Some(stmt) = self.parse_declaration() {
+        if let Some(stmt) = self.parse_external_declaration() {
             return Some(stmt);
         }
 
@@ -822,7 +818,7 @@ impl<'a> Parser<'a> {
     }
 
     // Declaration  = ConstDecl | TypeDecl | VarDecl .
-    fn parse_declaration(&mut self) -> Option<NodeId> {
+    fn parse_external_declaration(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
@@ -837,25 +833,38 @@ impl<'a> Parser<'a> {
         None
     }
 
-    // TopLevelDecl = Declaration | FunctionDecl | MethodDecl
-    fn parse_top_level_declaration(&mut self) -> Option<NodeId> {
+    fn parse_translation_unit(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
 
-        if let Some(fn_def) = self.parse_declaration() {
-            return Some(fn_def);
+        // Heuristic.
+        let mut decls = Vec::with_capacity(self.remaining_tokens_count() / 8);
+
+        for _i in 0..self.remaining_tokens_count() {
+            if let Some(decl) = self.parse_external_declaration() {
+                decls.push(decl);
+            }
         }
 
-        // TODO: Methods.
-
-        None
+        let node_id = self.new_node(Node {
+            kind: NodeKind::TranslationUnit(decls),
+            origin: Origin::new_unknown(),
+        });
+        Some(node_id)
     }
 
-    // SourceFile = PackageClause ";" { ImportDecl ";" } { TopLevelDecl ";" } .
-    fn parse_source_file(&mut self) {
-        assert!(!self.error_mode);
-        self.builtins();
+    // d_program               → translation_unit? ;
+    fn parse_d_program(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        self.parse_translation_unit()
+    }
+
+    // program                 → d_expression | d_program | d_type ;
+    fn parse_program(&mut self) {
         assert!(!self.error_mode);
 
         for _i in 0..self.tokens.len() {
@@ -870,17 +879,21 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if let Some(decl) = self.parse_top_level_declaration() {
-                self.nodes[0].kind.as_file_mut().unwrap().push(decl);
+            // TODO: d_expr
+
+            if let Some(prog) = self.parse_d_program() {
+                self.nodes[0].kind.as_file_mut().unwrap().push(prog);
                 continue;
             }
 
+            // TODO: d_type
+
             // Catch-all.
             self.add_error_with_explanation(
-                ErrorKind::ParseDeclaration,
+                ErrorKind::ParseProgram,
                 self.current_or_last_token_origin().unwrap(),
                 format!(
-                    "catch-all parse declaration error: encountered unexpected token {:?}",
+                    "catch-all parse program error: encountered unexpected token {:?}",
                     token
                 ),
             );
@@ -889,7 +902,7 @@ impl<'a> Parser<'a> {
 
     #[warn(unused_results)]
     pub fn parse(&mut self) {
-        self.parse_source_file();
+        self.parse_program();
 
         log(&self.nodes, NodeId(0), 0);
 
@@ -920,7 +933,7 @@ impl<'a> Parser<'a> {
                 name_to_def.leave();
             }
             // Nothing to do.
-            NodeKind::Break | NodeKind::Package(_) | NodeKind::Number(_) | NodeKind::Bool(_) => {}
+            NodeKind::Break | NodeKind::Number(_) | NodeKind::Bool(_) => {}
 
             NodeKind::Unary(_, expr) => {
                 Self::resolve_node(*expr, nodes, errors, name_to_def, file_id_to_name);
@@ -1069,12 +1082,10 @@ impl<'a> Parser<'a> {
                     Self::resolve_node(*else_block, nodes, errors, name_to_def, file_id_to_name);
                 }
             }
-            NodeKind::For { cond, block } => {
-                if let Some(cond) = cond {
-                    Self::resolve_node(*cond, nodes, errors, name_to_def, file_id_to_name);
+            NodeKind::TranslationUnit(decls) => {
+                for decl in decls {
+                    Self::resolve_node(*decl, nodes, errors, name_to_def, file_id_to_name);
                 }
-
-                Self::resolve_node(*block, nodes, errors, name_to_def, file_id_to_name);
             }
         }
     }
@@ -1108,11 +1119,7 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
             }
         }
 
-        NodeKind::Break
-        | NodeKind::Package(_)
-        | NodeKind::Number(_)
-        | NodeKind::Identifier(_)
-        | NodeKind::Bool(_) => {}
+        NodeKind::Break | NodeKind::Number(_) | NodeKind::Identifier(_) | NodeKind::Bool(_) => {}
 
         NodeKind::Assignment(lhs, _, rhs)
         | NodeKind::Divide(lhs, rhs)
@@ -1156,11 +1163,10 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
                 log(nodes, *else_block, indent + 2);
             }
         }
-        NodeKind::For { cond, block } => {
-            if let Some(cond) = cond {
-                log(nodes, *cond, indent + 2);
+        NodeKind::TranslationUnit(decls) => {
+            for decl in decls {
+                log(nodes, *decl, indent + 2);
             }
-            log(nodes, *block, indent + 2);
         }
     }
 }

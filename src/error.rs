@@ -14,6 +14,7 @@ pub enum ErrorKind {
     InvalidLiteralNumber,
     InvalidLiteralString,
     InvalidLiteralCharacter,
+    ParseProgram,
     ParseStatement,
     ParseDeclaration,
     ParseFunctionDeclaration,
