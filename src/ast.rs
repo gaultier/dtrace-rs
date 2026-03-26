@@ -817,20 +817,118 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Declaration  = ConstDecl | TypeDecl | VarDecl .
+    fn parse_literal_number(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let tok = self.peek_token();
+        let origin = tok.map(|t| t.origin).unwrap_or(Origin::new_unknown());
+        self.eat_token().unwrap();
+        let src = Self::str_from_source(self.input, &origin);
+        let num: u64 = str::parse(src)
+            .map_err(|err: ParseIntError| {
+                self.add_error_with_explanation(
+                    ErrorKind::InvalidLiteralNumber,
+                    origin,
+                    err.to_string(),
+                );
+            })
+            .ok()?;
+
+        let node_id = self.new_node(Node {
+            kind: NodeKind::Number(num),
+            origin,
+        });
+        self.node_to_type.insert(node_id, Type::new_int());
+        Some(node_id)
+    }
+
+    fn parse_probe_specifier(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+        if let Some(num) = self.parse_literal_number() {
+            return Some(num);
+        }
+
+        // TODO: PSPEC.
+
+        todo!()
+    }
+
+    fn parse_probe_specifier_list(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let probe_specifier = if let Some(x) = self.parse_probe_specifier() {
+            x
+        } else {
+            let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
+            self.errors.push(Error::new(
+                ErrorKind::MissingProbeSpecifier,
+                self.current_or_last_token_origin()
+                    .unwrap_or(Origin::new_unknown()),
+                format!("expected probe specifier, found: {:?}", found),
+            ));
+            return None;
+        };
+
+        // TODO: More probe specifiers separated by commas.
+        Some(probe_specifier)
+    }
+
+    fn parse_probe_specifiers(&mut self) -> Option<NodeId> {
+        self.parse_probe_specifier_list()
+    }
+
+    //probe_definition        → probe_specifiers
+    //                          | probe_specifiers "{" statement_list "}"
+    //                          | probe_specifiers "/" expression "/" "{" statement_list "}" ;
+    fn parse_probe_definition(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let probe_specifier = self.parse_probe_specifiers()?;
+        // TODO: trailing stuff.
+
+        Some(probe_specifier)
+    }
+
+    // external_declaration    → inline_definition
+    //                           | translator_definition
+    //                           | provider_definition
+    //                           | probe_definition
+    //                           | declaration ;
     fn parse_external_declaration(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
 
-        // TODO: Const decl.
-        // TODO: Type decl.
+        // TODO: inline_definition.
+        // TODO: translator_definition.
+        // TODO: provider_definition.
 
-        if let Some(stmt) = self.parse_statement_var_decl() {
+        if let Some(stmt) = self.parse_probe_definition() {
             return Some(stmt);
         };
 
+        // TODO: declaration.
+
         None
+    }
+
+    fn is_at_end(&self) -> bool {
+        match self.peek_token() {
+            Some(Token {
+                kind: TokenKind::Eof,
+                ..
+            })
+            | None => true,
+            _ => false,
+        }
     }
 
     fn parse_translation_unit(&mut self) -> Option<NodeId> {
@@ -842,6 +940,9 @@ impl<'a> Parser<'a> {
         let mut decls = Vec::with_capacity(self.remaining_tokens_count() / 8);
 
         for _i in 0..self.remaining_tokens_count() {
+            if self.is_at_end() {
+                break;
+            }
             if let Some(decl) = self.parse_external_declaration() {
                 decls.push(decl);
             }
@@ -864,7 +965,7 @@ impl<'a> Parser<'a> {
     }
 
     // program                 → d_expression | d_program | d_type ;
-    fn parse_program(&mut self) {
+    fn parse_program(&mut self) -> Option<NodeId> {
         assert!(!self.error_mode);
 
         for _i in 0..self.tokens.len() {
@@ -882,8 +983,7 @@ impl<'a> Parser<'a> {
             // TODO: d_expr
 
             if let Some(prog) = self.parse_d_program() {
-                self.nodes[0].kind.as_file_mut().unwrap().push(prog);
-                continue;
+                return Some(prog);
             }
 
             // TODO: d_type
@@ -898,13 +998,15 @@ impl<'a> Parser<'a> {
                 ),
             );
         }
+        None
     }
 
     #[warn(unused_results)]
     pub fn parse(&mut self) {
-        self.parse_program();
-
-        log(&self.nodes, NodeId(0), 0);
+        let root = self.parse_program();
+        if let Some(root) = root {
+            log(&self.nodes, root, 0);
+        }
 
         self.resolve_nodes();
     }
