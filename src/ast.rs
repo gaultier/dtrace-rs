@@ -32,6 +32,7 @@ pub enum NodeKind {
     File(Vec<NodeId>), // Root.
     Number(u64),
     Bool(bool),
+    ProbeSpecifier(String),
     Add(NodeId, NodeId),
     Multiply(NodeId, NodeId),
     Divide(NodeId, NodeId),
@@ -848,13 +849,24 @@ impl<'a> Parser<'a> {
         if self.error_mode {
             return None;
         }
-        if let Some(num) = self.parse_literal_number() {
-            return Some(num);
+
+        if matches!(
+            self.peek_token().map(|t| t.kind),
+            Some(TokenKind::LiteralNumber)
+        ) {
+            return self.parse_literal_number();
         }
 
-        // TODO: PSPEC.
+        if let Some(tok) = self.match_kind(TokenKind::ProbeSpecifier) {
+            let s = Self::str_from_source(self.input, &tok.origin).to_owned();
+            let node_id = self.new_node(Node {
+                kind: NodeKind::ProbeSpecifier(s),
+                origin: tok.origin,
+            });
+            return Some(node_id);
+        }
 
-        todo!()
+        None
     }
 
     fn parse_probe_specifier_list(&mut self) -> Option<NodeId> {
@@ -1035,7 +1047,10 @@ impl<'a> Parser<'a> {
                 name_to_def.leave();
             }
             // Nothing to do.
-            NodeKind::Break | NodeKind::Number(_) | NodeKind::Bool(_) => {}
+            NodeKind::Break
+            | NodeKind::Number(_)
+            | NodeKind::Bool(_)
+            | NodeKind::ProbeSpecifier(_) => {}
 
             NodeKind::Unary(_, expr) => {
                 Self::resolve_node(*expr, nodes, errors, name_to_def, file_id_to_name);
@@ -1221,7 +1236,11 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
             }
         }
 
-        NodeKind::Break | NodeKind::Number(_) | NodeKind::Identifier(_) | NodeKind::Bool(_) => {}
+        NodeKind::Break
+        | NodeKind::Number(_)
+        | NodeKind::Identifier(_)
+        | NodeKind::Bool(_)
+        | NodeKind::ProbeSpecifier(_) => {}
 
         NodeKind::Assignment(lhs, _, rhs)
         | NodeKind::Divide(lhs, rhs)

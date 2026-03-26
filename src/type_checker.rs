@@ -194,6 +194,7 @@ pub fn check_node(
                 TypeKind::Number
             ));
         }
+        NodeKind::ProbeSpecifier(_) => todo!(),
         NodeKind::Bool(_) => {
             assert!(matches!(
                 *node_to_type.get(&node_id).unwrap().kind,
