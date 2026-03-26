@@ -473,8 +473,13 @@ impl<'a> Parser<'a> {
 
         let mut lhs = self.parse_multiplicative_expr()?;
         loop {
-            let op = match self.peek_token().map(|t| t.kind) {
-                Some(TokenKind::Plus | TokenKind::Minus) => op,
+            let op = match self.peek_token() {
+                Some(
+                    op @ Token {
+                        kind: TokenKind::Plus | TokenKind::Minus,
+                        ..
+                    },
+                ) => *op,
                 _ => {
                     break;
                 }
@@ -514,9 +519,14 @@ impl<'a> Parser<'a> {
 
         let mut lhs = self.parse_cast_expr()?;
         loop {
-            let op = match self.peek_token().map(|t| t.kind) {
+            let op = match self.peek_token() {
                 // TODO: More.
-                Some(TokenKind::Star | TokenKind::Slash) => op,
+                Some(
+                    op @ Token {
+                        kind: TokenKind::Star | TokenKind::Slash,
+                        ..
+                    },
+                ) => *op,
                 _ => {
                     break;
                 }
@@ -965,8 +975,13 @@ impl<'a> Parser<'a> {
 
         let mut lhs = self.parse_relational_expr()?;
         loop {
-            let op = match self.peek_token().map(|t| t.kind) {
-                Some(TokenKind::EqEq | TokenKind::BangEq) => op,
+            let op = match self.peek_token() {
+                Some(
+                    op @ Token {
+                        kind: TokenKind::EqEq | TokenKind::BangEq,
+                        ..
+                    },
+                ) => *op,
                 _ => {
                     break;
                 }
@@ -1007,9 +1022,14 @@ impl<'a> Parser<'a> {
 
         let mut lhs = self.parse_shift_expr()?;
         loop {
-            let op = match self.peek_token().map(|t| t.kind) {
+            let op = match self.peek_token() {
                 // TODO: Gte, Lte
-                Some(TokenKind::Gt | TokenKind::Lt) => op,
+                Some(
+                    op @ Token {
+                        kind: TokenKind::Gt | TokenKind::Lt,
+                        ..
+                    },
+                ) => *op,
                 _ => {
                     break;
                 }

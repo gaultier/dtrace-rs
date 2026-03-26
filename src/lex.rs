@@ -29,6 +29,7 @@ pub enum TokenKind {
     Pipe,
     PipePipe,
     Plus,
+    Minus,
     Star,
     Slash,
     LeftParen,
@@ -386,6 +387,17 @@ impl Lexer {
                 '\n' => {
                     self.advance(c, &mut it);
                 }
+                '-' => {
+                    let origin = Origin {
+                        len: 1,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::Minus,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                }
                 '+' => {
                     let origin = Origin {
                         len: 1,
@@ -526,17 +538,17 @@ impl Lexer {
                         self.advance(c, &mut it);
                     }
                 }
-                '!' if it_peek_peek(&it) == Some('=') {
-                        let origin = Origin {
-                            len: 2,
-                            ..self.origin
-                        };
-                        self.tokens.push(Token {
-                            kind: TokenKind::BangEq,
-                            origin,
-                        });
-                        self.advance(c, &mut it);
-                        self.advance(c, &mut it);
+                '!' if it_peek_peek(&it) == Some('=') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::BangEq,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
                 }
                 '=' => {
                     let origin = self.origin;
