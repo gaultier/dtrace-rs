@@ -334,8 +334,7 @@ pub fn check_node(
             }
         }
         NodeKind::PrimaryToken(_) => {}
-        NodeKind::File(node_ids) => todo!(),
-        NodeKind::Cast(_, node_id) => todo!(),
+        NodeKind::Cast(_) => todo!(),
     }
 }
 

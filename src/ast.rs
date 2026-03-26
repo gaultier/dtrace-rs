@@ -34,7 +34,7 @@ pub enum NodeKind {
     Number(u64),
     Bool(bool),
     PrimaryToken(TokenKind),
-    Cast(String, NodeId),
+    Cast(String),
     ProbeSpecifier(String),
     ProbeDefinition(NodeId, Option<NodeId>, Vec<NodeId>),
     BinaryOp(NodeId, TokenKind, NodeId),
@@ -422,8 +422,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let mut lhs = self.parse_unary_expr()?;
-        while let Some(op) = self.match_kind(TokenKind::LeftParen) {
+        if let Some(op) = self.match_kind(TokenKind::LeftParen) {
             let typ = self.expect_token_one(TokenKind::Identifier, "type in cast");
             let typ_str = if let Some(typ) = typ {
                 Self::str_from_source(self.input, &typ.origin).to_owned()
@@ -431,27 +430,13 @@ impl<'a> Parser<'a> {
                 String::new()
             };
             self.expect_token_one(TokenKind::RightParen, "closing cast right parenthesis");
-            let rhs = match self.parse_unary_expr() {
-                None => {
-                    self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
-                        op.origin,
-                        format!(
-                            "expected unary expression, found: {:?}",
-                            self.current_token_kind_for_err()
-                        ),
-                    );
-                    self.new_node_unknown()
-                }
-                Some(x) => x,
-            };
-            lhs = self.new_node(Node {
-                kind: NodeKind::Cast(typ_str, rhs),
+            return Some(self.new_node(Node {
+                kind: NodeKind::Cast(typ_str),
                 origin: op.origin,
-            });
+            }));
         }
 
-        Some(lhs)
+        self.parse_unary_expr()
     }
 
     //expression              → assignment_expression ( "," assignment_expression )* ;
@@ -1437,8 +1422,8 @@ impl<'a> Parser<'a> {
             }
             NodeKind::Unknown => {}
             NodeKind::PrimaryToken(_) => {}
-            NodeKind::Cast(_, node_id) => {
-                Self::resolve_node(*node_id, nodes, errors, name_to_def, file_id_to_name);
+            NodeKind::Cast(_) => {
+                todo!()
             }
         }
     }
@@ -1529,9 +1514,7 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
             }
         }
         NodeKind::PrimaryToken(_) => {}
-        NodeKind::Cast(_, node_id) => {
-            log(nodes, *node_id, indent + 2);
-        }
+        NodeKind::Cast(_) => {}
     }
 }
 
