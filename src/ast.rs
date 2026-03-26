@@ -34,7 +34,7 @@ pub enum NodeKind {
     Number(u64),
     Bool(bool),
     PrimaryToken(TokenKind),
-    Cast(String),
+    Cast(String, NodeId),
     ProbeSpecifier(String),
     ProbeDefinition(NodeId, Option<NodeId>, Vec<NodeId>),
     BinaryOp(NodeId, TokenKind, NodeId),
@@ -430,8 +430,11 @@ impl<'a> Parser<'a> {
                 String::new()
             };
             self.expect_token_one(TokenKind::RightParen, "closing cast right parenthesis");
+            let node = self
+                .parse_cast_expr()
+                .unwrap_or_else(|| self.new_node_unknown());
             return Some(self.new_node(Node {
-                kind: NodeKind::Cast(typ_str),
+                kind: NodeKind::Cast(typ_str, node),
                 origin: op.origin,
             }));
         }
@@ -1422,7 +1425,7 @@ impl<'a> Parser<'a> {
             }
             NodeKind::Unknown => {}
             NodeKind::PrimaryToken(_) => {}
-            NodeKind::Cast(_) => {
+            NodeKind::Cast(_, _) => {
                 todo!()
             }
         }
@@ -1514,7 +1517,7 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
             }
         }
         NodeKind::PrimaryToken(_) => {}
-        NodeKind::Cast(_) => {}
+        NodeKind::Cast(_, _) => {}
     }
 }
 
