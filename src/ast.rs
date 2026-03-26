@@ -100,7 +100,6 @@ pub struct NameToDef {
 
 pub struct Parser<'a> {
     error_mode: bool,
-    in_predicate: bool,
     pub tokens: Vec<Token>,
     tokens_consumed: usize,
     pub errors: Vec<Error>,
@@ -173,7 +172,6 @@ impl<'a> Parser<'a> {
     ) -> Self {
         Self {
             error_mode: false,
-            in_predicate: false,
             tokens: lexer.tokens.clone(),
             tokens_consumed: 0,
             errors: lexer.errors.clone(),
@@ -197,13 +195,12 @@ impl<'a> Parser<'a> {
         NodeId(self.nodes.len() - 1)
     }
 
-    fn peek_token(&self) -> Option<&Token> {
-        assert!(self.tokens_consumed <= self.tokens.len());
-        if self.tokens_consumed == self.tokens.len() {
-            None
-        } else {
-            Some(&self.tokens[self.tokens_consumed])
-        }
+    fn peek(&self) -> Option<&Token> {
+        self.tokens.get(self.tokens_consumed)
+    }
+
+    fn peek_peek(&self) -> Option<&Token> {
+        self.tokens.get(self.tokens_consumed + 1)
     }
 
     fn eat_token(&mut self) -> Option<&Token> {
@@ -218,10 +215,10 @@ impl<'a> Parser<'a> {
 
     // Used to avoid an avalanche of errors for the same line.
     fn skip_to_next_line(&mut self) {
-        let current_line = self.peek_token().map(|t| t.origin.line).unwrap_or(1);
+        let current_line = self.peek().map(|t| t.origin.line).unwrap_or(1);
 
         loop {
-            match self.peek_token() {
+            match self.peek() {
                 None => return,
                 Some(t) if t.kind == TokenKind::Eof || t.origin.line > current_line => {
                     self.tokens_consumed += 1;
@@ -247,7 +244,7 @@ impl<'a> Parser<'a> {
     }
 
     fn match_kind(&mut self, kind: TokenKind) -> Option<Token> {
-        match self.peek_token() {
+        match self.peek() {
             Some(t) if t.kind == kind => {
                 let res = Some(*t);
                 self.tokens_consumed += 1;
@@ -269,7 +266,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        match self.peek_token() {
+        match self.peek() {
             Some(
                 tok @ Token {
                     kind: TokenKind::Identifier,
@@ -334,7 +331,7 @@ impl<'a> Parser<'a> {
 
         let mut lhs = self.parse_multiplicative_expr()?;
         loop {
-            let op = match self.peek_token() {
+            let op = match self.peek() {
                 Some(
                     op @ Token {
                         kind: TokenKind::Plus | TokenKind::Minus,
@@ -382,14 +379,14 @@ impl<'a> Parser<'a> {
 
         let mut lhs = self.parse_cast_expr()?;
         loop {
-            let op = match self.peek_token() {
+            let op = match self.peek() {
                 // TODO: More.
                 Some(
                     op @ Token {
                         kind: TokenKind::Star | TokenKind::Slash,
                         ..
                     },
-                ) => *op,
+                ) if self.peek_peek().map(|t| t.kind) != Some(TokenKind::LeftCurly) => *op,
                 _ => {
                     break;
                 }
@@ -467,7 +464,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        match self.peek_token() {
+        match self.peek() {
             Some(
                 op @ Token {
                     kind: TokenKind::Plus | TokenKind::Minus | TokenKind::Bang,
@@ -832,7 +829,7 @@ impl<'a> Parser<'a> {
 
         let mut lhs = self.parse_relational_expr()?;
         loop {
-            let op = match self.peek_token() {
+            let op = match self.peek() {
                 Some(
                     op @ Token {
                         kind: TokenKind::EqEq | TokenKind::BangEq,
@@ -880,7 +877,7 @@ impl<'a> Parser<'a> {
 
         let mut lhs = self.parse_shift_expr()?;
         loop {
-            let op = match self.peek_token() {
+            let op = match self.peek() {
                 // TODO: Gte, Lte
                 Some(
                     op @ Token {
@@ -997,7 +994,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let tok = self.peek_token();
+        let tok = self.peek();
         let origin = tok.map(|t| t.origin).unwrap_or(Origin::new_unknown());
         self.eat_token().unwrap();
         let src = Self::str_from_source(self.input, &origin);
@@ -1024,10 +1021,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if matches!(
-            self.peek_token().map(|t| t.kind),
-            Some(TokenKind::LiteralNumber)
-        ) {
+        if matches!(self.peek().map(|t| t.kind), Some(TokenKind::LiteralNumber)) {
             return self.parse_literal_number();
         }
 
@@ -1075,10 +1069,7 @@ impl<'a> Parser<'a> {
         // In file mode, a predication or action MUST follow.
 
         let predicate = if let Some(_slash) = self.match_kind(TokenKind::Slash) {
-            self.in_predicate = true;
             let expr = self.parse_expr();
-            self.in_predicate = false;
-
             self.expect_token_one(TokenKind::Slash, "matching slash after predicate");
             expr
         } else {
@@ -1112,12 +1103,12 @@ impl<'a> Parser<'a> {
     }
 
     fn current_origin_for_err(&self) -> Origin {
-        let tok = self.peek_token();
+        let tok = self.peek();
         tok.map(|t| t.origin).unwrap_or(Origin::new_unknown())
     }
 
     fn current_token_kind_for_err(&self) -> TokenKind {
-        self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof)
+        self.peek().map(|t| t.kind).unwrap_or(TokenKind::Eof)
     }
 
     fn parse_probe_specifiers(&mut self) -> Option<NodeId> {
@@ -1162,7 +1153,7 @@ impl<'a> Parser<'a> {
     }
 
     fn is_at_end(&self) -> bool {
-        match self.peek_token() {
+        match self.peek() {
             Some(Token {
                 kind: TokenKind::Eof,
                 ..
@@ -1210,7 +1201,7 @@ impl<'a> Parser<'a> {
         assert!(!self.error_mode);
 
         for _i in 0..self.tokens.len() {
-            let token = match self.peek_token().map(|t| t.kind) {
+            let token = match self.peek().map(|t| t.kind) {
                 None | Some(TokenKind::Eof) => break,
                 Some(t) => t,
             };
