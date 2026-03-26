@@ -93,6 +93,15 @@ pub struct Token {
     pub origin: Origin,
 }
 
+impl Default for Token {
+    fn default() -> Self {
+        Self {
+            kind: TokenKind::Unknown,
+            origin: Origin::new_unknown(),
+        }
+    }
+}
+
 fn it_peek_peek(it: &Peekable<Chars<'_>>) -> Option<char> {
     let mut cpy = it.clone();
     cpy.next().and_then(|_| cpy.next())

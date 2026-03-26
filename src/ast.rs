@@ -33,6 +33,7 @@ pub enum NodeKind {
     Number(u64),
     Bool(bool),
     ProbeSpecifier(String),
+    ProbeDefinition(NodeId, Option<NodeId>, Vec<NodeId>),
     Add(NodeId, NodeId),
     Multiply(NodeId, NodeId),
     Divide(NodeId, NodeId),
@@ -869,6 +870,11 @@ impl<'a> Parser<'a> {
         None
     }
 
+    fn parse_statement_list(&mut self) -> Option<Vec<NodeId>> {
+        // TODO
+        None
+    }
+
     fn parse_probe_specifier_list(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
@@ -886,9 +892,45 @@ impl<'a> Parser<'a> {
             ));
             return None;
         };
-
         // TODO: More probe specifiers separated by commas.
-        Some(probe_specifier)
+
+        // In file mode, a predication or action MUST follow.
+
+        if let Some(lcurly) = self.match_kind(TokenKind::LeftCurly) {
+            let stmts = self.parse_statement_list().unwrap_or_default();
+
+            self.expect_token_one(
+                TokenKind::RightCurly,
+                "matching right curly bracket after action",
+            );
+            let node_id = self.new_node(Node {
+                kind: NodeKind::ProbeDefinition(probe_specifier, None, stmts),
+                origin: lcurly.origin,
+            });
+
+            return Some(node_id);
+        }
+
+        // TODO: Predicate.
+
+        self.add_error_with_explanation(
+            ErrorKind::MissingPredicateOrAction,
+            self.current_origin_for_err(),
+            format!(
+                "a predicate or action must follow a probe specifier in file mode, found: {:?}",
+                self.current_token_for_err()
+            ),
+        );
+        None
+    }
+
+    fn current_origin_for_err(&self) -> Origin {
+        let tok = self.peek_token();
+        tok.map(|t| t.origin).unwrap_or(Origin::new_unknown())
+    }
+
+    fn current_token_for_err(&self) -> Token {
+        self.peek_token().copied().unwrap_or_default()
     }
 
     fn parse_probe_specifiers(&mut self) -> Option<NodeId> {
@@ -1045,6 +1087,15 @@ impl<'a> Parser<'a> {
                 }
 
                 name_to_def.leave();
+            }
+            NodeKind::ProbeDefinition(probe, pred, actions) => {
+                Self::resolve_node(*probe, nodes, errors, name_to_def, file_id_to_name);
+                if let Some(pred) = pred {
+                    Self::resolve_node(*pred, nodes, errors, name_to_def, file_id_to_name);
+                }
+                for action in actions {
+                    Self::resolve_node(*action, nodes, errors, name_to_def, file_id_to_name);
+                }
             }
             // Nothing to do.
             NodeKind::Break
@@ -1233,6 +1284,16 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         NodeKind::Block(node_ids) | NodeKind::Arguments(node_ids) | NodeKind::File(node_ids) => {
             for id in node_ids {
                 log(nodes, *id, indent + 2);
+            }
+        }
+        NodeKind::ProbeDefinition(probe, pred, actions) => {
+            log(nodes, *probe, indent + 2);
+            if let Some(pred) = pred {
+                log(nodes, *pred, indent + 2);
+            }
+
+            for action in actions {
+                log(nodes, *action, indent + 2);
             }
         }
 

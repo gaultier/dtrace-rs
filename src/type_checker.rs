@@ -309,6 +309,16 @@ pub fn check_node(
                 check_node(*arg, nodes, errs, node_to_type, name_to_def);
             }
         }
+        NodeKind::ProbeDefinition(probe, pred, actions) => {
+            check_node(*probe, nodes, errs, node_to_type, name_to_def);
+            if let Some(pred) = pred {
+                check_node(*pred, nodes, errs, node_to_type, name_to_def);
+            }
+
+            for action in actions {
+                check_node(*action, nodes, errs, node_to_type, name_to_def);
+            }
+        }
         NodeKind::Assignment(lhs, op, rhs) => {
             check_node(*lhs, nodes, errs, node_to_type, name_to_def);
             check_node(*rhs, nodes, errs, node_to_type, name_to_def);
