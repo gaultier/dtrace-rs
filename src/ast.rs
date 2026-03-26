@@ -896,6 +896,15 @@ impl<'a> Parser<'a> {
 
         // In file mode, a predication or action MUST follow.
 
+        let predicate = if let Some(_slash) = self.match_kind(TokenKind::Slash) {
+            let expr = self.parse_expr();
+
+            self.expect_token_one(TokenKind::Slash, "matching slash after predicate");
+            expr
+        } else {
+            None
+        };
+
         if let Some(lcurly) = self.match_kind(TokenKind::LeftCurly) {
             let stmts = self.parse_statement_list().unwrap_or_default();
 
@@ -904,14 +913,12 @@ impl<'a> Parser<'a> {
                 "matching right curly bracket after action",
             );
             let node_id = self.new_node(Node {
-                kind: NodeKind::ProbeDefinition(probe_specifier, None, stmts),
+                kind: NodeKind::ProbeDefinition(probe_specifier, predicate, stmts),
                 origin: lcurly.origin,
             });
 
             return Some(node_id);
         }
-
-        // TODO: Predicate.
 
         self.add_error_with_explanation(
             ErrorKind::MissingPredicateOrAction,
