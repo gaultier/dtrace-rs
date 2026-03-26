@@ -5,6 +5,7 @@ use serde::Serialize;
 use crate::{
     ast::{NameToDef, Node, NodeId, NodeKind},
     error::Error,
+    lex::TokenKind,
     origin::{Origin, OriginKind},
 };
 
@@ -140,12 +141,12 @@ pub fn check_node(
 ) {
     let node = &nodes[node_id];
     match &node.kind {
+        NodeKind::Unknown => {}
         NodeKind::File(decls) => {
             for decl in decls {
                 check_node(*decl, nodes, errs, node_to_type, name_to_def);
             }
         }
-        NodeKind::Break => {}
         NodeKind::VarDecl(_identifier, expr) => {
             check_node(*expr, nodes, errs, node_to_type, name_to_def);
 
@@ -255,7 +256,7 @@ pub fn check_node(
 
             node_to_type.insert(node_id, ret_type);
         }
-        NodeKind::Add(lhs, rhs) | NodeKind::Multiply(lhs, rhs) | NodeKind::Divide(lhs, rhs) => {
+        NodeKind::BinaryOp(lhs, TokenKind::Plus | TokenKind::Star | TokenKind::Slash, rhs) => {
             check_node(*lhs, nodes, errs, node_to_type, name_to_def);
             check_node(*rhs, nodes, errs, node_to_type, name_to_def);
 
@@ -273,7 +274,7 @@ pub fn check_node(
                 }
             }
         }
-        NodeKind::Cmp(lhs, rhs) => {
+        NodeKind::BinaryOp(lhs, TokenKind::EqEq, rhs) => {
             check_node(*lhs, nodes, errs, node_to_type, name_to_def);
             check_node(*rhs, nodes, errs, node_to_type, name_to_def);
 
@@ -284,6 +285,9 @@ pub fn check_node(
                 errs.push(err);
             }
             node_to_type.insert(node_id, Type::new_bool());
+        }
+        NodeKind::BinaryOp(_lhs, _, _rhs) => {
+            unreachable!()
         }
         NodeKind::If {
             cond,

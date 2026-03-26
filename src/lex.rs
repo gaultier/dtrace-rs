@@ -22,6 +22,10 @@ pub enum TokenKind {
     LiteralBool,
     Identifier,
     ProbeSpecifier,
+    CaretCaret,
+    AmpersandAmpersand,
+    Pipe,
+    PipePipe,
     Plus,
     Star,
     Slash,
@@ -419,6 +423,53 @@ impl Lexer {
                     };
                     self.tokens.push(Token {
                         kind: TokenKind::Lt,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                }
+                '^' if it_peek_peek(&it) == Some('^') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::CaretCaret,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
+                '&' if it_peek_peek(&it) == Some('&') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::AmpersandAmpersand,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
+                '|' if it_peek_peek(&it) == Some('|') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::PipePipe,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
+                '|' => {
+                    let origin = Origin {
+                        len: 1,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::Pipe,
                         origin,
                     });
                     self.advance(c, &mut it);
