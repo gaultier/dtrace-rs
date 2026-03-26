@@ -581,7 +581,7 @@ impl<'a> Parser<'a> {
                     origin: token.origin,
                 }))
             }
-            _ => self.parse_call_expr(),
+            _ => self.parse_primary_expr(),
         }
     }
 
