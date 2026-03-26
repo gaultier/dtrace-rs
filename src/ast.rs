@@ -460,67 +460,121 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_bin_expr_cmp(&mut self) -> Option<NodeId> {
-        self.parse_bin_expr_add()
+        self.parse_additive_expr()
     }
 
-    fn parse_bin_expr_add(&mut self) -> Option<NodeId> {
-        let lhs = self.parse_bin_expr_mul()?;
+    //additive_expression     → multiplicative_expression
+    //                        | additive_expression "+" multiplicative_expression
+    //                        | additive_expression "-" multiplicative_expression ;
+    fn parse_additive_expr(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
 
-        match self.peek_token().map(|t| t.kind) {
-            Some(TokenKind::Plus) => {
-                let op = *self.eat_token().unwrap();
-                let rhs = self.parse_bin_expr_add().or_else(|| {
-                    let found = self.current_token_kind_for_err();
-                    self.errors.push(Error::new(
-                        ErrorKind::MissingExpr,
+        let mut lhs = self.parse_multiplicative_expr()?;
+        loop {
+            let op = match self.peek_token().map(|t| t.kind) {
+                Some(TokenKind::Plus | TokenKind::Minus) => op,
+                _ => {
+                    break;
+                }
+            };
+            let rhs = match self.parse_multiplicative_expr() {
+                None => {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
                         op.origin,
                         format!(
-                            "expected expression after {:?} but found: {:?}",
-                            op.kind, found
+                            "expected multiplicative expression, found: {:?}",
+                            self.current_token_kind_for_err()
                         ),
-                    ));
-                    None
-                })?;
-
-                Some(self.new_node(Node {
-                    kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
-                    origin: op.origin,
-                }))
-            }
-            _ => Some(lhs),
+                    );
+                    self.new_node_unknown()
+                }
+                Some(x) => x,
+            };
+            lhs = self.new_node(Node {
+                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                origin: op.origin,
+            });
         }
+
+        Some(lhs)
     }
 
-    fn parse_bin_expr_mul(&mut self) -> Option<NodeId> {
-        let lhs = self.parse_unary_expr()?;
+    //multiplicative_expression
+    //                        → cast_expression
+    //                        | multiplicative_expression "*" cast_expression
+    //                        | multiplicative_expression "/" cast_expression
+    //                        | multiplicative_expression "%" cast_expression ;
+    fn parse_multiplicative_expr(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
 
-        match self.peek_token().map(|t| t.kind) {
-            Some(TokenKind::Star) | Some(TokenKind::Slash) if !self.in_predicate => {
-                let op = *self.eat_token().unwrap();
-                let rhs = self.parse_bin_expr_mul().or_else(|| {
-                    let found = self.current_token_kind_for_err();
-                    self.errors.push(Error::new(
-                        ErrorKind::MissingExpr,
+        let mut lhs = self.parse_cast_expr()?;
+        loop {
+            let op = match self.peek_token().map(|t| t.kind) {
+                // TODO: More.
+                Some(TokenKind::Star | TokenKind::Slash) => op,
+                _ => {
+                    break;
+                }
+            };
+            let rhs = match self.parse_cast_expr() {
+                None => {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
                         op.origin,
                         format!(
-                            "expected expression after {:?} but found: {:?}",
-                            op.kind, found
+                            "expected cast expression, found: {:?}",
+                            self.current_token_kind_for_err()
                         ),
-                    ));
-                    None
-                })?;
-
-                Some(self.new_node(Node {
-                    kind: if op.kind == TokenKind::Star {
-                        NodeKind::BinaryOp(lhs, op.kind, rhs)
-                    } else {
-                        NodeKind::BinaryOp(lhs, op.kind, rhs)
-                    },
-                    origin: op.origin,
-                }))
-            }
-            _ => Some(lhs),
+                    );
+                    self.new_node_unknown()
+                }
+                Some(x) => x,
+            };
+            lhs = self.new_node(Node {
+                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                origin: op.origin,
+            });
         }
+
+        Some(lhs)
+    }
+
+    //cast_expression         → unary_expression
+    //                        | "(" type_name ")" cast_expression ;
+    fn parse_cast_expr(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let mut lhs = self.parse_unary_expr()?;
+        while let Some(op) = self.match_kind(TokenKind::LeftParen) {
+            let rhs = match self.parse_unary_expr() {
+                None => {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
+                        op.origin,
+                        format!(
+                            "expected unary expression, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                }
+                Some(x) => x,
+            };
+            self.expect_token_one(TokenKind::RightParen, "closing cast right parenthesis");
+            lhs = self.new_node(Node {
+                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                origin: op.origin,
+            });
+        }
+
+        Some(lhs)
     }
 
     //expression              → assignment_expression ( "," assignment_expression )* ;
@@ -688,7 +742,9 @@ impl<'a> Parser<'a> {
         if self.error_mode {
             return None;
         }
-        todo!()
+
+        // TODO: unary_expr...
+        self.parse_conditional_expr()
     }
 
     //conditional_expression  → logical_or_expression
@@ -714,8 +770,72 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let lhs = self.parse_logical_xor_expr()?;
-        if let Some(op) = self.match_kind(TokenKind::PipePipe) {
+        let mut lhs = self.parse_logical_xor_expr()?;
+        while let Some(op) = self.match_kind(TokenKind::PipePipe) {
+            let rhs = match self.parse_logical_xor_expr() {
+                None => {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
+                        op.origin,
+                        format!(
+                            "expected logical xor expression, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                }
+                Some(x) => x,
+            };
+            lhs = self.new_node(Node {
+                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                origin: op.origin,
+            });
+        }
+
+        Some(lhs)
+    }
+
+    //logical_xor_expression  → logical_and_expression
+    //                        | logical_xor_expression "^^" logical_and_expression ;
+    fn parse_logical_xor_expr(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let mut lhs = self.parse_logical_and_expr()?;
+        while let Some(op) = self.match_kind(TokenKind::CaretCaret) {
+            let rhs = match self.parse_logical_and_expr() {
+                None => {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
+                        op.origin,
+                        format!(
+                            "expected logical and expression, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                }
+                Some(x) => x,
+            };
+            lhs = self.new_node(Node {
+                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                origin: op.origin,
+            });
+        }
+
+        Some(lhs)
+    }
+
+    //logical_and_expression  → inclusive_or_expression
+    //                        | logical_and_expression "&&" inclusive_or_expression ;
+    fn parse_logical_and_expr(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let mut lhs = self.parse_logical_or_expr()?;
+        while let Some(op) = self.match_kind(TokenKind::AmpersandAmpersand) {
             let rhs = match self.parse_logical_or_expr() {
                 None => {
                     self.add_error_with_explanation(
@@ -730,43 +850,13 @@ impl<'a> Parser<'a> {
                 }
                 Some(x) => x,
             };
-            return Some(self.new_node(Node {
+            lhs = self.new_node(Node {
                 kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
                 origin: op.origin,
-            }));
+            });
         }
 
         Some(lhs)
-    }
-
-    //logical_xor_expression  → logical_and_expression
-    //                        | logical_xor_expression "^^" logical_and_expression ;
-    fn parse_logical_xor_expr(&mut self) -> Option<NodeId> {
-        if self.error_mode {
-            return None;
-        }
-
-        match self.peek_token()?.kind {
-            TokenKind::CaretCaret => {
-                todo!()
-            }
-            _ => self.parse_logical_and_expr(),
-        }
-    }
-
-    //logical_and_expression  → inclusive_or_expression
-    //                        | logical_and_expression "&&" inclusive_or_expression ;
-    fn parse_logical_and_expr(&mut self) -> Option<NodeId> {
-        if self.error_mode {
-            return None;
-        }
-
-        match self.peek_token()?.kind {
-            TokenKind::AmpersandAmpersand => {
-                todo!()
-            }
-            _ => self.parse_inclusive_or_expr(),
-        }
     }
 
     //inclusive_or_expression → exclusive_or_expression
@@ -776,12 +866,189 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        match self.peek_token()?.kind {
-            TokenKind::Pipe => {
-                todo!()
-            }
-            _ => self.parse_logical_and_expr(),
+        let mut lhs = self.parse_exclusive_or_expr()?;
+        while let Some(op) = self.match_kind(TokenKind::Pipe) {
+            let rhs = match self.parse_exclusive_or_expr() {
+                None => {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
+                        op.origin,
+                        format!(
+                            "expected exclusive or expression, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                }
+                Some(x) => x,
+            };
+            lhs = self.new_node(Node {
+                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                origin: op.origin,
+            });
         }
+
+        Some(lhs)
+    }
+
+    //exclusive_or_expression → and_expression
+    //                        | exclusive_or_expression "^" and_expression ;
+    fn parse_exclusive_or_expr(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let mut lhs = self.parse_and_expr()?;
+        while let Some(op) = self.match_kind(TokenKind::Caret) {
+            let rhs = match self.parse_and_expr() {
+                None => {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
+                        op.origin,
+                        format!(
+                            "expected logical or expression, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                }
+                Some(x) => x,
+            };
+            lhs = self.new_node(Node {
+                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                origin: op.origin,
+            });
+        }
+
+        Some(lhs)
+    }
+
+    //and_expression          → equality_expression
+    //                        | and_expression "&" equality_expression ;
+    fn parse_and_expr(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let mut lhs = self.parse_equality_expr()?;
+        while let Some(op) = self.match_kind(TokenKind::Ampersand) {
+            let rhs = match self.parse_equality_expr() {
+                None => {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
+                        op.origin,
+                        format!(
+                            "expected equality expression, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                }
+                Some(x) => x,
+            };
+            lhs = self.new_node(Node {
+                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                origin: op.origin,
+            });
+        }
+
+        Some(lhs)
+    }
+
+    //equality_expression     → relational_expression
+    //                        | equality_expression "==" relational_expression
+    //                        | equality_expression "!=" relational_expression ;
+    fn parse_equality_expr(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let mut lhs = self.parse_relational_expr()?;
+        loop {
+            let op = match self.peek_token().map(|t| t.kind) {
+                Some(TokenKind::EqEq | TokenKind::BangEq) => op,
+                _ => {
+                    break;
+                }
+            };
+
+            let rhs = match self.parse_relational_expr() {
+                None => {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
+                        op.origin,
+                        format!(
+                            "expected equality expression, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                }
+                Some(x) => x,
+            };
+            lhs = self.new_node(Node {
+                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                origin: op.origin,
+            });
+        }
+
+        Some(lhs)
+    }
+
+    //relational_expression   → shift_expression
+    //                        | relational_expression "<"  shift_expression
+    //                        | relational_expression ">"  shift_expression
+    //                        | relational_expression "<=" shift_expression
+    //                        | relational_expression ">=" shift_expression ;
+    fn parse_relational_expr(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let mut lhs = self.parse_shift_expr()?;
+        loop {
+            let op = match self.peek_token().map(|t| t.kind) {
+                // TODO: Gte, Lte
+                Some(TokenKind::Gt | TokenKind::Lt) => op,
+                _ => {
+                    break;
+                }
+            };
+
+            let rhs = match self.parse_shift_expr() {
+                None => {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
+                        op.origin,
+                        format!(
+                            "expected equality expression, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                }
+                Some(x) => x,
+            };
+            lhs = self.new_node(Node {
+                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                origin: op.origin,
+            });
+        }
+
+        Some(lhs)
+    }
+
+    //shift_expression        → additive_expression
+    //                        | shift_expression "<<" additive_expression
+    //                        | shift_expression ">>" additive_expression ;
+    fn parse_shift_expr(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        // TODO: Shift operators.
+
+        self.parse_additive_expr()
     }
 
     // SimpleStmt = EmptyStmt | ExpressionStmt | SendStmt | IncDecStmt | Assignment | ShortVarDecl .
