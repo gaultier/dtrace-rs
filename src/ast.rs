@@ -34,6 +34,7 @@ pub enum NodeKind {
     Number(u64),
     Bool(bool),
     PrimaryToken(TokenKind),
+    Cast(String, NodeId),
     ProbeSpecifier(String),
     ProbeDefinition(NodeId, Option<NodeId>, Vec<NodeId>),
     BinaryOp(NodeId, TokenKind, NodeId),
@@ -274,12 +275,17 @@ impl<'a> Parser<'a> {
                     kind: TokenKind::Identifier,
                     ..
                 },
-            ) => Some(self.new_node(Node {
-                kind: NodeKind::Identifier(
-                    Self::str_from_source(self.input, &tok.origin).to_owned(),
-                ),
-                origin: tok.origin,
-            })),
+            ) => {
+                let origin = tok.origin;
+                self.eat_token();
+
+                Some(self.new_node(Node {
+                    kind: NodeKind::Identifier(
+                        Self::str_from_source(self.input, &origin).to_owned(),
+                    ),
+                    origin,
+                }))
+            }
             Some(Token {
                 kind: TokenKind::LiteralNumber,
                 ..
@@ -289,10 +295,16 @@ impl<'a> Parser<'a> {
                     kind: TokenKind::LiteralString | TokenKind::KeywordSelf | TokenKind::KeywordThis,
                     ..
                 },
-            ) => Some(self.new_node(Node {
-                kind: NodeKind::PrimaryToken(tok.kind),
-                origin: tok.origin,
-            })),
+            ) => {
+                let origin = tok.origin;
+                let kind = tok.kind;
+                self.eat_token();
+
+                Some(self.new_node(Node {
+                    kind: NodeKind::PrimaryToken(kind),
+                    origin,
+                }))
+            }
             Some(Token {
                 kind: TokenKind::LeftParen,
                 ..
@@ -412,6 +424,13 @@ impl<'a> Parser<'a> {
 
         let mut lhs = self.parse_unary_expr()?;
         while let Some(op) = self.match_kind(TokenKind::LeftParen) {
+            let typ = self.expect_token_one(TokenKind::Identifier, "type in cast");
+            let typ_str = if let Some(typ) = typ {
+                Self::str_from_source(self.input, &typ.origin).to_owned()
+            } else {
+                String::new()
+            };
+            self.expect_token_one(TokenKind::RightParen, "closing cast right parenthesis");
             let rhs = match self.parse_unary_expr() {
                 None => {
                     self.add_error_with_explanation(
@@ -426,9 +445,8 @@ impl<'a> Parser<'a> {
                 }
                 Some(x) => x,
             };
-            self.expect_token_one(TokenKind::RightParen, "closing cast right parenthesis");
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                kind: NodeKind::Cast(typ_str, rhs),
                 origin: op.origin,
             });
         }
@@ -928,7 +946,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if let Some(t) = self.match_kind(TokenKind::SemiColon) {
+        if let Some(_) = self.match_kind(TokenKind::SemiColon) {
             return None;
         }
 
@@ -1419,6 +1437,9 @@ impl<'a> Parser<'a> {
             }
             NodeKind::Unknown => {}
             NodeKind::PrimaryToken(_) => {}
+            NodeKind::Cast(_, node_id) => {
+                Self::resolve_node(*node_id, nodes, errors, name_to_def, file_id_to_name);
+            }
         }
     }
 
@@ -1508,6 +1529,9 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
             }
         }
         NodeKind::PrimaryToken(_) => {}
+        NodeKind::Cast(_, node_id) => {
+            log(nodes, *node_id, indent + 2);
+        }
     }
 }
 
