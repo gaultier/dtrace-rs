@@ -101,6 +101,7 @@ pub struct NameToDef {
 
 pub struct Parser<'a> {
     error_mode: bool,
+    in_predicate: bool,
     pub tokens: Vec<Token>,
     tokens_consumed: usize,
     pub errors: Vec<Error>,
@@ -173,6 +174,7 @@ impl<'a> Parser<'a> {
     ) -> Self {
         Self {
             error_mode: false,
+            in_predicate: false,
             tokens: lexer.tokens.clone(),
             tokens_consumed: 0,
             errors: lexer.errors.clone(),
@@ -489,7 +491,7 @@ impl<'a> Parser<'a> {
         let lhs = self.parse_unary_expr()?;
 
         match self.peek_token().map(|t| t.kind) {
-            Some(TokenKind::Star | TokenKind::Slash) => {
+            Some(TokenKind::Star) | Some(TokenKind::Slash) if !self.in_predicate => {
                 let op = *self.eat_token().unwrap();
                 let rhs = self.parse_bin_expr_mul().or_else(|| {
                     let found = self.peek_token().map(|t| t.kind).unwrap_or(TokenKind::Eof);
@@ -897,7 +899,9 @@ impl<'a> Parser<'a> {
         // In file mode, a predication or action MUST follow.
 
         let predicate = if let Some(_slash) = self.match_kind(TokenKind::Slash) {
+            self.in_predicate = true;
             let expr = self.parse_expr();
+            self.in_predicate = false;
 
             self.expect_token_one(TokenKind::Slash, "matching slash after predicate");
             expr
