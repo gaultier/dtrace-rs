@@ -460,10 +460,10 @@ impl<'a> Parser<'a> {
                     None => self.new_node_unknown(),
                     Some(n) => n,
                 };
-                return Some(self.new_node(Node {
+                Some(self.new_node(Node {
                     kind: NodeKind::Unary(op.kind, node),
                     origin: op.origin,
-                }));
+                }))
             }
             // TODO: More operators.
             _ => self.parse_postfix_expr(),
