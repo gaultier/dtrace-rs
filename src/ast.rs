@@ -271,12 +271,22 @@ impl<'a> Parser<'a> {
         match self.peek_token() {
             Some(
                 tok @ Token {
-                    kind:
-                        TokenKind::Identifier
-                        | TokenKind::LiteralNumber
-                        | TokenKind::LiteralString
-                        | TokenKind::KeywordSelf
-                        | TokenKind::KeywordThis,
+                    kind: TokenKind::Identifier,
+                    ..
+                },
+            ) => Some(self.new_node(Node {
+                kind: NodeKind::Identifier(
+                    Self::str_from_source(self.input, &tok.origin).to_owned(),
+                ),
+                origin: tok.origin,
+            })),
+            Some(Token {
+                kind: TokenKind::LiteralNumber,
+                ..
+            }) => self.parse_literal_number(),
+            Some(
+                tok @ Token {
+                    kind: TokenKind::LiteralString | TokenKind::KeywordSelf | TokenKind::KeywordThis,
                     ..
                 },
             ) => Some(self.new_node(Node {
