@@ -196,48 +196,6 @@ impl<'a> Parser<'a> {
         NodeId(self.nodes.len() - 1)
     }
 
-    pub(crate) fn builtins(&mut self) {
-        assert!(self.nodes.is_empty());
-
-        let origin = Origin::new_builtin();
-
-        let root = self.new_node(Node {
-            kind: NodeKind::File(Vec::new()),
-            origin,
-        });
-        self.name_to_def.enter();
-
-        let any = self.new_node(Node {
-            kind: NodeKind::Identifier(String::from("any")),
-            origin,
-        });
-        self.name_to_def.insert(String::from("any"), any);
-        self.node_to_type.insert(any, Type::new_any());
-
-        let body = self.new_node(Node {
-            kind: NodeKind::Block(Vec::new()),
-            origin,
-        });
-
-        let println = self.new_node(Node {
-            kind: NodeKind::FnDef(FnDef {
-                name: String::from("println"),
-                args: vec![any],
-                ret: None,
-                body,
-            }),
-            origin,
-        });
-        let println_type = Type::new_function(
-            &Type::new_void(),
-            &[Type::new_any()],
-            &Origin::new_builtin(),
-        );
-        self.nodes[root].kind.as_file_mut().unwrap().push(println);
-        self.name_to_def.insert(String::from("println"), println);
-        self.node_to_type.insert(println, println_type);
-    }
-
     fn peek_token(&self) -> Option<&Token> {
         assert!(self.tokens_consumed <= self.tokens.len());
         if self.tokens_consumed == self.tokens.len() {
@@ -298,93 +256,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Operand     = Literal | OperandName [ TypeArgs ] | "(" Expression ")" .
-    // Literal     = BasicLit | CompositeLit | FunctionLit .
-    // BasicLit    = int_lit | float_lit | imaginary_lit | rune_lit | string_lit .
-    // OperandName = identifier | QualifiedIdent .
-    fn parse_operand(&mut self) -> Option<NodeId> {
-        if self.error_mode {
-            return None;
-        }
-
-        let tok = self.peek_token();
-        let origin = tok.map(|t| t.origin).unwrap_or(Origin::new_unknown());
-        match tok.map(|t| t.kind) {
-            Some(TokenKind::LeftParen) => {
-                self.eat_token().unwrap();
-                let e = self.parse_expr().or_else(|| {
-                    let found = self.current_token_kind_for_err();
-                    self.errors.push(Error::new(
-                        ErrorKind::MissingExpr,
-                        origin,
-                        format!("expected expression after '(' but found: {:?}", found),
-                    ));
-                    None
-                })?;
-                self.expect_token_one(TokenKind::RightParen, "parenthesized operand");
-                Some(e)
-            }
-            Some(TokenKind::Identifier) => {
-                self.eat_token().unwrap();
-                Some(self.new_node(Node {
-                    kind: NodeKind::Identifier(
-                        Self::str_from_source(self.input, &origin).to_owned(),
-                    ),
-                    origin,
-                }))
-            }
-            Some(TokenKind::LiteralNumber) => {
-                self.eat_token().unwrap();
-                let src = Self::str_from_source(self.input, &origin);
-                let num: u64 = str::parse(src)
-                    .map_err(|err: ParseIntError| {
-                        self.add_error_with_explanation(
-                            ErrorKind::InvalidLiteralNumber,
-                            origin,
-                            err.to_string(),
-                        );
-                    })
-                    .ok()?;
-
-                let node_id = self.new_node(Node {
-                    kind: NodeKind::Number(num),
-                    origin,
-                });
-                self.node_to_type.insert(node_id, Type::new_int());
-                Some(node_id)
-            }
-            Some(TokenKind::LiteralBool) => {
-                self.eat_token().unwrap();
-                let src = Self::str_from_source(self.input, &origin);
-
-                assert!(src == "true" || src == "false");
-
-                let node_id = self.new_node(Node {
-                    kind: NodeKind::Bool(src == "true"),
-                    origin,
-                });
-                self.node_to_type.insert(node_id, Type::new_bool());
-                Some(node_id)
-            }
-            _ => None,
-        }
-    }
-
-    // Arguments     = "(" [ ( ExpressionList | Type [ "," ExpressionList ] ) [ "..." ] [ "," ] ] ")" .
-    fn parse_arguments(&mut self) -> Option<NodeId> {
-        // TODO: ExpressionList.
-
-        let lparen = self.match_kind(TokenKind::LeftParen)?;
-        // TODO: Multiple arguments
-        let e = self.parse_expr();
-        let args = if let Some(e) = e { vec![e] } else { Vec::new() };
-        let _rparen = self.expect_token_one(TokenKind::RightParen, "arguments");
-        Some(self.new_node(Node {
-            kind: NodeKind::Arguments(args),
-            origin: lparen.origin,
-        }))
-    }
-
     //primary_expression      → IDENT
     //                        | AGG
     //                        | INT
@@ -412,12 +283,10 @@ impl<'a> Parser<'a> {
                 kind: NodeKind::PrimaryToken(tok.kind),
                 origin: tok.origin,
             })),
-            Some(
-                ltok @ Token {
-                    kind: TokenKind::LeftParen,
-                    ..
-                },
-            ) => {
+            Some(Token {
+                kind: TokenKind::LeftParen,
+                ..
+            }) => {
                 let lparen = self.match_kind(TokenKind::LeftParen)?;
                 let e = self.parse_expr().unwrap_or_else(|| self.new_node_unknown());
                 let _ = self.expect_token_one(
@@ -566,26 +435,6 @@ impl<'a> Parser<'a> {
         self.parse_assignment_expr()
     }
 
-    fn parse_call_expr(&mut self) -> Option<NodeId> {
-        let prim = self.parse_primary_expr()?;
-
-        let tok = self.peek_token();
-        if let Some(Token {
-            kind: TokenKind::LeftParen,
-            ..
-        }) = tok
-        {
-            let origin = tok.unwrap().origin;
-            let args = self.parse_arguments()?;
-            Some(self.new_node(Node {
-                kind: NodeKind::FnCall { callee: prim, args },
-                origin,
-            }))
-        } else {
-            Some(prim)
-        }
-    }
-
     //unary_expression        → postfix_expression
     //                        | "++" unary_expression
     //                        | "--" unary_expression
@@ -617,9 +466,7 @@ impl<'a> Parser<'a> {
                 }));
             }
             // TODO: More operators.
-            _ => {
-                self.parse_postfix_expr()
-            }
+            _ => self.parse_postfix_expr(),
         }
     }
 
@@ -638,106 +485,101 @@ impl<'a> Parser<'a> {
         self.parse_primary_expr()
     }
 
-    // Block         = "{" StatementList "}" .
-    // StatementList = { Statement ";" } .
-    fn parse_block(&mut self) -> Option<NodeId> {
-        let left_curly = self.match_kind(TokenKind::LeftCurly)?;
+    //fn parse_block(&mut self) -> Option<NodeId> {
+    //    let left_curly = self.match_kind(TokenKind::LeftCurly)?;
+    //
+    //    let mut stmts = Vec::new();
+    //
+    //    for _ in 0..self.remaining_tokens_count() {
+    //        match self.peek_token().map(|t| t.kind) {
+    //            None | Some(TokenKind::Eof) | Some(TokenKind::RightCurly) => break,
+    //            _ => {}
+    //        }
+    //
+    //        let stmt = self.parse_statement()?;
+    //        stmts.push(stmt);
+    //    }
+    //    self.expect_token_one(TokenKind::RightCurly, "block")?;
+    //
+    //    Some(self.new_node(Node {
+    //        kind: NodeKind::Block(stmts),
+    //        origin: left_curly.origin,
+    //    }))
+    //}
 
-        let mut stmts = Vec::new();
+    //fn parse_statement_if(&mut self) -> Option<NodeId> {
+    //    if self.error_mode {
+    //        return None;
+    //    }
+    //
+    //    let keyword_if = self.match_kind(TokenKind::KeywordIf)?;
+    //    let cond = self.parse_expr()?;
+    //
+    //    let then_block = if let Some(b) = self.parse_block() {
+    //        b
+    //    } else {
+    //        let found = self.current_token_kind_for_err();
+    //        self.add_error_with_explanation(
+    //            ErrorKind::MissingExpectedToken(TokenKind::LeftCurly),
+    //            keyword_if.origin,
+    //            format!("expect block following if(cond), found: {:?}", found),
+    //        );
+    //
+    //        return None;
+    //    };
+    //
+    //    let else_block = if self.match_kind(TokenKind::KeywordElse).is_some() {
+    //        let block = self.parse_block().or_else(|| {
+    //            let found = self.current_token_kind_for_err();
+    //            self.add_error_with_explanation(
+    //                ErrorKind::MissingExpectedToken(TokenKind::LeftCurly),
+    //                keyword_if.origin,
+    //                format!("expect block following else, found: {:?}", found),
+    //            );
+    //
+    //            None
+    //        })?;
+    //
+    //        Some(block)
+    //    } else {
+    //        None
+    //    };
+    //
+    //    Some(self.new_node(Node {
+    //        kind: NodeKind::If {
+    //            cond,
+    //            then_block,
+    //            else_block,
+    //        },
+    //        origin: keyword_if.origin,
+    //    }))
+    //}
 
-        for _ in 0..self.remaining_tokens_count() {
-            match self.peek_token().map(|t| t.kind) {
-                None | Some(TokenKind::Eof) | Some(TokenKind::RightCurly) => break,
-                _ => {}
-            }
-
-            let stmt = self.parse_statement()?;
-            stmts.push(stmt);
-        }
-        self.expect_token_one(TokenKind::RightCurly, "block")?;
-
-        Some(self.new_node(Node {
-            kind: NodeKind::Block(stmts),
-            origin: left_curly.origin,
-        }))
-    }
-
-    // IfStmt = "if" [ SimpleStmt ";" ] Expression Block [ "else" ( IfStmt | Block ) ] .
-    fn parse_statement_if(&mut self) -> Option<NodeId> {
-        if self.error_mode {
-            return None;
-        }
-
-        let keyword_if = self.match_kind(TokenKind::KeywordIf)?;
-        let cond = self.parse_expr()?;
-
-        let then_block = if let Some(b) = self.parse_block() {
-            b
-        } else {
-            let found = self.current_token_kind_for_err();
-            self.add_error_with_explanation(
-                ErrorKind::MissingExpectedToken(TokenKind::LeftCurly),
-                keyword_if.origin,
-                format!("expect block following if(cond), found: {:?}", found),
-            );
-
-            return None;
-        };
-
-        let else_block = if self.match_kind(TokenKind::KeywordElse).is_some() {
-            let block = self.parse_block().or_else(|| {
-                let found = self.current_token_kind_for_err();
-                self.add_error_with_explanation(
-                    ErrorKind::MissingExpectedToken(TokenKind::LeftCurly),
-                    keyword_if.origin,
-                    format!("expect block following else, found: {:?}", found),
-                );
-
-                None
-            })?;
-
-            Some(block)
-        } else {
-            None
-        };
-
-        Some(self.new_node(Node {
-            kind: NodeKind::If {
-                cond,
-                then_block,
-                else_block,
-            },
-            origin: keyword_if.origin,
-        }))
-    }
-
-    // VarDecl = "var" ( VarSpec | "(" { VarSpec ";" } ")" ) .
-    // VarSpec = IdentifierList ( Type [ "=" ExpressionList ] | "=" ExpressionList ) .
-    fn parse_statement_var_decl(&mut self) -> Option<NodeId> {
-        let identifier = self.expect_token_one(TokenKind::Identifier, "var declaration")?;
-        let eq = self.expect_token_one(TokenKind::Eq, "var declaration")?;
-        let expr = if let Some(expr) = self.parse_expr() {
-            expr
-        } else {
-            let found = self.current_token_kind_for_err();
-            self.add_error_with_explanation(
-                ErrorKind::MissingExpr,
-                eq.origin,
-                format!(
-                    "expected expression in variable declaration following '=' but found: {:?}",
-                    found
-                ),
-            );
-            return None;
-        };
-
-        let identifier_str = Self::str_from_source(self.input, &identifier.origin);
-
-        Some(self.new_node(Node {
-            kind: NodeKind::VarDecl(identifier_str.to_owned(), expr),
-            origin: identifier.origin,
-        }))
-    }
+    //fn parse_statement_var_decl(&mut self) -> Option<NodeId> {
+    //    let identifier = self.expect_token_one(TokenKind::Identifier, "var declaration")?;
+    //    let eq = self.expect_token_one(TokenKind::Eq, "var declaration")?;
+    //    let expr = if let Some(expr) = self.parse_expr() {
+    //        expr
+    //    } else {
+    //        let found = self.current_token_kind_for_err();
+    //        self.add_error_with_explanation(
+    //            ErrorKind::MissingExpr,
+    //            eq.origin,
+    //            format!(
+    //                "expected expression in variable declaration following '=' but found: {:?}",
+    //                found
+    //            ),
+    //        );
+    //        return None;
+    //    };
+    //
+    //    let identifier_str = Self::str_from_source(self.input, &identifier.origin);
+    //
+    //    Some(self.new_node(Node {
+    //        kind: NodeKind::VarDecl(identifier_str.to_owned(), expr),
+    //        origin: identifier.origin,
+    //    }))
+    //}
 
     //assignment_expression   → conditional_expression
     //                        | unary_expression assignment_operator
@@ -1065,17 +907,27 @@ impl<'a> Parser<'a> {
         self.parse_additive_expr()
     }
 
-    // Statement  = Declaration | LabeledStmt | SimpleStmt |
-    //              GoStmt | ReturnStmt | BreakStmt | ContinueStmt | GotoStmt |
-    //              FallthroughStmt | Block | IfStmt | SwitchStmt | SelectStmt | ForStmt |
-    //              DeferStmt .
+    //statement               → ";"
+    //                        | expression ";"
+    //                        | "if" "(" expression ")" statement_or_block
+    //                        | "if" "(" expression ")" statement_or_block
+    //                          "else" statement_or_block ;
+
     fn parse_statement(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
+
+        if let Some(t) = self.match_kind(TokenKind::SemiColon) {
+            return None;
+        }
+
         // TODO
 
-        None
+        let e = self.parse_expr();
+        self.match_kind(TokenKind::SemiColon);
+
+        e
     }
 
     // Best effort to find the closest token when doing error reporting.
