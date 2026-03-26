@@ -21,6 +21,7 @@ pub enum TokenKind {
     LiteralCharacter,
     LiteralBool,
     Identifier,
+    ProbeSpecifier,
     Plus,
     Star,
     Slash,
@@ -90,6 +91,21 @@ pub enum TokenKind {
 pub struct Token {
     pub kind: TokenKind,
     pub origin: Origin,
+}
+
+fn it_peek_peek(it: &Peekable<Chars<'_>>) -> Option<char> {
+    let mut cpy = it.clone();
+    cpy.next().and_then(|_| cpy.next())
+}
+
+fn is_character_probe_specifier_start(c: char) -> bool {
+    matches!(c ,
+   '-' | '<' | '>' | '+' | '$' | ':' | 'a'..='z'  |  'A'..='Z' | '_' | '.' | '?' | '*' | '\\' | '[' | ']' | '!')
+}
+
+fn is_character_probe_specifier_rest(c: char) -> bool {
+    matches!(c ,
+   '-' | '<' | '>' | '+' | '$' | ':' | '0'..='9' | 'a'..='z'  |  'A'..='Z' | '_' | '.' | '?' | '*' | '\\' | '[' | ']' | '!' | '(' | ')' )
 }
 
 impl Lexer {
@@ -187,6 +203,39 @@ impl Lexer {
         };
 
         self.tokens.push(Token { kind, origin });
+    }
+
+    fn lex_probe_specifier(&mut self, it: &mut Peekable<Chars<'_>>) {
+        let start_origin = self.origin;
+        let first = it.next().unwrap();
+        assert!(is_character_probe_specifier_start(first));
+        self.origin.column += 1;
+        self.origin.offset += 1;
+
+        loop {
+            match it.peek() {
+                None => {
+                    break;
+                }
+                Some(c) if !is_character_probe_specifier_rest(*c) => {
+                    break;
+                }
+                Some(c) => {
+                    self.advance(*c, it);
+                }
+            }
+        }
+
+        let len = self.origin.offset - start_origin.offset;
+        let origin = Origin {
+            len,
+            ..start_origin
+        };
+
+        self.tokens.push(Token {
+            kind: TokenKind::ProbeSpecifier,
+            origin,
+        });
     }
 
     fn lex_literal_string(&mut self, it: &mut Peekable<Chars<'_>>) {
@@ -491,13 +540,17 @@ impl Lexer {
                     self.lex_literal_character(&mut it);
                 }
                 '@' => self.lex_keyword(input, &mut it),
+                _ if is_character_probe_specifier_start(c)
+                    && is_character_probe_specifier_rest(it_peek_peek(&it).unwrap_or_default()) =>
+                {
+                    self.lex_probe_specifier(&mut it)
+                }
                 _ if c.is_whitespace() => {
                     self.advance(c, &mut it);
                 }
                 _ if c.is_ascii_digit() => self.lex_literal_number(&mut it),
                 _ if c.is_ascii_alphabetic() => self.lex_keyword(input, &mut it),
-                other => {
-                    dbg!(other);
+                _ => {
                     self.tokens.push(Token {
                         kind: TokenKind::Unknown,
                         origin: Origin {
