@@ -40,6 +40,7 @@ pub enum TokenKind {
     RightCurly,
     Eq,
     EqEq,
+    Bang,
     BangEq,
     Comma,
     SemiColon,
@@ -548,6 +549,17 @@ impl Lexer {
                         origin,
                     });
                     self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
+                '!' => {
+                    let origin = Origin {
+                        len: 1,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::Bang,
+                        origin,
+                    });
                     self.advance(c, &mut it);
                 }
                 '=' => {

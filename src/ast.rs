@@ -33,6 +33,7 @@ pub enum NodeKind {
     File(Vec<NodeId>), // Root.
     Number(u64),
     Bool(bool),
+    PrimaryToken(TokenKind),
     ProbeSpecifier(String),
     ProbeDefinition(NodeId, Option<NodeId>, Vec<NodeId>),
     BinaryOp(NodeId, TokenKind, NodeId),
@@ -384,42 +385,52 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    // PrimaryExpr   = Operand |
-    //                 Conversion |
-    //                 MethodExpr |
-    //                 PrimaryExpr Selector |
-    //                 PrimaryExpr Index |
-    //                 PrimaryExpr Slice |
-    //                 PrimaryExpr TypeAssertion |
-    //                 PrimaryExpr Arguments .
-    // Selector      = "." identifier .
-    // Index         = "[" Expression [ "," ] "]" .
-    // Slice         = "[" [ Expression ] ":" [ Expression ] "]" |
-    //                 "[" [ Expression ] ":" Expression ":" Expression "]" .
-    // TypeAssertion = "." "(" Type ")" .
-    // Arguments     = "(" [ ( ExpressionList | Type [ "," ExpressionList ] ) [ "..." ] [ "," ] ] ")" .
+    //primary_expression      → IDENT
+    //                        | AGG
+    //                        | INT
+    //                        | STRING
+    //                        | "self"
+    //                        | "this"
+    //                        | "(" expression ")" ;
     fn parse_primary_expr(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
 
-        if let Some(args) = self.parse_arguments() {
-            return Some(args);
+        match self.peek_token() {
+            Some(
+                tok @ Token {
+                    kind:
+                        TokenKind::Identifier
+                        | TokenKind::LiteralNumber
+                        | TokenKind::LiteralString
+                        | TokenKind::KeywordSelf
+                        | TokenKind::KeywordThis,
+                    ..
+                },
+            ) => Some(self.new_node(Node {
+                kind: NodeKind::PrimaryToken(tok.kind),
+                origin: tok.origin,
+            })),
+            Some(
+                ltok @ Token {
+                    kind: TokenKind::LeftParen,
+                    ..
+                },
+            ) => {
+                let lparen = self.match_kind(TokenKind::LeftParen)?;
+                let e = self.parse_expr().unwrap_or_else(|| self.new_node_unknown());
+                let _ = self.expect_token_one(
+                    TokenKind::RightParen,
+                    "primary expression closing parenthesis",
+                );
+                Some(self.new_node(Node {
+                    kind: NodeKind::Unary(TokenKind::LeftParen, e),
+                    origin: lparen.origin,
+                }))
+            }
+            _ => None,
         }
-
-        if let Some(op) = self.parse_operand() {
-            return Some(op);
-        }
-
-        // TODO: Conversion.
-        // TODO: MethodExpr.
-        // TODO: PrimaryExpr Selector.
-        // TODO: PrimaryExpr Index.
-        // TODO: PrimaryExpr Slice.
-        // TODO: PrimaryExpr TypeAssertion.
-        // TODO: PrimaryExpr Arguments.
-
-        None
     }
 
     //additive_expression     → multiplicative_expression
@@ -575,32 +586,56 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // UnaryExpr  = PrimaryExpr | unary_op UnaryExpr .
-    // unary_op   = "+" | "-" | "!" | "^" | "*" | "&" | "<-" .
+    //unary_expression        → postfix_expression
+    //                        | "++" unary_expression
+    //                        | "--" unary_expression
+    //                        | unary_operator cast_expression
+    //                        | "sizeof" unary_expression
+    //                        | "sizeof" "(" type_name ")"
+    //                        | "stringof" unary_expression ;
     fn parse_unary_expr(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
 
-        match self.peek_token().map(|t| t.kind) {
-            // TODO: More
-            Some(TokenKind::Plus | TokenKind::Star) => {
-                let token = *self.eat_token().unwrap();
-                let expr = self.parse_unary_expr().or_else(|| {
-            let found = self.current_token_kind_for_err();
-                    self.errors.push(Error::new(
-                        ErrorKind::MissingExpr,
-                        token.origin,
-                        format!("expected expression in unary expression after operator but found: {:?}", found)));
-                    None
-                })?;
-                Some(self.new_node(Node {
-                    kind: NodeKind::Unary(token.kind, expr),
-                    origin: token.origin,
-                }))
+        match self.peek_token() {
+            Some(
+                op @ Token {
+                    kind: TokenKind::Plus | TokenKind::Minus | TokenKind::Bang,
+                    ..
+                },
+            ) => {
+                let op = *op;
+                self.tokens_consumed += 1;
+                let node = match self.parse_cast_expr() {
+                    None => self.new_node_unknown(),
+                    Some(n) => n,
+                };
+                return Some(self.new_node(Node {
+                    kind: NodeKind::Unary(op.kind, node),
+                    origin: op.origin,
+                }));
             }
-            _ => self.parse_primary_expr(),
-        }
+            // TODO: More operators.
+            _ => {
+                return self.parse_postfix_expr();
+            }
+        };
+    }
+
+    //postfix_expression      → primary_expression
+    //                        | postfix_expression "[" argument_expression_list "]"
+    //                        | postfix_expression "(" argument_expression_list? ")"
+    //                        | postfix_expression "."  ( IDENT | TNAME | keyword_as_ident )
+    //                        | postfix_expression "->" ( IDENT | TNAME | keyword_as_ident )
+    //                        | postfix_expression "++"
+    //                        | postfix_expression "--"
+    //                        | "offsetof" "(" type_name ","
+    //                          ( IDENT | TNAME | keyword_as_ident ) ")"
+    //                        | "xlate" "<" type_name ">" "(" expression ")" ;
+    fn parse_postfix_expr(&mut self) -> Option<NodeId> {
+        // TODO
+        self.parse_primary_expr()
     }
 
     // Block         = "{" StatementList "}" .
@@ -1374,18 +1409,14 @@ impl<'a> Parser<'a> {
                     Self::resolve_node(*action, nodes, errors, name_to_def, file_id_to_name);
                 }
             }
-            // Nothing to do.
             NodeKind::Number(_) | NodeKind::Bool(_) | NodeKind::ProbeSpecifier(_) => {}
-
             NodeKind::Unary(_, expr) => {
                 Self::resolve_node(*expr, nodes, errors, name_to_def, file_id_to_name);
             }
-
             NodeKind::Assignment(lhs, _, rhs) => {
                 Self::resolve_node(*lhs, nodes, errors, name_to_def, file_id_to_name);
                 Self::resolve_node(*rhs, nodes, errors, name_to_def, file_id_to_name);
             }
-
             NodeKind::Identifier(name) => {
                 let def_id = if let Some((def_id, _)) = name_to_def.get_scoped(name) {
                     def_id
@@ -1409,8 +1440,6 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-
-            // Recurse.
             NodeKind::BinaryOp(lhs, _, rhs) => {
                 Self::resolve_node(*lhs, nodes, errors, name_to_def, file_id_to_name);
                 Self::resolve_node(*rhs, nodes, errors, name_to_def, file_id_to_name);
@@ -1527,6 +1556,7 @@ impl<'a> Parser<'a> {
                 }
             }
             NodeKind::Unknown => {}
+            NodeKind::PrimaryToken(_) => {}
         }
     }
 
@@ -1569,17 +1599,14 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
                 log(nodes, *action, indent + 2);
             }
         }
-
         NodeKind::Number(_)
         | NodeKind::Identifier(_)
         | NodeKind::Bool(_)
         | NodeKind::ProbeSpecifier(_) => {}
-
         NodeKind::Assignment(lhs, _, rhs) | NodeKind::BinaryOp(lhs, _, rhs) => {
             log(nodes, *lhs, indent + 2);
             log(nodes, *rhs, indent + 2);
         }
-
         NodeKind::VarDecl(_, node_id) | NodeKind::Unary(_, node_id) => {
             log(nodes, *node_id, indent + 2);
         }
@@ -1618,6 +1645,7 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
                 log(nodes, *decl, indent + 2);
             }
         }
+        NodeKind::PrimaryToken(_) => {}
     }
 }
 

@@ -333,6 +333,7 @@ pub fn check_node(
                 errs.push(err);
             }
         }
+        NodeKind::PrimaryToken(_) => {}
     }
 }
 
