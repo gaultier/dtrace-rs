@@ -22,6 +22,7 @@ pub enum TokenKind {
     LiteralBool,
     Identifier,
     ProbeSpecifier,
+    Dot,
     Caret,
     CaretCaret,
     Ampersand,
@@ -447,6 +448,17 @@ impl Lexer {
                     };
                     self.tokens.push(Token {
                         kind: TokenKind::Plus,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                }
+                '.' => {
+                    let origin = Origin {
+                        len: 1,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::Dot,
                         origin,
                     });
                     self.advance(c, &mut it);

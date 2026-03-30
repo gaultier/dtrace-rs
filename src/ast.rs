@@ -623,6 +623,9 @@ impl<'a> Parser<'a> {
     //             | "->" ( IDENT | TNAME | keyword_as_ident )
     //             | "++"
     //             | "--"_
+    //             | "offsetof" "(" type_name ","
+    //               ( IDENT | TNAME | keyword_as_ident ) ")"
+    //             | "xlate" "<" type_name ">" "(" expression ")" ;
     fn parse_postfix_expr(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
@@ -632,6 +635,22 @@ impl<'a> Parser<'a> {
 
         loop {
             match self.peek() {
+                Some(Token {
+                    kind: TokenKind::LeftSquareBracket,
+                    ..
+                }) => todo!(),
+                Some(Token {
+                    kind: TokenKind::LeftParen,
+                    ..
+                }) => todo!(),
+                Some(Token {
+                    kind: TokenKind::Dot,
+                    ..
+                }) => todo!(),
+                Some(Token {
+                    kind: TokenKind::Arrow,
+                    ..
+                }) => todo!(),
                 Some(Token {
                     kind: TokenKind::PlusPlus | TokenKind::MinusMinus,
                     ..
@@ -643,7 +662,14 @@ impl<'a> Parser<'a> {
                         origin: op.origin,
                     });
                 }
-                // TODO
+                Some(Token {
+                    kind: TokenKind::KeywordOffsetOf,
+                    ..
+                }) => todo!(),
+                Some(Token {
+                    kind: TokenKind::KeywordXlate,
+                    ..
+                }) => todo!(),
                 _ => break,
             }
         }
