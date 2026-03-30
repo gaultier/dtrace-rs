@@ -555,7 +555,7 @@ impl<'a> Parser<'a> {
             }) => {
                 let op = *self.eat_token().unwrap();
 
-                if let Some(_) = self.match_kind(TokenKind::LeftParen) {
+                if self.match_kind(TokenKind::LeftParen).is_some() {
                     let typename = self
                         .expect_token_one(TokenKind::Identifier, "type name for sizeof")
                         .map(|t| Self::str_from_source(self.input, &t.origin).to_owned())
@@ -628,7 +628,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let primary = self.parse_primary_expr()?;
+        let _primary = self.parse_primary_expr()?;
 
         todo!()
     }
@@ -1068,7 +1068,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if let Some(_) = self.match_kind(TokenKind::SemiColon) {
+        if self.match_kind(TokenKind::SemiColon).is_some() {
             return None;
         }
 
