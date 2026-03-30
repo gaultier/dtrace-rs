@@ -32,6 +32,7 @@ pub enum TokenKind {
     PlusPlus,
     Minus,
     MinusMinus,
+    Arrow,
     Star,
     Slash,
     Percent,
@@ -399,6 +400,18 @@ impl Lexer {
                     };
                     self.tokens.push(Token {
                         kind: TokenKind::MinusMinus,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
+                '-' if it_peek_peek(&it) == Some('>') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::Arrow,
                         origin,
                     });
                     self.advance(c, &mut it);

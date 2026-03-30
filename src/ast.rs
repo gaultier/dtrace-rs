@@ -624,8 +624,13 @@ impl<'a> Parser<'a> {
     //                          ( IDENT | TNAME | keyword_as_ident ) ")"
     //                        | "xlate" "<" type_name ">" "(" expression ")" ;
     fn parse_postfix_expr(&mut self) -> Option<NodeId> {
-        // TODO
-        self.parse_primary_expr()
+        if self.error_mode {
+            return None;
+        }
+
+        let primary = self.parse_primary_expr()?;
+
+        todo!()
     }
 
     //fn parse_block(&mut self) -> Option<NodeId> {
