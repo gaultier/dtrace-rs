@@ -749,6 +749,7 @@ impl Lexer {
                     self.lex_literal_character(&mut it);
                 }
                 '@' => self.lex_keyword(input, &mut it),
+                _ if c.is_ascii_alphabetic() => self.lex_keyword(input, &mut it),
                 _ if is_character_probe_specifier_start(c)
                     && is_character_probe_specifier_rest(it_peek_peek(&it).unwrap_or_default()) =>
                 {
@@ -758,7 +759,6 @@ impl Lexer {
                     self.advance(c, &mut it);
                 }
                 _ if c.is_ascii_digit() => self.lex_literal_number(&mut it),
-                _ if c.is_ascii_alphabetic() => self.lex_keyword(input, &mut it),
                 _ => {
                     self.tokens.push(Token {
                         kind: TokenKind::Unknown,

@@ -1170,6 +1170,14 @@ impl<'a> Parser<'a> {
             });
             return Some(node_id);
         }
+        if let Some(tok) = self.match_kind(TokenKind::Identifier) {
+            let s = Self::str_from_source(self.input, &tok.origin).to_owned();
+            let node_id = self.new_node(Node {
+                kind: NodeKind::ProbeSpecifier(s),
+                origin: tok.origin,
+            });
+            return Some(node_id);
+        }
 
         None
     }
