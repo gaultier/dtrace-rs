@@ -64,7 +64,7 @@ pub enum NodeKind {
     PostfixIncDecrement(NodeId, TokenKind),
     ExprStmt(NodeId),
     EmptyStmt,
-    PostfixArguments(Option<NodeId>),
+    PostfixArguments(NodeId, Option<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -653,7 +653,7 @@ impl<'a> Parser<'a> {
                     );
 
                     return Some(self.new_node(Node {
-                        kind: NodeKind::PostfixArguments(args),
+                        kind: NodeKind::PostfixArguments(expr, args),
                         origin: lparen.origin,
                     }));
                 }
@@ -1714,7 +1714,7 @@ impl<'a> Parser<'a> {
             NodeKind::PostfixIncDecrement(_node_id, _token_kind) => todo!(),
             NodeKind::ExprStmt(_node_id) => todo!(),
             NodeKind::EmptyStmt => todo!(),
-            NodeKind::PostfixArguments(_node_id) => todo!(),
+            NodeKind::PostfixArguments(_, _node_id) => todo!(),
         }
     }
 
@@ -1817,8 +1817,9 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         NodeKind::PostfixIncDecrement(node_id, _token_kind) => log(nodes, *node_id, indent + 2),
         NodeKind::ExprStmt(node_id) => log(nodes, *node_id, indent + 2),
         NodeKind::EmptyStmt => {}
-        NodeKind::PostfixArguments(node_id) => {
-            if let Some(node_id) = node_id {
+        NodeKind::PostfixArguments(primary, args) => {
+            log(nodes, *primary, indent + 2);
+            if let Some(node_id) = args {
                 log(nodes, *node_id, indent + 2)
             }
         }

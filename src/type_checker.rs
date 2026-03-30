@@ -343,7 +343,7 @@ pub fn check_node(
         NodeKind::PostfixIncDecrement(_node_id, _token_kind) => todo!(),
         NodeKind::ExprStmt(_node_id) => todo!(),
         NodeKind::EmptyStmt => todo!(),
-        NodeKind::PostfixArguments(_node_id) => todo!(),
+        NodeKind::PostfixArguments(_, _node_id) => todo!(),
     }
 }
 
