@@ -60,7 +60,8 @@ pub enum NodeKind {
         else_block: Option<NodeId>,
     },
     Block(Vec<NodeId>),
-    VarDecl(String, NodeId), // TODO: Vec in case of identifier list.
+    VarDecl(String, NodeId),
+    PostfixIncDecrement(NodeId, TokenKind),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -616,14 +617,41 @@ impl<'a> Parser<'a> {
     //                        | "offsetof" "(" type_name ","
     //                          ( IDENT | TNAME | keyword_as_ident ) ")"
     //                        | "xlate" "<" type_name ">" "(" expression ")" ;
+    //
+    // Transformed to the equivalent (but easier to parse):
+    // postfix_expression → primary_expression postfix_tail*
+    //postfix_tail → "[" argument_expression_list "]"
+    //             | "(" argument_expression_list? ")"
+    //             | "."  ( IDENT | TNAME | keyword_as_ident )
+    //             | "->" ( IDENT | TNAME | keyword_as_ident )
+    //             | "++"
+    //             | "--"_
     fn parse_postfix_expr(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
 
-        let _primary = self.parse_primary_expr()?;
+        let mut expr = self.parse_primary_expr()?;
 
-        todo!()
+        loop {
+            match self.peek() {
+                Some(Token {
+                    kind: TokenKind::PlusPlus | TokenKind::MinusMinus,
+                    ..
+                }) => {
+                    let op = *self.eat_token().unwrap();
+
+                    expr = self.new_node(Node {
+                        kind: NodeKind::PostfixIncDecrement(expr, op.kind),
+                        origin: op.origin,
+                    });
+                }
+                // TODO
+                _ => break,
+            }
+        }
+
+        Some(expr)
     }
 
     //fn parse_block(&mut self) -> Option<NodeId> {
@@ -1539,6 +1567,7 @@ impl<'a> Parser<'a> {
             NodeKind::SizeofType(_) => todo!(),
             NodeKind::SizeofExpr(_node_id) => todo!(),
             NodeKind::StringofExpr(_node_id) => todo!(),
+            NodeKind::PostfixIncDecrement(_node_id, _token_kind) => todo!(),
         }
     }
 
@@ -1638,6 +1667,7 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         NodeKind::SizeofType(_) => {}
         NodeKind::SizeofExpr(node_id) => log(nodes, *node_id, indent + 2),
         NodeKind::StringofExpr(node_id) => log(nodes, *node_id, indent + 2),
+        NodeKind::PostfixIncDecrement(node_id, _token_kind) => log(nodes, *node_id, indent + 2),
     }
 }
 

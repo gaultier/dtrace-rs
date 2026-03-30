@@ -340,6 +340,7 @@ pub fn check_node(
         NodeKind::SizeofType(_) => todo!(),
         NodeKind::SizeofExpr(_node_id) => todo!(),
         NodeKind::StringofExpr(_node_id) => todo!(),
+        NodeKind::PostfixIncDecrement(_node_id, _token_kind) => todo!(),
     }
 }
 
