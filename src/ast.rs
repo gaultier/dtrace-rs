@@ -992,20 +992,13 @@ impl<'a> Parser<'a> {
         }
 
         let mut lhs = self.parse_shift_expr()?;
-        loop {
-            let op = match self.peek() {
-                // TODO: Gte, Lte
-                Some(
-                    op @ Token {
-                        kind: TokenKind::Gt | TokenKind::Lt,
-                        ..
-                    },
-                ) => *op,
-                _ => {
-                    break;
-                }
-            };
-            self.eat_token();
+        while let Some(Token {
+            kind: TokenKind::Gt | TokenKind::Lt,
+            ..
+        }) = self.peek()
+        {
+            // TODO: Gte, Lte
+            let op = *self.eat_token().unwrap();
 
             let rhs = match self.parse_shift_expr() {
                 None => {

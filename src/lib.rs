@@ -179,7 +179,6 @@ pub fn compile(
             lex_tokens: parser.tokens,
             ast_nodes: parser.nodes,
             errors: parser.errors,
-            ..Default::default()
         };
     }
 
