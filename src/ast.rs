@@ -339,19 +339,12 @@ impl<'a> Parser<'a> {
         }
 
         let mut lhs = self.parse_multiplicative_expr()?;
-        loop {
-            let op = match self.peek() {
-                Some(
-                    op @ Token {
-                        kind: TokenKind::Plus | TokenKind::Minus,
-                        ..
-                    },
-                ) => *op,
-                _ => {
-                    break;
-                }
-            };
-            self.eat_token();
+        while let Some(Token {
+            kind: TokenKind::Plus | TokenKind::Minus,
+            ..
+        }) = self.peek()
+        {
+            let op = *self.eat_token().unwrap();
 
             let rhs = match self.parse_multiplicative_expr() {
                 None => {
@@ -958,19 +951,12 @@ impl<'a> Parser<'a> {
         }
 
         let mut lhs = self.parse_relational_expr()?;
-        loop {
-            let op = match self.peek() {
-                Some(
-                    op @ Token {
-                        kind: TokenKind::EqEq | TokenKind::BangEq,
-                        ..
-                    },
-                ) => *op,
-                _ => {
-                    break;
-                }
-            };
-            self.eat_token();
+        while let Some(Token {
+            kind: TokenKind::EqEq | TokenKind::BangEq,
+            ..
+        }) = self.peek()
+        {
+            let op = *self.eat_token().unwrap();
 
             let rhs = match self.parse_relational_expr() {
                 None => {
@@ -1283,14 +1269,13 @@ impl<'a> Parser<'a> {
     }
 
     fn is_at_end(&self) -> bool {
-        match self.peek() {
+        matches!(
+            self.peek(),
             Some(Token {
                 kind: TokenKind::Eof,
                 ..
-            })
-            | None => true,
-            _ => false,
-        }
+            }) | None
+        )
     }
 
     fn parse_translation_unit(&mut self) -> Option<NodeId> {
