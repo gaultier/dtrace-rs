@@ -454,7 +454,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let mut first_expr = match self.parse_assignment_expr() {
+        let first_expr = match self.parse_assignment_expr() {
             None => {
                 return None;
             }
@@ -465,7 +465,7 @@ impl<'a> Parser<'a> {
             return Some(first_expr);
         }
 
-        let mut exprs = Vec::new();
+        let mut exprs = vec![first_expr];
         let first_comma_origin = self.peek().map(|t| t.origin).unwrap();
 
         while let Some(tok) = self.match_kind(TokenKind::Comma) {
