@@ -453,14 +453,9 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let first_expr = match self.parse_assignment_expr() {
-            None => {
-                return None;
-            }
-            Some(expr) => expr,
-        };
+        let first_expr = self.parse_assignment_expr()?;
 
-        if self.peek().map(|t| t.kind) == Some(TokenKind::Comma) {
+        if self.peek().map(|t| t.kind) != Some(TokenKind::Comma) {
             return Some(first_expr);
         }
 
