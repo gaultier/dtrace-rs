@@ -337,6 +337,9 @@ pub fn check_node(
         NodeKind::Cast(_, _) => todo!(),
         NodeKind::Aggregation(_) => todo!(),
         NodeKind::CommaExpr(_node_ids) => todo!(),
+        NodeKind::SizeofType(_) => todo!(),
+        NodeKind::SizeofExpr(_node_id) => todo!(),
+        NodeKind::StringofExpr(_node_id) => todo!(),
     }
 }
 

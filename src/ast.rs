@@ -44,6 +44,9 @@ pub enum NodeKind {
     Assignment(NodeId, Token, NodeId),
     Arguments(Vec<NodeId>),
     CommaExpr(Vec<NodeId>),
+    SizeofType(String),
+    SizeofExpr(NodeId),
+    StringofExpr(NodeId),
     FnCall {
         // Can be a variable (function pointer), or a string.
         callee: NodeId,
@@ -525,20 +528,17 @@ impl<'a> Parser<'a> {
                     origin: op.origin,
                 }))
             }
-            Some(
-                op @ Token {
-                    kind:
-                        TokenKind::Ampersand
-                        | TokenKind::Star
-                        | TokenKind::Plus
-                        | TokenKind::Minus
-                        | TokenKind::Tilde
-                        | TokenKind::Bang,
-                    ..
-                },
-            ) => {
-                let op = *op;
-                self.eat_token();
+            Some(Token {
+                kind:
+                    TokenKind::Ampersand
+                    | TokenKind::Star
+                    | TokenKind::Plus
+                    | TokenKind::Minus
+                    | TokenKind::Tilde
+                    | TokenKind::Bang,
+                ..
+            }) => {
+                let op = *self.eat_token().unwrap();
 
                 let node = match self.parse_cast_expr() {
                     None => self.new_node_unknown(),
@@ -549,7 +549,66 @@ impl<'a> Parser<'a> {
                     origin: op.origin,
                 }))
             }
-            // TODO: More operators.
+            Some(Token {
+                kind: TokenKind::KeywordSizeof,
+                ..
+            }) => {
+                let op = *self.eat_token().unwrap();
+
+                if let Some(_) = self.match_kind(TokenKind::LeftParen) {
+                    let typename = self
+                        .expect_token_one(TokenKind::Identifier, "type name for sizeof")
+                        .map(|t| Self::str_from_source(self.input, &t.origin).to_owned())
+                        .unwrap_or_default();
+                    self.expect_token_one(TokenKind::RightParen, "matching parenthesis for sizeof");
+
+                    Some(self.new_node(Node {
+                        kind: NodeKind::SizeofType(typename),
+                        origin: op.origin,
+                    }))
+                } else {
+                    let unary = self.parse_unary_expr().unwrap_or_else(|| {
+                        self.add_error_with_explanation(
+                            ErrorKind::MissingExpected,
+                            op.origin,
+                            format!(
+                                "expected unary expression after sizeof, found: {:?}",
+                                self.current_token_kind_for_err()
+                            ),
+                        );
+                        self.new_node_unknown()
+                    });
+
+                    Some(self.new_node(Node {
+                        kind: NodeKind::SizeofExpr(unary),
+                        origin: op.origin,
+                    }))
+                }
+            }
+            Some(Token {
+                kind: TokenKind::KeywordStringof,
+                ..
+            }) => {
+                let op = *self.eat_token().unwrap();
+
+                let unary = self.parse_unary_expr().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
+                        op.origin,
+                        format!(
+                            "expected unary expression after stringof, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
+
+                Some(self.new_node(Node {
+                    kind: NodeKind::StringofExpr(unary),
+                    origin: op.origin,
+                }))
+            }
+
             _ => self.parse_postfix_expr(),
         }
     }
@@ -1494,6 +1553,9 @@ impl<'a> Parser<'a> {
             }
             NodeKind::Aggregation(_) => todo!(),
             NodeKind::CommaExpr(_node_ids) => todo!(),
+            NodeKind::SizeofType(_) => todo!(),
+            NodeKind::SizeofExpr(_node_id) => todo!(),
+            NodeKind::StringofExpr(_node_id) => todo!(),
         }
     }
 
@@ -1585,7 +1647,14 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         NodeKind::PrimaryToken(_) => {}
         NodeKind::Cast(_, _) => {}
         NodeKind::Aggregation(_) => todo!(),
-        NodeKind::CommaExpr(_node_ids) => todo!(),
+        NodeKind::CommaExpr(node_ids) => {
+            for node in node_ids {
+                log(nodes, *node, indent + 2);
+            }
+        }
+        NodeKind::SizeofType(_) => {}
+        NodeKind::SizeofExpr(node_id) => log(nodes, *node_id, indent + 2),
+        NodeKind::StringofExpr(node_id) => log(nodes, *node_id, indent + 2),
     }
 }
 
