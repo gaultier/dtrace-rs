@@ -29,9 +29,13 @@ pub enum TokenKind {
     Pipe,
     PipePipe,
     Plus,
+    PlusPlus,
     Minus,
+    MinusMinus,
     Star,
     Slash,
+    Percent,
+    Tilde,
     LeftParen,
     RightParen,
     LeftSquareBracket,
@@ -388,6 +392,18 @@ impl Lexer {
                 '\n' => {
                     self.advance(c, &mut it);
                 }
+                '-' if it_peek_peek(&it) == Some('-') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::MinusMinus,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
                 '-' => {
                     let origin = Origin {
                         len: 1,
@@ -397,6 +413,18 @@ impl Lexer {
                         kind: TokenKind::Minus,
                         origin,
                     });
+                    self.advance(c, &mut it);
+                }
+                '+' if it_peek_peek(&it) == Some('+') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::PlusPlus,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
                 '+' => {
@@ -587,6 +615,28 @@ impl Lexer {
                     };
                     self.tokens.push(Token {
                         kind: TokenKind::Slash,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                }
+                '%' => {
+                    let origin = Origin {
+                        len: 1,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::Percent,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                }
+                '~' => {
+                    let origin = Origin {
+                        len: 1,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::Tilde,
                         origin,
                     });
                     self.advance(c, &mut it);

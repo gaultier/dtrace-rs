@@ -39,9 +39,11 @@ pub enum NodeKind {
     ProbeDefinition(NodeId, Option<NodeId>, Vec<NodeId>),
     BinaryOp(NodeId, TokenKind, NodeId),
     Identifier(String),
+    Aggregation(String),
     Unary(TokenKind, NodeId),
     Assignment(NodeId, Token, NodeId),
     Arguments(Vec<NodeId>),
+    CommaExpr(Vec<NodeId>),
     FnCall {
         // Can be a variable (function pointer), or a string.
         callee: NodeId,
@@ -276,10 +278,14 @@ impl<'a> Parser<'a> {
                 let origin = tok.origin;
                 self.eat_token();
 
+                let identifier = Self::str_from_source(self.input, &origin).to_owned();
+
                 Some(self.new_node(Node {
-                    kind: NodeKind::Identifier(
-                        Self::str_from_source(self.input, &origin).to_owned(),
-                    ),
+                    kind: if identifier.starts_with("@") {
+                        NodeKind::Aggregation(identifier)
+                    } else {
+                        NodeKind::Identifier(identifier)
+                    },
                     origin,
                 }))
             }
@@ -380,10 +386,9 @@ impl<'a> Parser<'a> {
         let mut lhs = self.parse_cast_expr()?;
         loop {
             let op = match self.peek() {
-                // TODO: More.
                 Some(
                     op @ Token {
-                        kind: TokenKind::Star | TokenKind::Slash,
+                        kind: TokenKind::Star | TokenKind::Slash | TokenKind::Percent,
                         ..
                     },
                 ) if self.peek_peek().map(|t| t.kind) != Some(TokenKind::LeftCurly) => *op,
@@ -449,25 +454,86 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        self.parse_assignment_expr()
+        let mut first_expr = match self.parse_assignment_expr() {
+            None => {
+                return None;
+            }
+            Some(expr) => expr,
+        };
+
+        if self.peek().map(|t| t.kind) == Some(TokenKind::Comma) {
+            return Some(first_expr);
+        }
+
+        let mut exprs = Vec::new();
+        let first_comma_origin = self.peek().map(|t| t.origin).unwrap();
+
+        while let Some(tok) = self.match_kind(TokenKind::Comma) {
+            let expr = self.parse_assignment_expr().unwrap_or_else(|| {
+                self.add_error_with_explanation(
+                    ErrorKind::MissingExpr,
+                    tok.origin,
+                    format!(
+                        "expected expression following comma, found: {:?}",
+                        self.current_token_kind_for_err()
+                    ),
+                );
+                self.new_node_unknown()
+            });
+            exprs.push(expr);
+        }
+
+        Some(self.new_node(Node {
+            kind: NodeKind::CommaExpr(exprs),
+            origin: first_comma_origin,
+        }))
     }
 
-    //unary_expression        → postfix_expression
-    //                        | "++" unary_expression
-    //                        | "--" unary_expression
-    //                        | unary_operator cast_expression
-    //                        | "sizeof" unary_expression
-    //                        | "sizeof" "(" type_name ")"
-    //                        | "stringof" unary_expression ;
+    // unary_expression        → postfix_expression
+    //                         | "++" unary_expression
+    //                         | "--" unary_expression
+    //                         | unary_operator cast_expression
+    //                         | "sizeof" unary_expression
+    //                         | "sizeof" "(" type_name ")"
+    //                         | "stringof" unary_expression ;
+    // unary_operator          → "&" | "*" | "+" | "-" | "~" | "!" ;
     fn parse_unary_expr(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
 
         match self.peek() {
+            Some(Token {
+                kind: TokenKind::PlusPlus | TokenKind::MinusMinus,
+                ..
+            }) => {
+                let op = *self.eat_token().unwrap();
+                let unary = self.parse_unary_expr().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
+                        op.origin,
+                        format!(
+                            "expected unary expression after {:?}, found: {:?}",
+                            op.kind,
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
+                Some(self.new_node(Node {
+                    kind: NodeKind::Unary(op.kind, unary),
+                    origin: op.origin,
+                }))
+            }
             Some(
                 op @ Token {
-                    kind: TokenKind::Plus | TokenKind::Minus | TokenKind::Bang,
+                    kind:
+                        TokenKind::Ampersand
+                        | TokenKind::Star
+                        | TokenKind::Plus
+                        | TokenKind::Minus
+                        | TokenKind::Tilde
+                        | TokenKind::Bang,
                     ..
                 },
             ) => {
@@ -1426,6 +1492,8 @@ impl<'a> Parser<'a> {
             NodeKind::Cast(_, _) => {
                 todo!()
             }
+            NodeKind::Aggregation(_) => todo!(),
+            NodeKind::CommaExpr(_node_ids) => todo!(),
         }
     }
 
@@ -1516,6 +1584,8 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         }
         NodeKind::PrimaryToken(_) => {}
         NodeKind::Cast(_, _) => {}
+        NodeKind::Aggregation(_) => todo!(),
+        NodeKind::CommaExpr(_node_ids) => todo!(),
     }
 }
 
