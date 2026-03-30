@@ -64,6 +64,7 @@ pub enum NodeKind {
     PostfixIncDecrement(NodeId, TokenKind),
     ExprStmt(NodeId),
     EmptyStmt,
+    PostfixArguments(Option<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -642,7 +643,20 @@ impl<'a> Parser<'a> {
                 Some(Token {
                     kind: TokenKind::LeftParen,
                     ..
-                }) => todo!(),
+                }) => {
+                    let lparen = *self.eat_token().unwrap();
+
+                    let args = self.parse_argument_expr_list();
+                    self.expect_token_one(
+                        TokenKind::RightParen,
+                        "match parenthesis in argument list",
+                    );
+
+                    return Some(self.new_node(Node {
+                        kind: NodeKind::PostfixArguments(args),
+                        origin: lparen.origin,
+                    }));
+                }
                 Some(Token {
                     kind: TokenKind::Dot,
                     ..
@@ -675,6 +689,42 @@ impl<'a> Parser<'a> {
         }
 
         Some(expr)
+    }
+
+    // argument_expression_list
+    //                        → assignment_expression ( "," assignment_expression )* ;
+    fn parse_argument_expr_list(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let expr = self.parse_assignment_expr()?;
+        let first_comma_origin = if self.peek().map(|t| t.kind) != Some(TokenKind::Comma) {
+            return Some(expr);
+        } else {
+            self.peek().unwrap().origin
+        };
+
+        let mut args = vec![expr];
+        while let Some(op) = self.match_kind(TokenKind::Comma) {
+            let arg = self.parse_assignment_expr().unwrap_or_else(|| {
+                self.add_error_with_explanation(
+                    ErrorKind::MissingExpected,
+                    op.origin,
+                    format!(
+                        "expect assignment expression in argument list after comma, found: {:?}",
+                        self.current_token_kind_for_err()
+                    ),
+                );
+                self.new_node_unknown()
+            });
+            args.push(arg);
+        }
+
+        Some(self.new_node(Node {
+            kind: NodeKind::Arguments(args),
+            origin: first_comma_origin,
+        }))
     }
 
     //fn parse_block(&mut self) -> Option<NodeId> {
@@ -1664,6 +1714,7 @@ impl<'a> Parser<'a> {
             NodeKind::PostfixIncDecrement(_node_id, _token_kind) => todo!(),
             NodeKind::ExprStmt(_node_id) => todo!(),
             NodeKind::EmptyStmt => todo!(),
+            NodeKind::PostfixArguments(_node_id) => todo!(),
         }
     }
 
@@ -1765,7 +1816,12 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         NodeKind::StringofExpr(node_id) => log(nodes, *node_id, indent + 2),
         NodeKind::PostfixIncDecrement(node_id, _token_kind) => log(nodes, *node_id, indent + 2),
         NodeKind::ExprStmt(node_id) => log(nodes, *node_id, indent + 2),
-        NodeKind::EmptyStmt => todo!(),
+        NodeKind::EmptyStmt => {}
+        NodeKind::PostfixArguments(node_id) => {
+            if let Some(node_id) = node_id {
+                log(nodes, *node_id, indent + 2)
+            }
+        }
     }
 }
 
