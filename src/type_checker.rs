@@ -341,6 +341,8 @@ pub fn check_node(
         NodeKind::SizeofExpr(_node_id) => todo!(),
         NodeKind::StringofExpr(_node_id) => todo!(),
         NodeKind::PostfixIncDecrement(_node_id, _token_kind) => todo!(),
+        NodeKind::ExprStmt(_node_id) => todo!(),
+        NodeKind::EmptyStmt => todo!(),
     }
 }
 

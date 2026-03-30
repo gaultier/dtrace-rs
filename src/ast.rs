@@ -62,6 +62,8 @@ pub enum NodeKind {
     Block(Vec<NodeId>),
     VarDecl(String, NodeId),
     PostfixIncDecrement(NodeId, TokenKind),
+    ExprStmt(NodeId),
+    EmptyStmt,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -758,8 +760,17 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        // TODO: unary_expr...
-        self.parse_conditional_expr()
+        if let Some(cond) = self.parse_conditional_expr() {
+            return Some(cond);
+        }
+        // TODO
+        //if let Some(unary) = self.parse_unary_expr(){
+        //    todo!();
+        //}
+        if let Some(assign) = self.parse_assignment_expr() {
+            return Some(assign);
+        }
+        None
     }
 
     //conditional_expression  → logical_or_expression
@@ -1081,10 +1092,15 @@ impl<'a> Parser<'a> {
 
         // TODO
 
-        let e = self.parse_expr();
-        self.match_kind(TokenKind::SemiColon);
+        if let Some(e) = self.parse_expr() {
+            self.expect_token_one(
+                TokenKind::SemiColon,
+                "trailing semicolon after expression in statement",
+            );
+            return Some(e);
+        }
 
-        e
+        None
     }
 
     // Best effort to find the closest token when doing error reporting.
@@ -1153,6 +1169,7 @@ impl<'a> Parser<'a> {
         Some(node_id)
     }
 
+    //probe_specifier         → PSPEC | INT ;
     fn parse_probe_specifier(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
@@ -1182,16 +1199,61 @@ impl<'a> Parser<'a> {
         None
     }
 
-    //statement               → ";"
-    //                        | expression ";"
-    //                        | "if" "(" expression ")" statement_or_block
-    //                        | "if" "(" expression ")" statement_or_block
-    //                          "else" statement_or_block ;
+    // statement_list          → statement* expression? ;
     fn parse_statement_list(&mut self) -> Option<Vec<NodeId>> {
-        // TODO: if.
-        self.parse_expr().map(|x| vec![x])
+        if self.error_mode {
+            return None;
+        }
+        let mut stmts = Vec::new();
+        for _ in 0..self.remaining_tokens_count() {
+            match self.peek().map(|t| t.kind) {
+                Some(TokenKind::RightCurly) => {
+                    return Some(stmts);
+                }
+                Some(TokenKind::KeywordIf) => todo!(),
+                Some(TokenKind::Eof) | None => {
+                    todo!(); // Error
+                }
+                Some(TokenKind::SemiColon) => {
+                    let tok = *self.eat_token().unwrap();
+                    stmts.push(self.new_node(Node {
+                        kind: NodeKind::EmptyStmt,
+                        origin: tok.origin,
+                    }));
+                }
+                Some(_) => {
+                    let expr = self.parse_expr().unwrap_or_else(|| {
+                        self.add_error_with_explanation(
+                            ErrorKind::MissingExpr,
+                            self.current_origin_for_err(),
+                            format!(
+                                "expected expression in statement list, found: {:?}",
+                                self.current_token_kind_for_err()
+                            ),
+                        );
+                        self.new_node_unknown()
+                    });
+
+                    if let Some(tok) = self.match_kind(TokenKind::SemiColon) {
+                        stmts.push(self.new_node(Node {
+                            kind: NodeKind::ExprStmt(expr),
+                            origin: tok.origin,
+                        }));
+                    } else {
+                        stmts.push(self.new_node(Node {
+                            kind: NodeKind::ExprStmt(expr),
+                            origin: Origin::new_unknown(),
+                        }));
+
+                        return Some(stmts);
+                    }
+                }
+            }
+        }
+        None
     }
 
+    // probe_specifier_list    → probe_specifier ( "," probe_specifier )* ;
     fn parse_probe_specifier_list(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
@@ -1307,6 +1369,7 @@ impl<'a> Parser<'a> {
         )
     }
 
+    // translation_unit        → external_declaration+ ;
     fn parse_translation_unit(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
@@ -1323,6 +1386,8 @@ impl<'a> Parser<'a> {
                 decls.push(decl);
             }
         }
+
+        // TODO: Error if zero decls;
 
         let node_id = self.new_node(Node {
             kind: NodeKind::TranslationUnit(decls),
@@ -1576,6 +1641,8 @@ impl<'a> Parser<'a> {
             NodeKind::SizeofExpr(_node_id) => todo!(),
             NodeKind::StringofExpr(_node_id) => todo!(),
             NodeKind::PostfixIncDecrement(_node_id, _token_kind) => todo!(),
+            NodeKind::ExprStmt(_node_id) => todo!(),
+            NodeKind::EmptyStmt => todo!(),
         }
     }
 
@@ -1676,6 +1743,8 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         NodeKind::SizeofExpr(node_id) => log(nodes, *node_id, indent + 2),
         NodeKind::StringofExpr(node_id) => log(nodes, *node_id, indent + 2),
         NodeKind::PostfixIncDecrement(node_id, _token_kind) => log(nodes, *node_id, indent + 2),
+        NodeKind::ExprStmt(node_id) => log(nodes, *node_id, indent + 2),
+        NodeKind::EmptyStmt => todo!(),
     }
 }
 
