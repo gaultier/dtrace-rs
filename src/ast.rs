@@ -84,6 +84,9 @@ pub enum NodeKind {
     EnumeratorDeclaration(String, Option<NodeId>),
     EnumeratorsDeclaration(Vec<NodeId>),
     StructDeclaration(Option<String>, Option<NodeId>),
+    StructFieldsDeclaration(Vec<NodeId>),
+    StructFieldDeclarator(NodeId, Option<NodeId>),
+    StructFieldDeclaration(NodeId, Option<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2049,6 +2052,9 @@ impl<'a> Parser<'a> {
             NodeKind::EnumeratorDeclaration(_name, _node_id) => {}
             NodeKind::EnumeratorsDeclaration(_node_ids) => {}
             NodeKind::StructDeclaration(_, _node_id) => {}
+            NodeKind::StructFieldsDeclaration(_node_ids) => {}
+            NodeKind::StructFieldDeclarator(_node_id, _node_id1) => {}
+            NodeKind::StructFieldDeclaration(_node_id, _node_id1) => {}
         }
     }
 
@@ -2462,11 +2468,72 @@ impl<'a> Parser<'a> {
         }))
     }
 
+    // struct_declaration_list → struct_declaration+ ;
     fn parse_struct_declaration_list(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
+        let decl = self.parse_struct_declaration()?;
+
+        let mut decls = vec![decl];
+
+        while let Some(decl) = self.parse_struct_declaration() {
+            decls.push(decl);
+        }
+
+        Some(self.new_node(Node {
+            kind: NodeKind::StructFieldsDeclaration(decls),
+            origin: self.origin(decl),
+        }))
+    }
+
+    // struct_declaration      → specifier_qualifier_list struct_declarator_list ";" ;
+    fn parse_struct_declaration(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+        let spec = self.parse_specifier_qualifier_list()?;
+        let struct_declarator_list = self.parse_struct_declarator_list();
+        self.expect_token_one(
+            TokenKind::SemiColon,
+            "semicolon after field in struct declaration",
+        );
+
+        Some(self.new_node(Node {
+            kind: NodeKind::StructFieldDeclaration(spec, struct_declarator_list),
+            origin: self.origin(spec),
+        }))
+    }
+
+    // struct_declarator_list  → struct_declarator ( "," struct_declarator )* ;
+    fn parse_struct_declarator_list(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
         todo!()
+    }
+
+    // struct_declarator       → declarator ( ":" constant_expression )?
+    fn parse_struct_declarator(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+        let declarator = self.parse_declarator()?;
+
+        let const_expr = if let Some(colon) = self.match_kind(TokenKind::Colon) {
+            let expr = self.parse_conditional_expr().unwrap_or_else(||{
+                self.add_error_with_explanation(ErrorKind::MissingConstantExpr, colon.origin, format!("expected a constant expression after colon in struct field declaration, found: {:?}", self.current_token_kind_for_err()));
+                self.new_node_unknown()
+            });
+            Some(expr)
+        } else {
+            None
+        };
+
+        Some(self.new_node(Node {
+            kind: NodeKind::StructFieldDeclarator(declarator, const_expr),
+            origin: self.origin(declarator),
+        }))
     }
 }
 
@@ -2623,6 +2690,23 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         }
         NodeKind::StructDeclaration(_, node_id) => {
             if let Some(node_id) = node_id {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
+        NodeKind::StructFieldsDeclaration(node_ids) => {
+            for node_id in node_ids {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
+        NodeKind::StructFieldDeclarator(declarator, const_expr) => {
+            log(nodes, *declarator, indent + 2);
+            if let Some(node_id) = const_expr {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
+        NodeKind::StructFieldDeclaration(specifier_qualifier_list, declarator_list) => {
+            log(nodes, *specifier_qualifier_list, indent + 2);
+            if let Some(node_id) = declarator_list {
                 log(nodes, *node_id, indent + 2);
             }
         }
