@@ -66,6 +66,7 @@ pub enum NodeKind {
     EmptyStmt,
     PostfixArguments(NodeId, Option<NodeId>),
     TernaryExpr(NodeId, NodeId, NodeId),
+    PostfixArrayAccess(NodeId, Option<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -640,7 +641,20 @@ impl<'a> Parser<'a> {
                 Some(Token {
                     kind: TokenKind::LeftSquareBracket,
                     ..
-                }) => todo!(),
+                }) => {
+                    let token = *self.eat_token().unwrap();
+
+                    let args = self.parse_argument_expr_list();
+                    self.expect_token_one(
+                        TokenKind::RightSquareBracket,
+                        "matching square bracket in argument list",
+                    );
+
+                    return Some(self.new_node(Node {
+                        kind: NodeKind::PostfixArrayAccess(expr, args),
+                        origin: token.origin,
+                    }));
+                }
                 Some(Token {
                     kind: TokenKind::LeftParen,
                     ..
@@ -650,7 +664,7 @@ impl<'a> Parser<'a> {
                     let args = self.parse_argument_expr_list();
                     self.expect_token_one(
                         TokenKind::RightParen,
-                        "match parenthesis in argument list",
+                        "matching parenthesis in argument list",
                     );
 
                     return Some(self.new_node(Node {
@@ -1303,7 +1317,10 @@ impl<'a> Parser<'a> {
 
         if let Some(_left_curly) = self.match_kind(TokenKind::LeftCurly) {
             let stmt_list = self.parse_statement_list();
-            self.expect_token_one(TokenKind::RightCurly, "match right curly brace after block");
+            self.expect_token_one(
+                TokenKind::RightCurly,
+                "matching right curly brace after block",
+            );
             return stmt_list;
         }
         self.parse_statement()
@@ -1866,6 +1883,7 @@ impl<'a> Parser<'a> {
             NodeKind::EmptyStmt => todo!(),
             NodeKind::PostfixArguments(_, _node_id) => todo!(),
             NodeKind::TernaryExpr(_node_id, _node_id1, _node_id2) => todo!(),
+            NodeKind::PostfixArrayAccess(_node_id, _node_id1) => todo!(),
         }
     }
 
@@ -1956,7 +1974,7 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         }
         NodeKind::PrimaryToken(_) => {}
         NodeKind::Cast(_, _) => {}
-        NodeKind::Aggregation(_) => todo!(),
+        NodeKind::Aggregation(_) => {}
         NodeKind::CommaExpr(node_ids) => {
             for node in node_ids {
                 log(nodes, *node, indent + 2);
@@ -1968,7 +1986,7 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         NodeKind::PostfixIncDecrement(node_id, _token_kind) => log(nodes, *node_id, indent + 2),
         NodeKind::ExprStmt(node_id) => log(nodes, *node_id, indent + 2),
         NodeKind::EmptyStmt => {}
-        NodeKind::PostfixArguments(primary, args) => {
+        NodeKind::PostfixArrayAccess(primary, args) | NodeKind::PostfixArguments(primary, args) => {
             log(nodes, *primary, indent + 2);
             if let Some(node_id) = args {
                 log(nodes, *node_id, indent + 2)
