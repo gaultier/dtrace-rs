@@ -2395,7 +2395,9 @@ impl<'a> Parser<'a> {
 
         let identifier = self.match_kind(TokenKind::Identifier)?;
         let expr = if let Some(eq) = self.match_kind(TokenKind::Eq) {
-            Some(self.parse_expr().unwrap_or_else(|| {
+            // Intentionally avoid to call `parse_expr()` which is too generic and will interpret
+            // the comma as a comma expression, instead of a delimiter between enumerators.
+            Some(self.parse_conditional_expr().unwrap_or_else(|| {
                 self.add_error_with_explanation(
                     ErrorKind::MissingExpr,
                     eq.origin,
