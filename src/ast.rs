@@ -36,6 +36,7 @@ pub enum NodeKind {
     PrimaryToken(TokenKind),
     Cast(String, NodeId),
     ProbeSpecifier(String),
+    ProbeSpecifiers(Vec<NodeId>),
     ProbeDefinition(NodeId, Option<NodeId>, Option<NodeId>),
     BinaryOp(NodeId, TokenKind, NodeId),
     Identifier(String),
@@ -1563,19 +1564,43 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let probe_specifier = if let Some(x) = self.parse_probe_specifier() {
-            x
-        } else {
-            let found = self.current_token_kind_for_err();
-            self.errors.push(Error::new(
+        let mut probe_specifier = self.parse_probe_specifier().unwrap_or_else(|| {
+            self.add_error_with_explanation(
                 ErrorKind::MissingProbeSpecifier,
                 self.current_or_last_token_origin()
                     .unwrap_or(Origin::new_unknown()),
-                format!("expected probe specifier, found: {:?}", found),
-            ));
-            return None;
-        };
-        // TODO: More probe specifiers separated by commas.
+                format!(
+                    "expected probe specifier, found: {:?}",
+                    self.current_token_kind_for_err()
+                ),
+            );
+            self.new_node_unknown()
+        });
+
+        if self.peek().map(|t| t.kind) == Some(TokenKind::Comma) {
+            let first_comma_origin = self.peek().unwrap().origin;
+            let mut specifiers = vec![probe_specifier];
+
+            while let Some(comma) = self.match_kind(TokenKind::Comma) {
+                let specifier = self.parse_probe_specifier().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
+                        comma.origin,
+                        format!(
+                            "expected probe specifier following comma, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
+                specifiers.push(specifier);
+            }
+
+            probe_specifier = self.new_node(Node {
+                kind: NodeKind::ProbeSpecifiers(specifiers),
+                origin: first_comma_origin,
+            });
+        }
 
         // In file mode, a predication or action MUST follow.
 
@@ -1951,6 +1976,7 @@ impl<'a> Parser<'a> {
             NodeKind::TernaryExpr(_node_id, _node_id1, _node_id2) => todo!(),
             NodeKind::PostfixArrayAccess(_node_id, _node_id1) => todo!(),
             NodeKind::FieldAccess(_node_id, _token_kind, _token) => todo!(),
+            NodeKind::ProbeSpecifiers(_node_ids) => todo!(),
         }
     }
 
@@ -2042,7 +2068,7 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         NodeKind::PrimaryToken(_) => {}
         NodeKind::Cast(_, _) => {}
         NodeKind::Aggregation(_) => {}
-        NodeKind::CommaExpr(node_ids) => {
+        NodeKind::ProbeSpecifiers(node_ids) | NodeKind::CommaExpr(node_ids) => {
             for node in node_ids {
                 log(nodes, *node, indent + 2);
             }
