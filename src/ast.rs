@@ -88,6 +88,7 @@ pub enum NodeKind {
     StructFieldDeclarator(NodeId, Option<NodeId>),
     StructFieldDeclaration(NodeId, Option<NodeId>),
     StructFieldDeclaratorList(Vec<NodeId>),
+    SpecifierQualifierList(Vec<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -874,7 +875,23 @@ impl<'a> Parser<'a> {
         if self.error_mode {
             return None;
         }
-        todo!()
+        let type_specifier = self
+            .parse_type_specifier()
+            .or_else(|| self.parse_type_qualifier())?;
+
+        let mut list = vec![type_specifier];
+
+        while let Some(x) = self
+            .parse_type_specifier()
+            .or_else(|| self.parse_type_qualifier())
+        {
+            list.push(x);
+        }
+
+        Some(self.new_node(Node {
+            kind: NodeKind::SpecifierQualifierList(list),
+            origin: self.origin(type_specifier),
+        }))
     }
 
     //fn parse_block(&mut self) -> Option<NodeId> {
@@ -2057,6 +2074,7 @@ impl<'a> Parser<'a> {
             NodeKind::StructFieldDeclarator(_node_id, _node_id1) => {}
             NodeKind::StructFieldDeclaration(_node_id, _node_id1) => {}
             NodeKind::StructFieldDeclaratorList(_node_ids) => todo!(),
+            NodeKind::SpecifierQualifierList(_node_ids) => todo!(),
         }
     }
 
@@ -2726,6 +2744,11 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
             }
         }
         NodeKind::StructFieldDeclaratorList(node_ids) => {
+            for node_id in node_ids {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
+        NodeKind::SpecifierQualifierList(node_ids) => {
             for node_id in node_ids {
                 log(nodes, *node_id, indent + 2);
             }
