@@ -1499,7 +1499,16 @@ impl<'a> Parser<'a> {
                     stmts.push(stmt);
                 }
                 Some(TokenKind::Eof) | None => {
-                    todo!(); // Error
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
+                        self.current_origin_for_err(),
+                        "reached EOF while parsing statement, did you forget a semicolon?"
+                            .to_owned(),
+                    );
+                    return Some(self.new_node(Node {
+                        kind: NodeKind::Block(stmts),
+                        origin: self.current_origin_for_err(),
+                    }));
                 }
                 Some(TokenKind::SemiColon) => {
                     let tok = *self.eat_token().unwrap();
