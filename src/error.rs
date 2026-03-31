@@ -30,6 +30,7 @@ pub(crate) enum ErrorKind {
     MissingFieldOrKeywordInMemberAccess,
     MissingStatementOrBlock,
     MissingStatement,
+    MissingTypeName,
 }
 
 #[derive(Serialize, Debug, Clone)]

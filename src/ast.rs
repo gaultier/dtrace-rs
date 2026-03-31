@@ -69,6 +69,7 @@ pub enum NodeKind {
     TernaryExpr(NodeId, NodeId, NodeId),
     PostfixArrayAccess(NodeId, Option<NodeId>),
     FieldAccess(NodeId, TokenKind, Token),
+    TypeName(NodeId, Option<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -609,6 +610,25 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // Certain DTrace-specific keywords may appear as struct/union member names in member-access
+    // expressions.
+    fn parse_keyword_as_ident(&mut self) -> Option<Token> {
+        match self.peek().map(|t| t.kind) {
+            Some(
+                TokenKind::Identifier
+                | TokenKind::KeywordProbe
+                | TokenKind::KeywordProvider
+                | TokenKind::KeywordSelf
+                | TokenKind::KeywordString
+                | TokenKind::KeywordStringof
+                | TokenKind::KeywordUserland
+                | TokenKind::KeywordXlate
+                | TokenKind::KeywordTranslator,
+            ) => self.eat_token().copied(),
+            _ => None,
+        }
+    }
+
     //postfix_expression      → primary_expression
     //                        | postfix_expression "[" argument_expression_list "]"
     //                        | postfix_expression "(" argument_expression_list? ")"
@@ -679,48 +699,31 @@ impl<'a> Parser<'a> {
                     ..
                 }) => {
                     let op = *self.eat_token().unwrap();
-                    match self.peek().map(|t| t.kind) {
-                        // Certain DTrace-specific keywords may appear as struct/union member names in member-access
-                        // expressions.
-                        Some(
-                            TokenKind::Identifier
-                            | TokenKind::KeywordProbe
-                            | TokenKind::KeywordProvider
-                            | TokenKind::KeywordSelf
-                            | TokenKind::KeywordString
-                            | TokenKind::KeywordStringof
-                            | TokenKind::KeywordUserland
-                            | TokenKind::KeywordXlate
-                            | TokenKind::KeywordTranslator,
-                        ) => {
-                            let rhs = *self.eat_token().unwrap();
-
-                            lhs = self.new_node(Node {
-                                kind: NodeKind::FieldAccess(lhs, op.kind, rhs),
-                                origin: op.origin,
-                            });
-                        }
-                        _ => {
-                            self.add_error_with_explanation(
-                                ErrorKind::MissingFieldOrKeywordInMemberAccess,
-                                op.origin,
-                                format!(
-                                    "expected identifier or keyword in member access, found: {:?}",
-                                    self.current_token_kind_for_err()
-                                ),
-                            );
-                            lhs = self.new_node(Node {
-                                kind: NodeKind::FieldAccess(
-                                    lhs,
-                                    op.kind,
-                                    Token {
-                                        kind: TokenKind::Unknown,
-                                        origin: Origin::new_unknown(),
-                                    },
-                                ),
-                                origin: op.origin,
-                            });
-                        }
+                    if let Some(keyword_as_ident) = self.parse_keyword_as_ident() {
+                        lhs = self.new_node(Node {
+                            kind: NodeKind::FieldAccess(lhs, op.kind, keyword_as_ident),
+                            origin: op.origin,
+                        });
+                    } else {
+                        self.add_error_with_explanation(
+                            ErrorKind::MissingFieldOrKeywordInMemberAccess,
+                            op.origin,
+                            format!(
+                                "expected identifier or keyword in member access, found: {:?}",
+                                self.current_token_kind_for_err()
+                            ),
+                        );
+                        lhs = self.new_node(Node {
+                            kind: NodeKind::FieldAccess(
+                                lhs,
+                                op.kind,
+                                Token {
+                                    kind: TokenKind::Unknown,
+                                    origin: Origin::new_unknown(),
+                                },
+                            ),
+                            origin: op.origin,
+                        });
                     }
                 }
                 Some(Token {
@@ -738,14 +741,38 @@ impl<'a> Parser<'a> {
                     kind: TokenKind::KeywordOffsetOf,
                     ..
                 }) => {
-                    let _op = *self.eat_token().unwrap();
-                    self.expect_token_one(
+                    let op = *self.eat_token().unwrap();
+                    let left_paren = self.expect_token_one(
                         TokenKind::LeftParen,
                         "opening parenthesis after offsetof",
                     );
-                    // TODO: type_name.
-                    self.expect_token_one(TokenKind::Comma, "comma after type name");
-                    // TODO: field.
+                    let type_name = self.parse_type_name().unwrap_or_else(|| {
+                        self.add_error_with_explanation(
+                            ErrorKind::MissingTypeName,
+                            left_paren.map(|t| t.origin).unwrap_or(op.origin),
+                            format!(
+                                "expected type name after offsetof, found: {:?}",
+                                self.current_token_kind_for_err()
+                            ),
+                        );
+                        self.new_node_unknown()
+                    });
+                    let comma = self.expect_token_one(TokenKind::Comma, "comma after type name");
+                    let field = if let Some(identifier) = self.match_kind(TokenKind::Identifier) {
+                        identifier
+                    } else if let Some(keyword_as_ident) = self.parse_keyword_as_ident() {
+                        keyword_as_ident
+                    } else {
+                        self.add_error_with_explanation(
+                            ErrorKind::MissingFieldOrKeywordInMemberAccess,
+                            comma.map(|t| t.origin).unwrap_or(op.origin),
+                            format!(
+                                "expected field or keyword as offsetof last argument, found: {:?}",
+                                self.current_token_kind_for_err()
+                            ),
+                        );
+                        todo!()
+                    };
                     self.expect_token_one(TokenKind::RightParen, "closing parenthesis after field");
                     todo!()
                 }
@@ -807,6 +834,33 @@ impl<'a> Parser<'a> {
             kind: NodeKind::Arguments(args),
             origin: first_comma_origin,
         }))
+    }
+
+    // type_name               → specifier_qualifier_list abstract_declarator? ;
+    fn parse_type_name(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+        let specifier = self.parse_specifier_qualifier_list()?;
+
+        let abstract_declarator = self.parse_abstract_declarator();
+
+        Some(self.new_node(Node {
+            kind: NodeKind::TypeName(specifier, abstract_declarator),
+            origin: self.origin(specifier),
+        }))
+    }
+
+    fn origin(&self, node_id: NodeId) -> Origin {
+        self.nodes[node_id].origin
+    }
+
+    // specifier_qualifier_list→ ( type_specifier | type_qualifier )+ ;
+    fn parse_specifier_qualifier_list(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+        todo!()
     }
 
     //fn parse_block(&mut self) -> Option<NodeId> {
@@ -1972,6 +2026,7 @@ impl<'a> Parser<'a> {
             NodeKind::PostfixArrayAccess(_node_id, _node_id1) => todo!(),
             NodeKind::FieldAccess(_node_id, _token_kind, _token) => todo!(),
             NodeKind::ProbeSpecifiers(_node_ids) => todo!(),
+            NodeKind::TypeName(_node_id, _node_id1) => todo!(),
         }
     }
 
@@ -1985,6 +2040,13 @@ impl<'a> Parser<'a> {
             &mut self.name_to_def,
             self.file_id_to_name,
         );
+    }
+
+    fn parse_abstract_declarator(&self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+        todo!()
     }
 }
 
@@ -2087,6 +2149,12 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         }
         NodeKind::FieldAccess(node_id, _, _) => {
             log(nodes, *node_id, indent + 2);
+        }
+        NodeKind::TypeName(specifier, declarator) => {
+            log(nodes, *specifier, indent + 2);
+            if let Some(declarator) = declarator {
+                log(nodes, *declarator, indent + 2);
+            }
         }
     }
 }
