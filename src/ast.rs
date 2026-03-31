@@ -1420,7 +1420,7 @@ impl<'a> Parser<'a> {
         } else {
             self.add_error_with_explanation(
                 ErrorKind::MissingExpectedToken(token_kind),
-                self.current_or_last_origin_for_err().unwrap(),
+                self.current_or_last_origin_for_err(),
                 format!("failed to parse {}: missing {:?}", context, token_kind),
             );
             None
@@ -1642,8 +1642,7 @@ impl<'a> Parser<'a> {
 
         self.add_error_with_explanation(
             ErrorKind::MissingPredicateOrAction,
-            self.current_or_last_origin_for_err()
-                .unwrap_or_else(|| Origin::new_unknown()),
+            self.current_or_last_origin_for_err(),
             format!(
                 "a predicate or action must follow a probe specifier in file mode, found: {:?}",
                 self.current_token_kind_for_err()
@@ -1751,7 +1750,7 @@ impl<'a> Parser<'a> {
             // Catch-all.
             self.add_error_with_explanation(
                 ErrorKind::ParseProgram,
-                self.current_or_last_origin_for_err().unwrap(),
+                self.current_or_last_origin_for_err(),
                 format!(
                     "catch-all parse program error: encountered unexpected token {:?}",
                     token
