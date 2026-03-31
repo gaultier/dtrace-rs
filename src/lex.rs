@@ -113,6 +113,7 @@ pub enum TokenKind {
     MinusEq,
     PlusEq,
     LtLt,
+    Question,
 }
 
 #[derive(Serialize, Debug, Copy, Clone, PartialEq, Eq)]
@@ -641,6 +642,17 @@ impl Lexer {
                     };
                     self.tokens.push(Token {
                         kind: TokenKind::Ampersand,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                }
+                '?' => {
+                    let origin = Origin {
+                        len: 1,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::Question,
                         origin,
                     });
                     self.advance(c, &mut it);

@@ -344,6 +344,7 @@ pub fn check_node(
         NodeKind::ExprStmt(_node_id) => todo!(),
         NodeKind::EmptyStmt => todo!(),
         NodeKind::PostfixArguments(_, _node_id) => todo!(),
+        NodeKind::TernaryExpr(_, _, _) => todo!(),
     }
 }
 

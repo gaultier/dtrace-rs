@@ -65,6 +65,7 @@ pub enum NodeKind {
     ExprStmt(NodeId),
     EmptyStmt,
     PostfixArguments(NodeId, Option<NodeId>),
+    TernaryExpr(NodeId, NodeId, NodeId),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -876,12 +877,33 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if let Some(e) = self.parse_logical_or_expr() {
-            // TODO
-            return Some(e);
-        }
+        let lhs = self.parse_logical_or_expr()?;
 
-        None
+        if let Some(question_mark) = self.match_kind(TokenKind::Question) {
+            let mhs = self.parse_expr().unwrap_or_else(|| {
+                self.add_error_with_explanation(
+                    ErrorKind::MissingExpr,
+                    question_mark.origin,
+                    format!(
+                        "expected expression in ternary condition after question mark, found: {:?}",
+                        self.current_token_kind_for_err()
+                    ),
+                );
+                self.new_node_unknown()
+            });
+            self.expect_token_one(TokenKind::Colon, "colon in ternary expression");
+            let rhs = self.parse_conditional_expr().unwrap_or_else(||{
+                    self.add_error_with_explanation(ErrorKind::MissingExpected, self.current_origin_for_err(), format!("expected conditional expression in ternary condition after colon, found: {:?}", self.current_token_kind_for_err()));
+                    self.new_node_unknown()
+                });
+
+            return Some(self.new_node(Node {
+                kind: NodeKind::TernaryExpr(lhs, mhs, rhs),
+                origin: question_mark.origin,
+            }));
+        } else {
+            return Some(lhs);
+        }
     }
 
     //logical_or_expression   → logical_xor_expression
@@ -1739,6 +1761,7 @@ impl<'a> Parser<'a> {
             NodeKind::ExprStmt(_node_id) => todo!(),
             NodeKind::EmptyStmt => todo!(),
             NodeKind::PostfixArguments(_, _node_id) => todo!(),
+            NodeKind::TernaryExpr(_node_id, _node_id1, _node_id2) => todo!(),
         }
     }
 
@@ -1846,6 +1869,11 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
             if let Some(node_id) = args {
                 log(nodes, *node_id, indent + 2)
             }
+        }
+        NodeKind::TernaryExpr(lhs, mhs, rhs) => {
+            log(nodes, *lhs, indent + 2);
+            log(nodes, *mhs, indent + 2);
+            log(nodes, *rhs, indent + 2);
         }
     }
 }
