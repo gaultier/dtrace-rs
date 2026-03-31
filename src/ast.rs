@@ -71,6 +71,7 @@ pub enum NodeKind {
     FieldAccess(NodeId, TokenKind, Token),
     TypeName(NodeId, Option<NodeId>),
     OffsetOf(NodeId, Token),
+    Declaration(NodeId, Option<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -818,7 +819,7 @@ impl<'a> Parser<'a> {
                     ErrorKind::MissingExpr,
                     op.origin,
                     format!(
-                        "expect assignment expression in argument list after comma, found: {:?}",
+                        "expected assignment expression in argument list after comma, found: {:?}",
                         self.current_token_kind_for_err()
                     ),
                 );
@@ -897,7 +898,7 @@ impl<'a> Parser<'a> {
     //        self.add_error_with_explanation(
     //            ErrorKind::MissingExpectedToken(TokenKind::LeftCurly),
     //            keyword_if.origin,
-    //            format!("expect block following if(cond), found: {:?}", found),
+    //            format!("expected block following if(cond), found: {:?}", found),
     //        );
     //
     //        return None;
@@ -909,7 +910,7 @@ impl<'a> Parser<'a> {
     //            self.add_error_with_explanation(
     //                ErrorKind::MissingExpectedToken(TokenKind::LeftCurly),
     //                keyword_if.origin,
-    //                format!("expect block following else, found: {:?}", found),
+    //                format!("expected block following else, found: {:?}", found),
     //            );
     //
     //            None
@@ -1723,9 +1724,7 @@ impl<'a> Parser<'a> {
             return Some(stmt);
         };
 
-        // TODO: declaration.
-
-        None
+        self.parse_declaration()
     }
 
     fn is_at_end(&self) -> bool {
@@ -2025,6 +2024,7 @@ impl<'a> Parser<'a> {
             NodeKind::ProbeSpecifiers(_node_ids) => todo!(),
             NodeKind::TypeName(_node_id, _node_id1) => todo!(),
             NodeKind::OffsetOf(_node_id, _token) => todo!(),
+            NodeKind::Declaration(_node_id, _node_id1) => todo!(),
         }
     }
 
@@ -2042,10 +2042,49 @@ impl<'a> Parser<'a> {
         );
     }
 
-    fn parse_abstract_declarator(&self) -> Option<NodeId> {
+    fn parse_abstract_declarator(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
+        todo!()
+    }
+
+    // declaration             → declaration_specifiers init_declarator_list? ";" ;
+    fn parse_declaration(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let decl_specifiers = self.parse_declaration_specifiers()?;
+
+        let init_decl_list = self.parse_declarator_list();
+
+        let semicolon =
+            self.expect_token_one(TokenKind::SemiColon, "expected semicolon after declaration");
+
+        Some(
+            self.new_node(Node {
+                kind: NodeKind::Declaration(decl_specifiers, init_decl_list),
+                origin: semicolon
+                    .map(|t| t.origin)
+                    .unwrap_or_else(|| self.current_or_last_origin_for_err()),
+            }),
+        )
+    }
+
+    fn parse_declaration_specifiers(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        todo!()
+    }
+
+    fn parse_declarator_list(&self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
         todo!()
     }
 }
@@ -2158,6 +2197,12 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         }
         NodeKind::OffsetOf(node_id, _token) => {
             log(nodes, *node_id, indent + 2);
+        }
+        NodeKind::Declaration(decl_specifiers, init_declarator_list) => {
+            log(nodes, *decl_specifiers, indent + 2);
+            if let Some(init_declarator_list) = init_declarator_list {
+                log(nodes, *init_declarator_list, indent + 2);
+            }
         }
     }
 }
