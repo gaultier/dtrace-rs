@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     hash::Hash,
     num::ParseIntError,
     ops::{Index, IndexMut},
@@ -141,6 +141,7 @@ pub struct Parser<'a> {
     pub(crate) nodes: Vec<Node>,
     pub(crate) node_to_type: HashMap<NodeId, Type>,
     pub(crate) name_to_def: NameToDef,
+    pub(crate) typenames: HashSet<String>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -213,6 +214,7 @@ impl<'a> Parser<'a> {
             nodes: Vec::new(),
             node_to_type: HashMap::new(),
             name_to_def: NameToDef::new(),
+            typenames: HashSet::new(),
         }
     }
 
@@ -2225,14 +2227,26 @@ impl<'a> Parser<'a> {
                 | TokenKind::KeywordSigned
                 | TokenKind::KeywordUnsigned
                 | TokenKind::KeywordUserland
-                | TokenKind::KeywordString
-                | TokenKind::Identifier,
+                | TokenKind::KeywordString,
             ) => {
                 let tok = *self.eat_token().unwrap();
                 Some(self.new_node(Node {
                     kind: NodeKind::TypeSpecifier(tok.kind),
                     origin: tok.origin,
                 }))
+            }
+            Some(TokenKind::Identifier) => {
+                let origin = self.peek().unwrap().origin;
+                let kind = self.peek().unwrap().kind;
+                let name = Self::str_from_source(self.input, &origin);
+                if self.typenames.contains(name) {
+                    return Some(self.new_node(Node {
+                        kind: NodeKind::TypeSpecifier(kind),
+                        origin,
+                    }));
+                } else {
+                    None
+                }
             }
             Some(TokenKind::KeywordStruct | TokenKind::KeywordUnion) => {
                 self.parse_struct_or_union_specifier()
@@ -2360,6 +2374,11 @@ impl<'a> Parser<'a> {
 
         let enum_tok = self.match_kind(TokenKind::KeywordEnum)?;
         let name_tok = self.match_kind(TokenKind::Identifier);
+        let name = name_tok.map(|t| Self::str_from_source(self.input, &t.origin).to_owned());
+        if let Some(name) = &name {
+            self.typenames.insert(name.clone());
+        }
+
         let enumerator_list: Option<NodeId> =
             if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
                 let enumerator_list = self.parse_enumerator_list().unwrap_or_else(|| {
@@ -2382,7 +2401,6 @@ impl<'a> Parser<'a> {
                 None
             };
 
-        let name = name_tok.map(|t| Self::str_from_source(self.input, &t.origin).to_owned());
         Some(self.new_node(Node {
             kind: NodeKind::EnumDeclaration(name, enumerator_list),
             origin: enum_tok.origin,
@@ -2458,6 +2476,11 @@ impl<'a> Parser<'a> {
             .or_else(|| self.match_kind(TokenKind::KeywordUnion))?;
 
         let name_tok = self.match_kind(TokenKind::Identifier);
+        let name = name_tok.map(|t| Self::str_from_source(self.input, &t.origin).to_owned());
+
+        if let Some(name) = &name {
+            self.typenames.insert(name.clone());
+        }
 
         let decl_list = if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
             let decl_list = self.parse_struct_declaration_list().unwrap_or_else(|| {
@@ -2481,7 +2504,6 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let name = name_tok.map(|t| Self::str_from_source(self.input, &t.origin).to_owned());
         Some(self.new_node(Node {
             kind: NodeKind::StructDeclaration(name, decl_list),
             origin: tok.origin,
