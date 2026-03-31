@@ -102,6 +102,17 @@ pub enum TokenKind {
     KeywordWhile,
     KeywordXlate,
     Unknown,
+    PipeEq,
+    CaretEq,
+    AmpersandEq,
+    GtGtEq,
+    LtLtEq,
+    PercentEq,
+    SlashEq,
+    StarEq,
+    MinusEq,
+    PlusEq,
+    LtLt,
 }
 
 #[derive(Serialize, Debug, Copy, Clone, PartialEq, Eq)]
@@ -119,9 +130,16 @@ impl Default for Token {
     }
 }
 
-fn it_peek_peek(it: &Peekable<Chars<'_>>) -> Option<char> {
+fn peek2(it: &Peekable<Chars<'_>>) -> Option<char> {
     let mut cpy = it.clone();
     cpy.next().and_then(|_| cpy.next())
+}
+
+fn peek3(it: &Peekable<Chars<'_>>) -> (Option<char>, Option<char>) {
+    let mut cpy = it.clone();
+    let c1 = cpy.next().and_then(|_| cpy.next());
+    let c2 = cpy.next();
+    (c1, c2)
 }
 
 fn is_character_probe_specifier_start(c: char) -> bool {
@@ -394,7 +412,7 @@ impl Lexer {
                 '\n' => {
                     self.advance(c, &mut it);
                 }
-                '-' if it_peek_peek(&it) == Some('-') => {
+                '-' if peek2(&it) == Some('-') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -406,7 +424,19 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '-' if it_peek_peek(&it) == Some('>') => {
+                '-' if peek2(&it) == Some('=') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::MinusEq,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
+                '-' if peek2(&it) == Some('>') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -429,13 +459,25 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '+' if it_peek_peek(&it) == Some('+') => {
+                '+' if peek2(&it) == Some('+') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
                     };
                     self.tokens.push(Token {
                         kind: TokenKind::PlusPlus,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
+                '+' if peek2(&it) == Some('=') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::PlusEq,
                         origin,
                     });
                     self.advance(c, &mut it);
@@ -463,6 +505,18 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
+                '*' if peek2(&it) == Some('=') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::StarEq,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
                 '*' => {
                     let origin = Origin {
                         len: 1,
@@ -485,6 +539,31 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
+                '<' if peek3(&it) == (Some('<'), Some('=')) => {
+                    let origin = Origin {
+                        len: 3,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::LtLtEq,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
+                '<' if peek2(&it) == Some('<') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::LtLt,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
                 '<' => {
                     let origin = Origin {
                         len: 1,
@@ -496,7 +575,19 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '^' if it_peek_peek(&it) == Some('^') => {
+                '^' if peek2(&it) == Some('=') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::CaretEq,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
+                '^' if peek2(&it) == Some('^') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -519,8 +610,19 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-
-                '&' if it_peek_peek(&it) == Some('&') => {
+                '&' if peek2(&it) == Some('=') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::AmpersandEq,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
+                '&' if peek2(&it) == Some('&') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -543,7 +645,19 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '|' if it_peek_peek(&it) == Some('|') => {
+                '|' if peek2(&it) == Some('=') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::PipeEq,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
+                '|' if peek2(&it) == Some('|') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -592,7 +706,7 @@ impl Lexer {
                         self.advance(c, &mut it);
                     }
                 }
-                '!' if it_peek_peek(&it) == Some('=') => {
+                '!' if peek2(&it) == Some('=') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -640,6 +754,17 @@ impl Lexer {
                     };
                     self.tokens.push(Token {
                         kind: TokenKind::Slash,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                }
+                '%' if peek2(&it) == Some('=') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::PercentEq,
                         origin,
                     });
                     self.advance(c, &mut it);
@@ -763,7 +888,7 @@ impl Lexer {
                 '@' => self.lex_keyword(input, &mut it),
                 _ if c.is_ascii_alphabetic() => self.lex_keyword(input, &mut it),
                 _ if is_character_probe_specifier_start(c)
-                    && is_character_probe_specifier_rest(it_peek_peek(&it).unwrap_or_default()) =>
+                    && is_character_probe_specifier_rest(peek2(&it).unwrap_or_default()) =>
                 {
                     self.lex_probe_specifier(&mut it)
                 }

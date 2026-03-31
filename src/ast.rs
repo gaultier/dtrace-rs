@@ -831,17 +831,41 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if let Some(cond) = self.parse_conditional_expr() {
-            return Some(cond);
+        let lhs = self.parse_conditional_expr()?;
+
+        match self.peek().map(|t| t.kind) {
+            Some(
+                TokenKind::Eq
+                | TokenKind::PlusEq
+                | TokenKind::MinusEq
+                | TokenKind::StarEq
+                | TokenKind::SlashEq
+                | TokenKind::PercentEq
+                | TokenKind::LtLtEq
+                | TokenKind::GtGtEq
+                | TokenKind::AmpersandEq
+                | TokenKind::CaretEq
+                | TokenKind::PipeEq,
+            ) => {
+                let op = *self.eat_token().unwrap();
+                let rhs = self.parse_assignment_expr().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
+                        op.origin,
+                        format!(
+                            "expected unary expression after assignment operator, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
+                return Some(self.new_node(Node {
+                    kind: NodeKind::Assignment(lhs, op, rhs),
+                    origin: op.origin,
+                }));
+            }
+            _ => return Some(lhs),
         }
-        // TODO
-        //if let Some(unary) = self.parse_unary_expr(){
-        //    todo!();
-        //}
-        if let Some(assign) = self.parse_assignment_expr() {
-            return Some(assign);
-        }
-        None
     }
 
     //conditional_expression  → logical_or_expression
