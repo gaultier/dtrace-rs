@@ -355,6 +355,10 @@ pub fn check_node(
         NodeKind::DirectDeclarator(_token) => todo!(),
         NodeKind::Declarator(_node_id, _node_id1) => todo!(),
         NodeKind::InitDeclarators(_node_ids) => todo!(),
+        NodeKind::TypeQualifier(_token_kind) => todo!(),
+        NodeKind::DStorageClassSpecifier(_token_kind) => todo!(),
+        NodeKind::StorageClassSpecifier(_token_kind) => todo!(),
+        NodeKind::TypeSpecifier(_token_kind) => todo!(),
     }
 }
 

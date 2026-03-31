@@ -72,10 +72,14 @@ pub enum NodeKind {
     TypeName(NodeId, Option<NodeId>),
     OffsetOf(NodeId, Token),
     Declaration(NodeId, Option<NodeId>),
-    DeclarationSpecifiers(Vec<Token>),
+    DeclarationSpecifiers(Vec<NodeId>),
     DirectDeclarator(Token),
     Declarator(Option<NodeId>, NodeId),
     InitDeclarators(Vec<NodeId>),
+    TypeQualifier(TokenKind),
+    DStorageClassSpecifier(TokenKind),
+    StorageClassSpecifier(TokenKind),
+    TypeSpecifier(TokenKind),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2021,18 +2025,22 @@ impl<'a> Parser<'a> {
             NodeKind::PostfixIncDecrement(_node_id, _token_kind) => todo!(),
             NodeKind::ExprStmt(_node_id) => todo!(),
             NodeKind::EmptyStmt => todo!(),
-            NodeKind::PostfixArguments(_, _node_id) => todo!(),
-            NodeKind::TernaryExpr(_node_id, _node_id1, _node_id2) => todo!(),
-            NodeKind::PostfixArrayAccess(_node_id, _node_id1) => todo!(),
-            NodeKind::FieldAccess(_node_id, _token_kind, _token) => todo!(),
-            NodeKind::ProbeSpecifiers(_node_ids) => todo!(),
-            NodeKind::TypeName(_node_id, _node_id1) => todo!(),
-            NodeKind::OffsetOf(_node_id, _token) => todo!(),
-            NodeKind::Declaration(_node_id, _node_id1) => todo!(),
-            NodeKind::DeclarationSpecifiers(_tokens) => todo!(),
-            NodeKind::DirectDeclarator(_token) => todo!(),
-            NodeKind::Declarator(_node_id, _node_id1) => todo!(),
-            NodeKind::InitDeclarators(_node_ids) => todo!(),
+            NodeKind::PostfixArguments(_, _node_id) => {}
+            NodeKind::TernaryExpr(_node_id, _node_id1, _node_id2) => {}
+            NodeKind::PostfixArrayAccess(_node_id, _node_id1) => {}
+            NodeKind::FieldAccess(_node_id, _token_kind, _token) => {}
+            NodeKind::ProbeSpecifiers(_node_ids) => {}
+            NodeKind::TypeName(_node_id, _node_id1) => {}
+            NodeKind::OffsetOf(_node_id, _token) => {}
+            NodeKind::Declaration(_node_id, _node_id1) => {}
+            NodeKind::DeclarationSpecifiers(_tokens) => {}
+            NodeKind::DirectDeclarator(_token) => {}
+            NodeKind::Declarator(_node_id, _node_id1) => {}
+            NodeKind::InitDeclarators(_node_ids) => {}
+            NodeKind::TypeQualifier(_token_kind) => {}
+            NodeKind::DStorageClassSpecifier(_token_kind) => {}
+            NodeKind::StorageClassSpecifier(_token_kind) => {}
+            NodeKind::TypeSpecifier(_token_kind) => {}
         }
     }
 
@@ -2104,7 +2112,7 @@ impl<'a> Parser<'a> {
 
         Some(self.new_node(Node {
             kind: NodeKind::DeclarationSpecifiers(specifiers),
-            origin: specifier.origin,
+            origin: self.origin(specifier),
         }))
     }
 
@@ -2139,7 +2147,7 @@ impl<'a> Parser<'a> {
     }
 
     // storage_class_specifier → "auto" | "register" | "static" | "extern" | "typedef" ;
-    fn parse_storage_class_specifier(&mut self) -> Option<Token> {
+    fn parse_storage_class_specifier(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
@@ -2151,7 +2159,13 @@ impl<'a> Parser<'a> {
                 | TokenKind::KeywordStatic
                 | TokenKind::KeywordExtern
                 | TokenKind::KeywordTypedef,
-            ) => self.eat_token().copied(),
+            ) => {
+                let tok = *self.eat_token().unwrap();
+                Some(self.new_node(Node {
+                    kind: NodeKind::StorageClassSpecifier(tok.kind),
+                    origin: tok.origin,
+                }))
+            }
             _ => None,
         }
     }
@@ -2160,7 +2174,7 @@ impl<'a> Parser<'a> {
     //                          | "userland" | "string" | TNAME
     //                          | struct_or_union_specifier
     //                          | enum_specifier ;
-    fn parse_type_specifier(&mut self) -> Option<Token> {
+    fn parse_type_specifier(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
@@ -2179,15 +2193,21 @@ impl<'a> Parser<'a> {
                 | TokenKind::KeywordUserland
                 | TokenKind::KeywordString
                 | TokenKind::Identifier,
-            ) => self.eat_token().copied(),
+            ) => {
+                let tok = *self.eat_token().unwrap();
+                Some(self.new_node(Node {
+                    kind: NodeKind::TypeSpecifier(tok.kind),
+                    origin: tok.origin,
+                }))
+            }
             Some(TokenKind::KeywordStruct | TokenKind::KeywordUnion) => todo!(),
-            Some(TokenKind::KeywordEnum) => todo!(),
+            Some(TokenKind::KeywordEnum) => self.parse_enum_specifier(),
             _ => None,
         }
     }
 
     // type_qualifier          → "const" | "restrict" | "volatile" ;
-    fn parse_type_qualifier(&mut self) -> Option<Token> {
+    fn parse_type_qualifier(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
@@ -2195,20 +2215,32 @@ impl<'a> Parser<'a> {
         match self.peek().map(|t| t.kind) {
             Some(
                 TokenKind::KeywordConst | TokenKind::KeywordRestrict | TokenKind::KeywordVolatile,
-            ) => self.eat_token().copied(),
+            ) => {
+                let tok = *self.eat_token().unwrap();
+                Some(self.new_node(Node {
+                    kind: NodeKind::TypeQualifier(tok.kind),
+                    origin: tok.origin,
+                }))
+            }
             _ => None,
         }
     }
 
     // d_storage_class_specifier
     //                          → storage_class_specifier | "self" | "this" ;
-    fn parse_d_storage_class_specifier(&mut self) -> Option<Token> {
+    fn parse_d_storage_class_specifier(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
 
         match self.peek().map(|t| t.kind) {
-            Some(TokenKind::KeywordSelf | TokenKind::KeywordThis) => self.eat_token().copied(),
+            Some(TokenKind::KeywordSelf | TokenKind::KeywordThis) => {
+                let tok = *self.eat_token().unwrap();
+                Some(self.new_node(Node {
+                    kind: NodeKind::DStorageClassSpecifier(tok.kind),
+                    origin: tok.origin,
+                }))
+            }
             _ => self.parse_storage_class_specifier(),
         }
     }
@@ -2280,6 +2312,16 @@ impl<'a> Parser<'a> {
         }
 
         let _star = self.match_kind(TokenKind::Star)?;
+        todo!()
+    }
+
+    fn parse_enum_specifier(&mut self) -> Option<NodeId> {
+        match self.peek().map(|t| t.kind) {
+            Some(TokenKind::Star | TokenKind::LeftParen | TokenKind::Identifier) => {}
+            _ => {
+                return None;
+            }
+        }
         todo!()
     }
 }
@@ -2399,7 +2441,11 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
                 log(nodes, *init_declarator_list, indent + 2);
             }
         }
-        NodeKind::DeclarationSpecifiers(_tokens) => {}
+        NodeKind::DeclarationSpecifiers(node_ids) => {
+            for node_id in node_ids {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
         NodeKind::DirectDeclarator(_token) => {}
         NodeKind::Declarator(ptr, declarator) => {
             if let Some(ptr) = ptr {
@@ -2412,6 +2458,10 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
                 log(nodes, *node_id, indent + 2);
             }
         }
+        NodeKind::TypeQualifier(_)
+        | NodeKind::DStorageClassSpecifier(_)
+        | NodeKind::StorageClassSpecifier(_)
+        | NodeKind::TypeSpecifier(_) => {}
     }
 }
 
