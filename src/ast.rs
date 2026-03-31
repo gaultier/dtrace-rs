@@ -1268,31 +1268,24 @@ impl<'a> Parser<'a> {
 
         let mut lhs = self.parse_additive_expr()?;
 
-        loop {
-            match self.peek().map(|t| t.kind) {
-                Some(TokenKind::LtLt | TokenKind::GtGt) => {
-                    let op = *self.eat_token().unwrap();
-                    let rhs = self.parse_additive_expr().unwrap_or_else(|| {
-                        self.add_error_with_explanation(
-                            ErrorKind::MissingExpected,
-                            op.origin,
-                            format!(
-                                "expected additive expression after shift operator, found: {:?}",
-                                self.current_token_kind_for_err()
-                            ),
-                        );
-                        self.new_node_unknown()
-                    });
+        while let Some(TokenKind::LtLt | TokenKind::GtGt) = self.peek().map(|t| t.kind) {
+            let op = *self.eat_token().unwrap();
+            let rhs = self.parse_additive_expr().unwrap_or_else(|| {
+                self.add_error_with_explanation(
+                    ErrorKind::MissingExpected,
+                    op.origin,
+                    format!(
+                        "expected additive expression after shift operator, found: {:?}",
+                        self.current_token_kind_for_err()
+                    ),
+                );
+                self.new_node_unknown()
+            });
 
-                    lhs = self.new_node(Node {
-                        kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
-                        origin: op.origin,
-                    });
-                }
-                _ => {
-                    break;
-                }
-            }
+            lhs = self.new_node(Node {
+                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                origin: op.origin,
+            });
         }
 
         Some(lhs)
@@ -1346,7 +1339,8 @@ impl<'a> Parser<'a> {
                 });
 
                 let else_block: Option<NodeId> =
-                    self.match_kind(TokenKind::KeywordElse).map(|_else_token| self.parse_statement_or_block().unwrap_or_else(|| {
+                    self.match_kind(TokenKind::KeywordElse).map(|_else_token| {
+                        self.parse_statement_or_block().unwrap_or_else(|| {
                             self.add_error_with_explanation(
                                 ErrorKind::MissingExpected,
                                 self.current_origin_for_err(),
@@ -1356,7 +1350,8 @@ impl<'a> Parser<'a> {
                                 ),
                             );
                             self.new_node_unknown()
-                        }));
+                        })
+                    });
 
                 Some(self.new_node(Node {
                     kind: NodeKind::If {
