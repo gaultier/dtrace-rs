@@ -2301,10 +2301,10 @@ impl<'a> Parser<'a> {
         match self.peek().map(|t| t.kind) {
             Some(TokenKind::Identifier) => {
                 let token = *self.eat_token().unwrap();
-                return Some(self.new_node(Node {
+                Some(self.new_node(Node {
                     kind: NodeKind::DirectDeclarator(token),
                     origin: token.origin,
-                }));
+                }))
             }
             Some(TokenKind::LeftParen) => todo!(),
             Some(TokenKind::LeftSquareBracket) => todo!(),
@@ -2395,10 +2395,7 @@ impl<'a> Parser<'a> {
         }
 
         let identifier_tok = self.match_kind(TokenKind::Identifier)?;
-        let expr = if let Some(eq) = self.match_kind(TokenKind::Eq) {
-            // Intentionally avoid to call `parse_expr()` which is too generic and will interpret
-            // the comma as a comma expression, instead of a delimiter between enumerators.
-            Some(self.parse_conditional_expr().unwrap_or_else(|| {
+        let expr = self.match_kind(TokenKind::Eq).map(|eq| self.parse_conditional_expr().unwrap_or_else(|| {
                 self.add_error_with_explanation(
                     ErrorKind::MissingExpr,
                     eq.origin,
@@ -2408,10 +2405,7 @@ impl<'a> Parser<'a> {
                     ),
                 );
                 self.new_node_unknown()
-            }))
-        } else {
-            None
-        };
+            }));
 
         let identifier = Self::str_from_source(self.input, &identifier_tok.origin).to_owned();
         Some(self.new_node(Node {
