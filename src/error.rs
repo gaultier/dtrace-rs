@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy)]
-pub enum ErrorKind {
+pub(crate) enum ErrorKind {
     UnknownToken,
     InvalidLiteralNumber,
     InvalidLiteralString,
@@ -18,22 +18,11 @@ pub enum ErrorKind {
     MissingPredicateOrAction,
     ParseProgram,
     ParseStatement,
-    ParseDeclaration,
-    ParseFunctionDeclaration,
-    MissingNewline,
-    MissingBinaryOp,
-    MissingTopLevelPackage,
-    ParseTermMissingRhs,
-    ParseCmpMissingRhs,
-    ParseFactorMissingRhs,
-    ParseCallMissingRightParen,
-    ParseCallMissingArgument,
     IncompatibleTypes,
     IncompatibleArgumentsCount,
     UnknownIdentifier,
     CallingANonFunction,
     MissingExpectedToken(TokenKind),
-    MissingExpected,
     MissingExpr,
     MissingArguments,
     NameAlreadyDefined,
