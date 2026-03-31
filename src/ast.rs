@@ -736,11 +736,35 @@ impl<'a> Parser<'a> {
                 Some(Token {
                     kind: TokenKind::KeywordOffsetOf,
                     ..
-                }) => todo!(),
+                }) => {
+                    let _op = *self.eat_token().unwrap();
+                    self.expect_token_one(
+                        TokenKind::LeftParen,
+                        "opening parenthesis after offsetof",
+                    );
+                    // TODO: type_name.
+                    self.expect_token_one(TokenKind::Comma, "comma after type name");
+                    // TODO: field.
+                    self.expect_token_one(TokenKind::RightParen, "closing parenthesis after field");
+                    todo!()
+                }
                 Some(Token {
                     kind: TokenKind::KeywordXlate,
                     ..
-                }) => todo!(),
+                }) => {
+                    let _op = *self.eat_token().unwrap();
+                    self.expect_token_one(TokenKind::Lt, "'<' after xlate");
+                    // TODO: type_name.
+                    self.expect_token_one(TokenKind::Gt, "'>' after type name");
+                    self.expect_token_one(TokenKind::LeftParen, "opening parenthesis after '>'");
+                    let _ = self.parse_expr(); // TODO: Error.
+                    self.expect_token_one(
+                        TokenKind::RightParen,
+                        "closing parenthesis after expression",
+                    );
+
+                    todo!()
+                }
                 _ => break,
             }
         }
