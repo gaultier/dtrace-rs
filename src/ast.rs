@@ -797,9 +797,19 @@ impl<'a> Parser<'a> {
                     kind: TokenKind::KeywordXlate,
                     ..
                 }) => {
-                    let _op = *self.eat_token().unwrap();
-                    self.expect_token_one(TokenKind::Lt, "'<' after xlate");
-                    // TODO: type_name.
+                    let op = *self.eat_token().unwrap();
+                    let lt = self.expect_token_one(TokenKind::Lt, "'<' after xlate");
+                    let _type_name = self.parse_type_name().unwrap_or_else(|| {
+                        self.add_error_with_explanation(
+                            ErrorKind::MissingTypeName,
+                            lt.map(|t| t.origin).unwrap_or(op.origin),
+                            format!(
+                                "expected type name after xlate, found: {:?}",
+                                self.current_token_kind_for_err()
+                            ),
+                        );
+                        self.new_node_unknown()
+                    });
                     self.expect_token_one(TokenKind::Gt, "'>' after type name");
                     self.expect_token_one(TokenKind::LeftParen, "opening parenthesis after '>'");
                     let _ = self.parse_expr(); // TODO: Error.
