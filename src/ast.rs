@@ -357,7 +357,7 @@ impl<'a> Parser<'a> {
             let rhs = match self.parse_multiplicative_expr() {
                 None => {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingExpr,
                         op.origin,
                         format!(
                             "expected multiplicative expression, found: {:?}",
@@ -405,7 +405,7 @@ impl<'a> Parser<'a> {
             let rhs = match self.parse_cast_expr() {
                 None => {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingExpr,
                         op.origin,
                         format!(
                             "expected cast expression, found: {:?}",
@@ -509,7 +509,7 @@ impl<'a> Parser<'a> {
                 let op = *self.eat_token().unwrap();
                 let unary = self.parse_unary_expr().unwrap_or_else(|| {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingExpr,
                         op.origin,
                         format!(
                             "expected unary expression after {:?}, found: {:?}",
@@ -565,7 +565,7 @@ impl<'a> Parser<'a> {
                 } else {
                     let unary = self.parse_unary_expr().unwrap_or_else(|| {
                         self.add_error_with_explanation(
-                            ErrorKind::MissingExpected,
+                            ErrorKind::MissingExpr,
                             op.origin,
                             format!(
                                 "expected unary expression after sizeof, found: {:?}",
@@ -589,7 +589,7 @@ impl<'a> Parser<'a> {
 
                 let unary = self.parse_unary_expr().unwrap_or_else(|| {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingExpr,
                         op.origin,
                         format!(
                             "expected unary expression after stringof, found: {:?}",
@@ -702,7 +702,7 @@ impl<'a> Parser<'a> {
                         }
                         _ => {
                             self.add_error_with_explanation(
-                                ErrorKind::MissingExpected,
+                                ErrorKind::MissingFieldOrKeywordInMemberAccess,
                                 op.origin,
                                 format!(
                                     "expected identifier or keyword in member access, found: {:?}",
@@ -1393,7 +1393,7 @@ impl<'a> Parser<'a> {
                 .tokens
                 .last()
                 .map(|t| t.origin)
-                .unwrap_or_else(|| Origin::new_unknown());
+                .unwrap_or_else(Origin::new_unknown);
         }
 
         let token = &self.tokens[self.tokens_consumed];
@@ -1591,10 +1591,10 @@ impl<'a> Parser<'a> {
             specifiers.push(specifier);
         }
 
-        return Some(self.new_node(Node {
+        Some(self.new_node(Node {
             kind: NodeKind::ProbeSpecifiers(specifiers),
             origin: first_comma_origin,
-        }));
+        }))
     }
 
     fn current_token_kind_for_err(&self) -> TokenKind {
@@ -1648,10 +1648,10 @@ impl<'a> Parser<'a> {
                 self.current_token_kind_for_err()
             ),
         );
-        return Some(self.new_node(Node {
+        Some(self.new_node(Node {
             kind: NodeKind::ProbeDefinition(probe_specifier, predicate, None),
             origin: self.current_or_last_origin_for_err(),
-        }));
+        }))
     }
 
     // external_declaration    → inline_definition
@@ -1705,7 +1705,13 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // TODO: Error if zero decls;
+        if decls.is_empty() {
+            self.add_error_with_explanation(
+                ErrorKind::EmptyTranslationUnit,
+                self.current_or_last_origin_for_err(),
+                "empty translation unit, no declarations found".to_owned(),
+            );
+        }
 
         let node_id = self.new_node(Node {
             kind: NodeKind::TranslationUnit(decls),
