@@ -70,6 +70,7 @@ pub enum NodeKind {
     PostfixArrayAccess(NodeId, Option<NodeId>),
     FieldAccess(NodeId, TokenKind, Token),
     TypeName(NodeId, Option<NodeId>),
+    OffsetOf(NodeId, Token),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -714,14 +715,7 @@ impl<'a> Parser<'a> {
                             ),
                         );
                         lhs = self.new_node(Node {
-                            kind: NodeKind::FieldAccess(
-                                lhs,
-                                op.kind,
-                                Token {
-                                    kind: TokenKind::Unknown,
-                                    origin: Origin::new_unknown(),
-                                },
-                            ),
+                            kind: NodeKind::FieldAccess(lhs, op.kind, Token::default()),
                             origin: op.origin,
                         });
                     }
@@ -771,10 +765,13 @@ impl<'a> Parser<'a> {
                                 self.current_token_kind_for_err()
                             ),
                         );
-                        todo!()
+                        Token::default()
                     };
                     self.expect_token_one(TokenKind::RightParen, "closing parenthesis after field");
-                    todo!()
+                    return Some(self.new_node(Node {
+                        kind: NodeKind::OffsetOf(type_name, field),
+                        origin: op.origin,
+                    }));
                 }
                 Some(Token {
                     kind: TokenKind::KeywordXlate,
@@ -2027,11 +2024,14 @@ impl<'a> Parser<'a> {
             NodeKind::FieldAccess(_node_id, _token_kind, _token) => todo!(),
             NodeKind::ProbeSpecifiers(_node_ids) => todo!(),
             NodeKind::TypeName(_node_id, _node_id1) => todo!(),
+            NodeKind::OffsetOf(_node_id, _token) => todo!(),
         }
     }
 
     fn resolve_nodes(&mut self) {
-        assert!(!self.nodes.is_empty());
+        if self.nodes.is_empty() {
+            return;
+        }
 
         Self::resolve_node(
             NodeId(0),
@@ -2155,6 +2155,9 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
             if let Some(declarator) = declarator {
                 log(nodes, *declarator, indent + 2);
             }
+        }
+        NodeKind::OffsetOf(node_id, _token) => {
+            log(nodes, *node_id, indent + 2);
         }
     }
 }

@@ -349,6 +349,7 @@ pub fn check_node(
         NodeKind::FieldAccess(_node_id, _token_kind, _token) => todo!(),
         NodeKind::ProbeSpecifiers(_node_ids) => todo!(),
         NodeKind::TypeName(_node_id, _node_id1) => todo!(),
+        NodeKind::OffsetOf(_node_id, _token) => todo!(),
     }
 }
 
