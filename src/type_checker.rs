@@ -359,6 +359,7 @@ pub fn check_node(
         NodeKind::DStorageClassSpecifier(_token_kind) => todo!(),
         NodeKind::StorageClassSpecifier(_token_kind) => todo!(),
         NodeKind::TypeSpecifier(_token_kind) => todo!(),
+        NodeKind::EnumDeclaration(_token, _node_ids) => todo!(),
     }
 }
 

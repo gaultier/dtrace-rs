@@ -80,6 +80,7 @@ pub enum NodeKind {
     DStorageClassSpecifier(TokenKind),
     StorageClassSpecifier(TokenKind),
     TypeSpecifier(TokenKind),
+    EnumDeclaration(Option<Token>, Vec<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2041,6 +2042,7 @@ impl<'a> Parser<'a> {
             NodeKind::DStorageClassSpecifier(_token_kind) => {}
             NodeKind::StorageClassSpecifier(_token_kind) => {}
             NodeKind::TypeSpecifier(_token_kind) => {}
+            NodeKind::EnumDeclaration(_token, _node_ids) => {}
         }
     }
 
@@ -2316,13 +2318,23 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_enum_specifier(&mut self) -> Option<NodeId> {
-        match self.peek().map(|t| t.kind) {
-            Some(TokenKind::Star | TokenKind::LeftParen | TokenKind::Identifier) => {}
-            _ => {
-                return None;
-            }
+        if self.error_mode {
+            return None;
         }
-        todo!()
+
+        let enum_tok = self.match_kind(TokenKind::KeywordEnum)?;
+        let name = self.match_kind(TokenKind::Identifier);
+        let enumerator_list: Vec<NodeId> =
+            if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
+                todo!()
+            } else {
+                Vec::default()
+            };
+
+        Some(self.new_node(Node {
+            kind: NodeKind::EnumDeclaration(name, enumerator_list),
+            origin: enum_tok.origin,
+        }))
     }
 }
 
@@ -2462,6 +2474,11 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         | NodeKind::DStorageClassSpecifier(_)
         | NodeKind::StorageClassSpecifier(_)
         | NodeKind::TypeSpecifier(_) => {}
+        NodeKind::EnumDeclaration(_token, node_ids) => {
+            for node_id in node_ids {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
     }
 }
 

@@ -1,3 +1,3 @@
-int a;
+enum b;
 BEGIN {
 }
