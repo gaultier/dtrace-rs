@@ -661,20 +661,81 @@ impl<'a> Parser<'a> {
     //                          ( IDENT | TNAME | keyword_as_ident ) ")"
     //                        | "xlate" "<" type_name ">" "(" expression ")" ;
     //
-    // Transformed to the equivalent (but easier to parse):
-    // postfix_expression → primary_expression postfix_tail*
-    //postfix_tail → "[" argument_expression_list "]"
-    //             | "(" argument_expression_list? ")"
-    //             | "."  ( IDENT | TNAME | keyword_as_ident )
-    //             | "->" ( IDENT | TNAME | keyword_as_ident )
-    //             | "++"
-    //             | "--"_
-    //             | "offsetof" "(" type_name ","
-    //               ( IDENT | TNAME | keyword_as_ident ) ")"
-    //             | "xlate" "<" type_name ">" "(" expression ")" ;
     fn parse_postfix_expr(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
+        }
+
+        // Handle `offsetof` and `xlate` first.
+        match self.peek() {
+            Some(Token {
+                kind: TokenKind::KeywordOffsetOf,
+                ..
+            }) => {
+                let op = *self.eat_token().unwrap();
+                let left_paren = self
+                    .expect_token_one(TokenKind::LeftParen, "opening parenthesis after offsetof");
+                let type_name = self.parse_type_name().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingTypeName,
+                        left_paren.map(|t| t.origin).unwrap_or(op.origin),
+                        format!(
+                            "expected type name after offsetof, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
+                let comma = self.expect_token_one(TokenKind::Comma, "comma after type name");
+                let field = if let Some(identifier) = self.match_kind(TokenKind::Identifier) {
+                    identifier
+                } else if let Some(keyword_as_ident) = self.parse_keyword_as_ident() {
+                    keyword_as_ident
+                } else {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingFieldOrKeywordInMemberAccess,
+                        comma.map(|t| t.origin).unwrap_or(op.origin),
+                        format!(
+                            "expected field or keyword as offsetof last argument, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    Token::default()
+                };
+                self.expect_token_one(TokenKind::RightParen, "closing parenthesis after field");
+                return Some(self.new_node(Node {
+                    kind: NodeKind::OffsetOf(type_name, field),
+                    origin: op.origin,
+                }));
+            }
+            Some(Token {
+                kind: TokenKind::KeywordXlate,
+                ..
+            }) => {
+                let op = *self.eat_token().unwrap();
+                let lt = self.expect_token_one(TokenKind::Lt, "'<' after xlate");
+                let _type_name = self.parse_type_name().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingTypeName,
+                        lt.map(|t| t.origin).unwrap_or(op.origin),
+                        format!(
+                            "expected type name after xlate, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
+                self.expect_token_one(TokenKind::Gt, "'>' after type name");
+                self.expect_token_one(TokenKind::LeftParen, "opening parenthesis after '>'");
+                let _ = self.parse_expr(); // TODO: Error.
+                self.expect_token_one(
+                    TokenKind::RightParen,
+                    "closing parenthesis after expression",
+                );
+
+                todo!()
+            }
+            _ => {}
         }
 
         let mut lhs = self.parse_primary_expr()?;
@@ -750,75 +811,6 @@ impl<'a> Parser<'a> {
                         kind: NodeKind::PostfixIncDecrement(lhs, op.kind),
                         origin: op.origin,
                     });
-                }
-                Some(Token {
-                    kind: TokenKind::KeywordOffsetOf,
-                    ..
-                }) => {
-                    let op = *self.eat_token().unwrap();
-                    let left_paren = self.expect_token_one(
-                        TokenKind::LeftParen,
-                        "opening parenthesis after offsetof",
-                    );
-                    let type_name = self.parse_type_name().unwrap_or_else(|| {
-                        self.add_error_with_explanation(
-                            ErrorKind::MissingTypeName,
-                            left_paren.map(|t| t.origin).unwrap_or(op.origin),
-                            format!(
-                                "expected type name after offsetof, found: {:?}",
-                                self.current_token_kind_for_err()
-                            ),
-                        );
-                        self.new_node_unknown()
-                    });
-                    let comma = self.expect_token_one(TokenKind::Comma, "comma after type name");
-                    let field = if let Some(identifier) = self.match_kind(TokenKind::Identifier) {
-                        identifier
-                    } else if let Some(keyword_as_ident) = self.parse_keyword_as_ident() {
-                        keyword_as_ident
-                    } else {
-                        self.add_error_with_explanation(
-                            ErrorKind::MissingFieldOrKeywordInMemberAccess,
-                            comma.map(|t| t.origin).unwrap_or(op.origin),
-                            format!(
-                                "expected field or keyword as offsetof last argument, found: {:?}",
-                                self.current_token_kind_for_err()
-                            ),
-                        );
-                        Token::default()
-                    };
-                    self.expect_token_one(TokenKind::RightParen, "closing parenthesis after field");
-                    return Some(self.new_node(Node {
-                        kind: NodeKind::OffsetOf(type_name, field),
-                        origin: op.origin,
-                    }));
-                }
-                Some(Token {
-                    kind: TokenKind::KeywordXlate,
-                    ..
-                }) => {
-                    let op = *self.eat_token().unwrap();
-                    let lt = self.expect_token_one(TokenKind::Lt, "'<' after xlate");
-                    let _type_name = self.parse_type_name().unwrap_or_else(|| {
-                        self.add_error_with_explanation(
-                            ErrorKind::MissingTypeName,
-                            lt.map(|t| t.origin).unwrap_or(op.origin),
-                            format!(
-                                "expected type name after xlate, found: {:?}",
-                                self.current_token_kind_for_err()
-                            ),
-                        );
-                        self.new_node_unknown()
-                    });
-                    self.expect_token_one(TokenKind::Gt, "'>' after type name");
-                    self.expect_token_one(TokenKind::LeftParen, "opening parenthesis after '>'");
-                    let _ = self.parse_expr(); // TODO: Error.
-                    self.expect_token_one(
-                        TokenKind::RightParen,
-                        "closing parenthesis after expression",
-                    );
-
-                    todo!()
                 }
                 _ => break,
             }
