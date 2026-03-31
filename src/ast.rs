@@ -674,7 +674,7 @@ impl<'a> Parser<'a> {
                     });
                 }
                 Some(Token {
-                    kind: TokenKind::Dot,
+                    kind: TokenKind::Dot | TokenKind::Arrow,
                     ..
                 }) => {
                     let op = *self.eat_token().unwrap();
@@ -722,10 +722,6 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                Some(Token {
-                    kind: TokenKind::Arrow,
-                    ..
-                }) => todo!(),
                 Some(Token {
                     kind: TokenKind::PlusPlus | TokenKind::MinusMinus,
                     ..
