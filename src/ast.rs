@@ -1149,11 +1149,10 @@ impl<'a> Parser<'a> {
 
         let mut lhs = self.parse_shift_expr()?;
         while let Some(Token {
-            kind: TokenKind::Gt | TokenKind::Lt,
+            kind: TokenKind::Gt | TokenKind::Lt | TokenKind::LtEq | TokenKind::GtEq,
             ..
         }) = self.peek()
         {
-            // TODO: Gte, Lte
             let op = *self.eat_token().unwrap();
 
             let rhs = match self.parse_shift_expr() {

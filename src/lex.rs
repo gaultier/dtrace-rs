@@ -114,6 +114,9 @@ pub enum TokenKind {
     PlusEq,
     LtLt,
     Question,
+    GtEq,
+    LtEq,
+    GtGt,
 }
 
 #[derive(Serialize, Debug, Copy, Clone, PartialEq, Eq)]
@@ -529,6 +532,43 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
+                '>' if peek3(&it) == (Some('>'), Some('=')) => {
+                    let origin = Origin {
+                        len: 3,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::GtGtEq,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
+                '>' if peek2(&it) == Some('>') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::GtGt,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
+                '>' if peek2(&it) == Some('=') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::GtEq,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
                 '>' => {
                     let origin = Origin {
                         len: 1,
@@ -560,6 +600,18 @@ impl Lexer {
                     };
                     self.tokens.push(Token {
                         kind: TokenKind::LtLt,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
+                }
+                '<' if peek2(&it) == Some('=') => {
+                    let origin = Origin {
+                        len: 2,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::LtEq,
                         origin,
                     });
                     self.advance(c, &mut it);
