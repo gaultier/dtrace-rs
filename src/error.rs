@@ -35,6 +35,7 @@ pub(crate) enum ErrorKind {
     MissingInitDeclarator,
     MissingEnumerators,
     MissingEnumerator,
+    MissingStructDeclarationList,
 }
 
 #[derive(Serialize, Debug, Clone)]

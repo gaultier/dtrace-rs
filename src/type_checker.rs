@@ -362,6 +362,7 @@ pub fn check_node(
         NodeKind::EnumDeclaration(_token, _node_ids) => todo!(),
         NodeKind::EnumeratorDeclaration(_token, _node_id) => todo!(),
         NodeKind::EnumeratorsDeclaration(_node_ids) => todo!(),
+        NodeKind::StructDeclaration(_, _node_id) => todo!(),
     }
 }
 

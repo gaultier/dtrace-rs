@@ -83,6 +83,7 @@ pub enum NodeKind {
     EnumDeclaration(Option<String>, Option<NodeId>),
     EnumeratorDeclaration(String, Option<NodeId>),
     EnumeratorsDeclaration(Vec<NodeId>),
+    StructDeclaration(Option<String>, Option<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2047,6 +2048,7 @@ impl<'a> Parser<'a> {
             NodeKind::EnumDeclaration(_name, _node_id) => {}
             NodeKind::EnumeratorDeclaration(_name, _node_id) => {}
             NodeKind::EnumeratorsDeclaration(_node_ids) => {}
+            NodeKind::StructDeclaration(_, _node_id) => {}
         }
     }
 
@@ -2206,7 +2208,9 @@ impl<'a> Parser<'a> {
                     origin: tok.origin,
                 }))
             }
-            Some(TokenKind::KeywordStruct | TokenKind::KeywordUnion) => todo!(),
+            Some(TokenKind::KeywordStruct | TokenKind::KeywordUnion) => {
+                self.parse_struct_or_union_specifier()
+            }
             Some(TokenKind::KeywordEnum) => self.parse_enum_specifier(),
             _ => None,
         }
@@ -2395,7 +2399,8 @@ impl<'a> Parser<'a> {
         }
 
         let identifier_tok = self.match_kind(TokenKind::Identifier)?;
-        let expr = self.match_kind(TokenKind::Eq).map(|eq| self.parse_conditional_expr().unwrap_or_else(|| {
+        let expr = self.match_kind(TokenKind::Eq).map(|eq| {
+            self.parse_conditional_expr().unwrap_or_else(|| {
                 self.add_error_with_explanation(
                     ErrorKind::MissingExpr,
                     eq.origin,
@@ -2405,13 +2410,63 @@ impl<'a> Parser<'a> {
                     ),
                 );
                 self.new_node_unknown()
-            }));
+            })
+        });
 
         let identifier = Self::str_from_source(self.input, &identifier_tok.origin).to_owned();
         Some(self.new_node(Node {
             kind: NodeKind::EnumeratorDeclaration(identifier, expr),
             origin: identifier_tok.origin,
         }))
+    }
+
+    // struct_or_union_specifier → struct_or_union ( IDENT | TNAME )?
+    //                          "{" struct_declaration_list "}"
+    //                        | struct_or_union ( IDENT | TNAME ) ;
+    fn parse_struct_or_union_specifier(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+        let tok = self
+            .match_kind(TokenKind::KeywordStruct)
+            .or_else(|| self.match_kind(TokenKind::KeywordUnion))?;
+
+        let name_tok = self.match_kind(TokenKind::Identifier);
+
+        let decl_list = if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
+            let decl_list = self.parse_struct_declaration_list().unwrap_or_else(|| {
+                self.add_error_with_explanation(
+                    ErrorKind::MissingStructDeclarationList,
+                    left_curly.origin,
+                    format!(
+                        "expected unary expression after {:?}, found: {:?}",
+                        left_curly.kind,
+                        self.current_token_kind_for_err()
+                    ),
+                );
+                self.new_node_unknown()
+            });
+            self.expect_token_one(
+                TokenKind::RightCurly,
+                "closing curly brace after struct definition",
+            );
+            Some(decl_list)
+        } else {
+            None
+        };
+
+        let name = name_tok.map(|t| Self::str_from_source(self.input, &t.origin).to_owned());
+        Some(self.new_node(Node {
+            kind: NodeKind::StructDeclaration(name, decl_list),
+            origin: tok.origin,
+        }))
+    }
+
+    fn parse_struct_declaration_list(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+        todo!()
     }
 }
 
@@ -2563,6 +2618,11 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         }
         NodeKind::EnumeratorsDeclaration(node_ids) => {
             for node_id in node_ids {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
+        NodeKind::StructDeclaration(_, node_id) => {
+            if let Some(node_id) = node_id {
                 log(nodes, *node_id, indent + 2);
             }
         }
