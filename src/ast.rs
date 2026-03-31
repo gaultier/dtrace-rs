@@ -87,6 +87,7 @@ pub enum NodeKind {
     StructFieldsDeclaration(Vec<NodeId>),
     StructFieldDeclarator(NodeId, Option<NodeId>),
     StructFieldDeclaration(NodeId, Option<NodeId>),
+    StructFieldDeclaratorList(Vec<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2055,6 +2056,7 @@ impl<'a> Parser<'a> {
             NodeKind::StructFieldsDeclaration(_node_ids) => {}
             NodeKind::StructFieldDeclarator(_node_id, _node_id1) => {}
             NodeKind::StructFieldDeclaration(_node_id, _node_id1) => {}
+            NodeKind::StructFieldDeclaratorList(_node_ids) => todo!(),
         }
     }
 
@@ -2510,7 +2512,20 @@ impl<'a> Parser<'a> {
         if self.error_mode {
             return None;
         }
-        todo!()
+        let decl = self.parse_struct_declarator()?;
+        let mut decls = vec![decl];
+        while let Some(comma) = self.match_kind(TokenKind::Comma) {
+            let decl = self.parse_struct_declarator().unwrap_or_else(||{
+                self.add_error_with_explanation(ErrorKind::MissingStructFieldDeclarator, comma.origin, format!("expected a struct field declarator after comma in struct field declaration, found: {:?}", self.current_token_kind_for_err()));
+                self.new_node_unknown()
+            });
+
+            decls.push(decl);
+        }
+        Some(self.new_node(Node {
+            kind: NodeKind::StructFieldDeclaratorList(decls),
+            origin: self.origin(decl),
+        }))
     }
 
     // struct_declarator       → declarator ( ":" constant_expression )?
@@ -2707,6 +2722,11 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         NodeKind::StructFieldDeclaration(specifier_qualifier_list, declarator_list) => {
             log(nodes, *specifier_qualifier_list, indent + 2);
             if let Some(node_id) = declarator_list {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
+        NodeKind::StructFieldDeclaratorList(node_ids) => {
+            for node_id in node_ids {
                 log(nodes, *node_id, indent + 2);
             }
         }

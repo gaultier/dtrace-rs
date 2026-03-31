@@ -366,6 +366,7 @@ pub fn check_node(
         NodeKind::StructFieldsDeclaration(_node_ids) => todo!(),
         NodeKind::StructFieldDeclarator(_node_id, _node_id1) => todo!(),
         NodeKind::StructFieldDeclaration(_node_id, _node_id1) => todo!(),
+        NodeKind::StructFieldDeclaratorList(_node_ids) => todo!(),
     }
 }
 
