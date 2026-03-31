@@ -39,6 +39,8 @@ pub enum ErrorKind {
     NameAlreadyDefined,
     EmptyTranslationUnit,
     MissingFieldOrKeywordInMemberAccess,
+    MissingStatementOrBlock,
+    MissingStatement,
 }
 
 #[derive(Serialize, Debug, Clone)]

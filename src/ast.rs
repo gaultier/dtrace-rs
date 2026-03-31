@@ -791,7 +791,7 @@ impl<'a> Parser<'a> {
         while let Some(op) = self.match_kind(TokenKind::Comma) {
             let arg = self.parse_assignment_expr().unwrap_or_else(|| {
                 self.add_error_with_explanation(
-                    ErrorKind::MissingExpected,
+                    ErrorKind::MissingExpr,
                     op.origin,
                     format!(
                         "expect assignment expression in argument list after comma, found: {:?}",
@@ -932,7 +932,7 @@ impl<'a> Parser<'a> {
                 let op = *self.eat_token().unwrap();
                 let rhs = self.parse_assignment_expr().unwrap_or_else(|| {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingExpr,
                         op.origin,
                         format!(
                             "expected unary expression after assignment operator, found: {:?}",
@@ -974,7 +974,7 @@ impl<'a> Parser<'a> {
             });
             self.expect_token_one(TokenKind::Colon, "colon in ternary expression");
             let rhs = self.parse_conditional_expr().unwrap_or_else(||{
-                    self.add_error_with_explanation(ErrorKind::MissingExpected, self.current_or_last_origin_for_err(), format!("expected conditional expression in ternary condition after colon, found: {:?}", self.current_token_kind_for_err()));
+                    self.add_error_with_explanation(ErrorKind::MissingExpr, self.current_or_last_origin_for_err(), format!("expected conditional expression in ternary condition after colon, found: {:?}", self.current_token_kind_for_err()));
                     self.new_node_unknown()
                 });
 
@@ -999,7 +999,7 @@ impl<'a> Parser<'a> {
             let rhs = match self.parse_logical_xor_expr() {
                 None => {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingExpr,
                         op.origin,
                         format!(
                             "expected logical xor expression, found: {:?}",
@@ -1031,7 +1031,7 @@ impl<'a> Parser<'a> {
             let rhs = match self.parse_logical_and_expr() {
                 None => {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingExpr,
                         op.origin,
                         format!(
                             "expected logical and expression, found: {:?}",
@@ -1063,7 +1063,7 @@ impl<'a> Parser<'a> {
             let rhs = match self.parse_inclusive_or_expr() {
                 None => {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingExpr,
                         op.origin,
                         format!(
                             "expected logical or expression, found: {:?}",
@@ -1095,7 +1095,7 @@ impl<'a> Parser<'a> {
             let rhs = match self.parse_exclusive_or_expr() {
                 None => {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingExpr,
                         op.origin,
                         format!(
                             "expected exclusive or expression, found: {:?}",
@@ -1127,7 +1127,7 @@ impl<'a> Parser<'a> {
             let rhs = match self.parse_and_expr() {
                 None => {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingExpr,
                         op.origin,
                         format!(
                             "expected logical or expression, found: {:?}",
@@ -1159,7 +1159,7 @@ impl<'a> Parser<'a> {
             let rhs = match self.parse_equality_expr() {
                 None => {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingExpr,
                         op.origin,
                         format!(
                             "expected equality expression, found: {:?}",
@@ -1198,7 +1198,7 @@ impl<'a> Parser<'a> {
             let rhs = match self.parse_relational_expr() {
                 None => {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingExpr,
                         op.origin,
                         format!(
                             "expected equality expression, found: {:?}",
@@ -1239,7 +1239,7 @@ impl<'a> Parser<'a> {
             let rhs = match self.parse_shift_expr() {
                 None => {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingExpr,
                         op.origin,
                         format!(
                             "expected equality expression, found: {:?}",
@@ -1273,7 +1273,7 @@ impl<'a> Parser<'a> {
             let op = *self.eat_token().unwrap();
             let rhs = self.parse_additive_expr().unwrap_or_else(|| {
                 self.add_error_with_explanation(
-                    ErrorKind::MissingExpected,
+                    ErrorKind::MissingExpr,
                     op.origin,
                     format!(
                         "expected additive expression after shift operator, found: {:?}",
@@ -1329,7 +1329,7 @@ impl<'a> Parser<'a> {
                 );
                 let then_block = self.parse_statement_or_block().unwrap_or_else(|| {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingStatementOrBlock,
                         self.current_or_last_origin_for_err(),
                         format!(
                             "expected statement or block after if condition, found: {:?}",
@@ -1343,7 +1343,7 @@ impl<'a> Parser<'a> {
                     self.match_kind(TokenKind::KeywordElse).map(|_else_token| {
                         self.parse_statement_or_block().unwrap_or_else(|| {
                             self.add_error_with_explanation(
-                                ErrorKind::MissingExpected,
+                                ErrorKind::MissingStatementOrBlock,
                                 self.current_or_last_origin_for_err(),
                                 format!(
                                     "expected statement or block after else, found: {:?}",
@@ -1505,7 +1505,7 @@ impl<'a> Parser<'a> {
                 }
                 Some(TokenKind::Eof) | None => {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
+                        ErrorKind::MissingStatement,
                         self.current_or_last_origin_for_err(),
                         "reached EOF while parsing statement, did you forget a semicolon?"
                             .to_owned(),
@@ -1579,7 +1579,7 @@ impl<'a> Parser<'a> {
         while let Some(comma) = self.match_kind(TokenKind::Comma) {
             let specifier = self.parse_probe_specifier().unwrap_or_else(|| {
                 self.add_error_with_explanation(
-                    ErrorKind::MissingExpected,
+                    ErrorKind::MissingProbeSpecifier,
                     comma.origin,
                     format!(
                         "expected probe specifier following comma, found: {:?}",
