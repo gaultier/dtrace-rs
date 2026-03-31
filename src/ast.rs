@@ -199,7 +199,7 @@ impl<'a> Parser<'a> {
     fn new_node_unknown(&mut self) -> NodeId {
         self.new_node(Node {
             kind: NodeKind::Unknown,
-            origin: self.current_origin_for_err(),
+            origin: self.current_or_last_origin_for_err(),
         })
     }
 
@@ -974,7 +974,7 @@ impl<'a> Parser<'a> {
             });
             self.expect_token_one(TokenKind::Colon, "colon in ternary expression");
             let rhs = self.parse_conditional_expr().unwrap_or_else(||{
-                    self.add_error_with_explanation(ErrorKind::MissingExpected, self.current_origin_for_err(), format!("expected conditional expression in ternary condition after colon, found: {:?}", self.current_token_kind_for_err()));
+                    self.add_error_with_explanation(ErrorKind::MissingExpected, self.current_or_last_origin_for_err(), format!("expected conditional expression in ternary condition after colon, found: {:?}", self.current_token_kind_for_err()));
                     self.new_node_unknown()
                 });
 
@@ -1315,7 +1315,7 @@ impl<'a> Parser<'a> {
                 let cond = self.parse_expr().unwrap_or_else(|| {
                     self.add_error_with_explanation(
                         ErrorKind::MissingExpr,
-                        self.current_origin_for_err(),
+                        self.current_or_last_origin_for_err(),
                         format!(
                             "expected expression in if, found: {:?}",
                             self.current_token_kind_for_err()
@@ -1330,7 +1330,7 @@ impl<'a> Parser<'a> {
                 let then_block = self.parse_statement_or_block().unwrap_or_else(|| {
                     self.add_error_with_explanation(
                         ErrorKind::MissingExpected,
-                        self.current_origin_for_err(),
+                        self.current_or_last_origin_for_err(),
                         format!(
                             "expected statement or block after if condition, found: {:?}",
                             self.current_token_kind_for_err()
@@ -1344,7 +1344,7 @@ impl<'a> Parser<'a> {
                         self.parse_statement_or_block().unwrap_or_else(|| {
                             self.add_error_with_explanation(
                                 ErrorKind::MissingExpected,
-                                self.current_origin_for_err(),
+                                self.current_or_last_origin_for_err(),
                                 format!(
                                     "expected statement or block after else, found: {:?}",
                                     self.current_token_kind_for_err()
@@ -1385,20 +1385,24 @@ impl<'a> Parser<'a> {
     }
 
     // Best effort to find the closest token when doing error reporting.
-    fn current_or_last_token_origin(&self) -> Option<Origin> {
+    fn current_or_last_origin_for_err(&self) -> Origin {
         assert!(self.tokens_consumed <= self.tokens.len());
 
         if self.tokens_consumed == self.tokens.len() {
-            return self.tokens.last().map(|t| t.origin);
+            return self
+                .tokens
+                .last()
+                .map(|t| t.origin)
+                .unwrap_or_else(|| Origin::new_unknown());
         }
 
         let token = &self.tokens[self.tokens_consumed];
         if token.kind != TokenKind::Eof {
-            Some(token.origin)
+            token.origin
         } else if self.tokens_consumed > 0 {
-            Some(self.tokens[self.tokens_consumed - 1].origin)
+            self.tokens[self.tokens_consumed - 1].origin
         } else {
-            None
+            Origin::new_unknown()
         }
     }
 
@@ -1416,7 +1420,7 @@ impl<'a> Parser<'a> {
         } else {
             self.add_error_with_explanation(
                 ErrorKind::MissingExpectedToken(token_kind),
-                self.current_or_last_token_origin().unwrap(),
+                self.current_or_last_origin_for_err().unwrap(),
                 format!("failed to parse {}: missing {:?}", context, token_kind),
             );
             None
@@ -1502,13 +1506,13 @@ impl<'a> Parser<'a> {
                 Some(TokenKind::Eof) | None => {
                     self.add_error_with_explanation(
                         ErrorKind::MissingExpected,
-                        self.current_origin_for_err(),
+                        self.current_or_last_origin_for_err(),
                         "reached EOF while parsing statement, did you forget a semicolon?"
                             .to_owned(),
                     );
                     return Some(self.new_node(Node {
                         kind: NodeKind::Block(stmts),
-                        origin: self.current_origin_for_err(),
+                        origin: self.current_or_last_origin_for_err(),
                     }));
                 }
                 Some(TokenKind::SemiColon) => {
@@ -1527,7 +1531,7 @@ impl<'a> Parser<'a> {
                     let expr = self.parse_expr().unwrap_or_else(|| {
                         self.add_error_with_explanation(
                             ErrorKind::MissingExpr,
-                            self.current_origin_for_err(),
+                            self.current_or_last_origin_for_err(),
                             format!(
                                 "expected expression in statement list, found: {:?}",
                                 self.current_token_kind_for_err()
@@ -1593,11 +1597,6 @@ impl<'a> Parser<'a> {
         }));
     }
 
-    fn current_origin_for_err(&self) -> Origin {
-        let tok = self.peek();
-        tok.map(|t| t.origin).unwrap_or(Origin::new_unknown())
-    }
-
     fn current_token_kind_for_err(&self) -> TokenKind {
         self.peek().map(|t| t.kind).unwrap_or(TokenKind::Eof)
     }
@@ -1643,7 +1642,7 @@ impl<'a> Parser<'a> {
 
         self.add_error_with_explanation(
             ErrorKind::MissingPredicateOrAction,
-            self.current_or_last_token_origin()
+            self.current_or_last_origin_for_err()
                 .unwrap_or_else(|| Origin::new_unknown()),
             format!(
                 "a predicate or action must follow a probe specifier in file mode, found: {:?}",
@@ -1652,7 +1651,7 @@ impl<'a> Parser<'a> {
         );
         return Some(self.new_node(Node {
             kind: NodeKind::ProbeDefinition(probe_specifier, predicate, None),
-            origin: self.current_origin_for_err(),
+            origin: self.current_or_last_origin_for_err(),
         }));
     }
 
@@ -1752,7 +1751,7 @@ impl<'a> Parser<'a> {
             // Catch-all.
             self.add_error_with_explanation(
                 ErrorKind::ParseProgram,
-                self.current_or_last_token_origin().unwrap(),
+                self.current_or_last_origin_for_err().unwrap(),
                 format!(
                     "catch-all parse program error: encountered unexpected token {:?}",
                     token
