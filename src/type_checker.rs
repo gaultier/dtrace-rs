@@ -319,8 +319,8 @@ pub fn check_node(
                 check_node(*pred, nodes, errs, node_to_type, name_to_def);
             }
 
-            for action in actions {
-                check_node(*action, nodes, errs, node_to_type, name_to_def);
+            if let Some(actions) = actions {
+                check_node(*actions, nodes, errs, node_to_type, name_to_def);
             }
         }
         NodeKind::Assignment(lhs, op, rhs) => {

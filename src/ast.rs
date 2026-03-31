@@ -36,7 +36,7 @@ pub enum NodeKind {
     PrimaryToken(TokenKind),
     Cast(String, NodeId),
     ProbeSpecifier(String),
-    ProbeDefinition(NodeId, Option<NodeId>, Vec<NodeId>),
+    ProbeDefinition(NodeId, Option<NodeId>, Option<NodeId>),
     BinaryOp(NodeId, TokenKind, NodeId),
     Identifier(String),
     Aggregation(String),
@@ -1233,17 +1233,80 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        // TODO
+        match self.peek().map(|t| t.kind) {
+            Some(TokenKind::KeywordIf) => {
+                let if_token = *self.eat_token().unwrap();
 
-        if let Some(e) = self.parse_expr() {
-            self.expect_token_one(
-                TokenKind::SemiColon,
-                "trailing semicolon after expression in statement",
-            );
-            return Some(e);
+                self.expect_token_one(TokenKind::LeftParen, "opening parenthesis in if expression");
+                let cond = self.parse_expr().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpr,
+                        self.current_origin_for_err(),
+                        format!(
+                            "expected expression in if, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
+                self.expect_token_one(
+                    TokenKind::RightParen,
+                    "closing parenthesis in if expression",
+                );
+                let then_block = self.parse_statement_or_block().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpected,
+                        self.current_origin_for_err(),
+                        format!(
+                            "expected statement or block after if condition, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
+
+                let else_block: Option<NodeId> =
+                    if let Some(_else_token) = self.match_kind(TokenKind::KeywordElse) {
+                        Some(self.parse_statement_or_block().unwrap_or_else(|| {
+                            self.add_error_with_explanation(
+                                ErrorKind::MissingExpected,
+                                self.current_origin_for_err(),
+                                format!(
+                                    "expected statement or block after else, found: {:?}",
+                                    self.current_token_kind_for_err()
+                                ),
+                            );
+                            self.new_node_unknown()
+                        }))
+                    } else {
+                        None
+                    };
+
+                return Some(self.new_node(Node {
+                    kind: NodeKind::If {
+                        cond,
+                        then_block,
+                        else_block,
+                    },
+                    origin: if_token.origin,
+                }));
+            }
+            _ => todo!(),
+        }
+    }
+
+    // statement_or_block      → statement | "{" statement_list "}" ;
+    fn parse_statement_or_block(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
         }
 
-        None
+        if let Some(_left_curly) = self.match_kind(TokenKind::LeftCurly) {
+            let stmt_list = self.parse_statement_list();
+            self.expect_token_one(TokenKind::RightCurly, "match right curly brace after block");
+            return stmt_list;
+        }
+        self.parse_statement()
     }
 
     // Best effort to find the closest token when doing error reporting.
@@ -1343,7 +1406,7 @@ impl<'a> Parser<'a> {
     }
 
     // statement_list          → statement* expression? ;
-    fn parse_statement_list(&mut self) -> Option<Vec<NodeId>> {
+    fn parse_statement_list(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
@@ -1351,9 +1414,16 @@ impl<'a> Parser<'a> {
         for _ in 0..self.remaining_tokens_count() {
             match self.peek().map(|t| t.kind) {
                 Some(TokenKind::RightCurly) => {
-                    return Some(stmts);
+                    let origin = self.peek().unwrap().origin;
+                    return Some(self.new_node(Node {
+                        kind: NodeKind::Block(stmts),
+                        origin,
+                    }));
                 }
-                Some(TokenKind::KeywordIf) => todo!(),
+                Some(TokenKind::KeywordIf) => {
+                    let stmt = self.parse_statement().unwrap();
+                    stmts.push(stmt);
+                }
                 Some(TokenKind::Eof) | None => {
                     todo!(); // Error
                 }
@@ -1365,6 +1435,11 @@ impl<'a> Parser<'a> {
                     }));
                 }
                 Some(_) => {
+                    let origin = self
+                        .peek()
+                        .map(|t| t.origin)
+                        .unwrap_or_else(|| Origin::new_unknown());
+
                     let expr = self.parse_expr().unwrap_or_else(|| {
                         self.add_error_with_explanation(
                             ErrorKind::MissingExpr,
@@ -1388,7 +1463,10 @@ impl<'a> Parser<'a> {
                             origin: Origin::new_unknown(),
                         }));
 
-                        return Some(stmts);
+                        return Some(self.new_node(Node {
+                            kind: NodeKind::Block(stmts),
+                            origin,
+                        }));
                     }
                 }
             }
@@ -1427,7 +1505,7 @@ impl<'a> Parser<'a> {
         };
 
         if let Some(lcurly) = self.match_kind(TokenKind::LeftCurly) {
-            let stmts = self.parse_statement_list().unwrap_or_default();
+            let stmts = self.parse_statement_list();
 
             self.expect_token_one(
                 TokenKind::RightCurly,
@@ -1623,8 +1701,8 @@ impl<'a> Parser<'a> {
                 if let Some(pred) = pred {
                     Self::resolve_node(*pred, nodes, errors, name_to_def, file_id_to_name);
                 }
-                for action in actions {
-                    Self::resolve_node(*action, nodes, errors, name_to_def, file_id_to_name);
+                if let Some(actions) = actions {
+                    Self::resolve_node(*actions, nodes, errors, name_to_def, file_id_to_name);
                 }
             }
             NodeKind::Number(_) | NodeKind::Bool(_) | NodeKind::ProbeSpecifier(_) => {}
@@ -1826,8 +1904,8 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
                 log(nodes, *pred, indent + 2);
             }
 
-            for action in actions {
-                log(nodes, *action, indent + 2);
+            if let Some(actions) = actions {
+                log(nodes, *actions, indent + 2);
             }
         }
         NodeKind::Number(_)
