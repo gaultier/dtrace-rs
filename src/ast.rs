@@ -940,12 +940,12 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
-                return Some(self.new_node(Node {
+                Some(self.new_node(Node {
                     kind: NodeKind::Assignment(lhs, op, rhs),
                     origin: op.origin,
-                }));
+                }))
             }
-            _ => return Some(lhs),
+            _ => Some(lhs),
         }
     }
 
@@ -977,12 +977,12 @@ impl<'a> Parser<'a> {
                     self.new_node_unknown()
                 });
 
-            return Some(self.new_node(Node {
+            Some(self.new_node(Node {
                 kind: NodeKind::TernaryExpr(lhs, mhs, rhs),
                 origin: question_mark.origin,
-            }));
+            }))
         } else {
-            return Some(lhs);
+            Some(lhs)
         }
     }
 
@@ -1346,8 +1346,7 @@ impl<'a> Parser<'a> {
                 });
 
                 let else_block: Option<NodeId> =
-                    if let Some(_else_token) = self.match_kind(TokenKind::KeywordElse) {
-                        Some(self.parse_statement_or_block().unwrap_or_else(|| {
+                    self.match_kind(TokenKind::KeywordElse).map(|_else_token| self.parse_statement_or_block().unwrap_or_else(|| {
                             self.add_error_with_explanation(
                                 ErrorKind::MissingExpected,
                                 self.current_origin_for_err(),
@@ -1357,19 +1356,16 @@ impl<'a> Parser<'a> {
                                 ),
                             );
                             self.new_node_unknown()
-                        }))
-                    } else {
-                        None
-                    };
+                        }));
 
-                return Some(self.new_node(Node {
+                Some(self.new_node(Node {
                     kind: NodeKind::If {
                         cond,
                         then_block,
                         else_block,
                     },
                     origin: if_token.origin,
-                }));
+                }))
             }
             _ => todo!(),
         }
@@ -1521,7 +1517,7 @@ impl<'a> Parser<'a> {
                     let origin = self
                         .peek()
                         .map(|t| t.origin)
-                        .unwrap_or_else(|| Origin::new_unknown());
+                        .unwrap_or_else(Origin::new_unknown);
 
                     let expr = self.parse_expr().unwrap_or_else(|| {
                         self.add_error_with_explanation(
