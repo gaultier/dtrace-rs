@@ -80,7 +80,9 @@ pub enum NodeKind {
     DStorageClassSpecifier(TokenKind),
     StorageClassSpecifier(TokenKind),
     TypeSpecifier(TokenKind),
-    EnumDeclaration(Option<Token>, Vec<NodeId>),
+    EnumDeclaration(Option<Token>, Option<NodeId>),
+    EnumeratorDeclaration(Token, Option<NodeId>),
+    EnumeratorsDeclaration(Vec<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2042,7 +2044,9 @@ impl<'a> Parser<'a> {
             NodeKind::DStorageClassSpecifier(_token_kind) => {}
             NodeKind::StorageClassSpecifier(_token_kind) => {}
             NodeKind::TypeSpecifier(_token_kind) => {}
-            NodeKind::EnumDeclaration(_token, _node_ids) => {}
+            NodeKind::EnumDeclaration(_token, _node_id) => {}
+            NodeKind::EnumeratorDeclaration(_token, _node_id) => {}
+            NodeKind::EnumeratorsDeclaration(_node_ids) => {}
         }
     }
 
@@ -2317,6 +2321,8 @@ impl<'a> Parser<'a> {
         todo!()
     }
 
+    // enum_specifier          → "enum" ( IDENT | TNAME )? "{" enumerator_list "}"
+    //                          | "enum" ( IDENT | TNAME ) ;
     fn parse_enum_specifier(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
@@ -2324,16 +2330,89 @@ impl<'a> Parser<'a> {
 
         let enum_tok = self.match_kind(TokenKind::KeywordEnum)?;
         let name = self.match_kind(TokenKind::Identifier);
-        let enumerator_list: Vec<NodeId> =
+        let enumerator_list: Option<NodeId> =
             if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
-                todo!()
+                let enumerator_list = self.parse_enumerator_list().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingEnumerators,
+                        left_curly.origin,
+                        format!(
+                            "expected at least one enumerator in enum definition, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
+                self.expect_token_one(
+                    TokenKind::RightCurly,
+                    "closing curly brace after enumerator list",
+                );
+                Some(enumerator_list)
             } else {
-                Vec::default()
+                None
             };
 
         Some(self.new_node(Node {
             kind: NodeKind::EnumDeclaration(name, enumerator_list),
             origin: enum_tok.origin,
+        }))
+    }
+
+    // enumerator_list         → enumerator ( "," enumerator )* ;
+    fn parse_enumerator_list(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let enumerator = self.parse_enumerator()?;
+
+        let mut enumerators = vec![enumerator];
+        while let Some(comma) = self.match_kind(TokenKind::Comma) {
+            let enumerator = self.parse_enumerator().unwrap_or_else(|| {
+                self.add_error_with_explanation(
+                    ErrorKind::MissingEnumerator,
+                    comma.origin,
+                    format!(
+                        "expected enumerator following comma, found: {:?}",
+                        self.current_token_kind_for_err()
+                    ),
+                );
+                self.new_node_unknown()
+            });
+            enumerators.push(enumerator);
+        }
+
+        Some(self.new_node(Node {
+            kind: NodeKind::EnumeratorsDeclaration(enumerators),
+            origin: self.origin(enumerator),
+        }))
+    }
+
+    fn parse_enumerator(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let identifier = self.match_kind(TokenKind::Identifier)?;
+        let expr = if let Some(eq) = self.match_kind(TokenKind::Eq) {
+            Some(self.parse_expr().unwrap_or_else(|| {
+                self.add_error_with_explanation(
+                    ErrorKind::MissingExpr,
+                    eq.origin,
+                    format!(
+                        "expected expression following enumerator, found: {:?}",
+                        self.current_token_kind_for_err()
+                    ),
+                );
+                self.new_node_unknown()
+            }))
+        } else {
+            None
+        };
+
+        Some(self.new_node(Node {
+            kind: NodeKind::EnumeratorDeclaration(identifier, expr),
+            origin: identifier.origin,
         }))
     }
 }
@@ -2474,7 +2553,17 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         | NodeKind::DStorageClassSpecifier(_)
         | NodeKind::StorageClassSpecifier(_)
         | NodeKind::TypeSpecifier(_) => {}
-        NodeKind::EnumDeclaration(_token, node_ids) => {
+        NodeKind::EnumDeclaration(_token, node_id) => {
+            if let Some(node_id) = node_id {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
+        NodeKind::EnumeratorDeclaration(_token, node_id) => {
+            if let Some(node_id) = node_id {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
+        NodeKind::EnumeratorsDeclaration(node_ids) => {
             for node_id in node_ids {
                 log(nodes, *node_id, indent + 2);
             }

@@ -360,6 +360,8 @@ pub fn check_node(
         NodeKind::StorageClassSpecifier(_token_kind) => todo!(),
         NodeKind::TypeSpecifier(_token_kind) => todo!(),
         NodeKind::EnumDeclaration(_token, _node_ids) => todo!(),
+        NodeKind::EnumeratorDeclaration(_token, _node_id) => todo!(),
+        NodeKind::EnumeratorsDeclaration(_node_ids) => todo!(),
     }
 }
 
