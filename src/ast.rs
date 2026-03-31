@@ -72,6 +72,10 @@ pub enum NodeKind {
     TypeName(NodeId, Option<NodeId>),
     OffsetOf(NodeId, Token),
     Declaration(NodeId, Option<NodeId>),
+    DeclarationSpecifiers(Vec<Token>),
+    DirectDeclarator(Token),
+    Declarator(Option<NodeId>, NodeId),
+    InitDeclarators(Vec<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2025,6 +2029,10 @@ impl<'a> Parser<'a> {
             NodeKind::TypeName(_node_id, _node_id1) => todo!(),
             NodeKind::OffsetOf(_node_id, _token) => todo!(),
             NodeKind::Declaration(_node_id, _node_id1) => todo!(),
+            NodeKind::DeclarationSpecifiers(_tokens) => todo!(),
+            NodeKind::DirectDeclarator(_token) => todo!(),
+            NodeKind::Declarator(_node_id, _node_id1) => todo!(),
+            NodeKind::InitDeclarators(_node_ids) => todo!(),
         }
     }
 
@@ -2057,7 +2065,7 @@ impl<'a> Parser<'a> {
 
         let decl_specifiers = self.parse_declaration_specifiers()?;
 
-        let init_decl_list = self.parse_declarator_list();
+        let init_decl_list = self.parse_init_declarator_list();
 
         let semicolon =
             self.expect_token_one(TokenKind::SemiColon, "expected semicolon after declaration");
@@ -2081,19 +2089,53 @@ impl<'a> Parser<'a> {
         }
 
         let specifier = self
-            .parse_storage_class_specifier()
+            .parse_d_storage_class_specifier()
             .or_else(|| self.parse_type_specifier())
-            .or_else(|| self.parse_type_qualifier());
+            .or_else(|| self.parse_type_qualifier())?;
 
-        todo!()
+        let mut specifiers = vec![specifier];
+        while let Some(specifier) = self
+            .parse_d_storage_class_specifier()
+            .or_else(|| self.parse_type_specifier())
+            .or_else(|| self.parse_type_qualifier())
+        {
+            specifiers.push(specifier);
+        }
+
+        Some(self.new_node(Node {
+            kind: NodeKind::DeclarationSpecifiers(specifiers),
+            origin: specifier.origin,
+        }))
     }
 
-    fn parse_declarator_list(&self) -> Option<NodeId> {
+    // init_declarator_list    → init_declarator ( "," init_declarator )* ;
+    fn parse_init_declarator_list(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
 
-        todo!()
+        let init_declarator = self.parse_init_declarator()?;
+
+        let mut declarators = vec![init_declarator];
+        while let Some(comma) = self.match_kind(TokenKind::Comma) {
+            let declarator = self.parse_init_declarator().unwrap_or_else(|| {
+                self.add_error_with_explanation(
+                    ErrorKind::MissingInitDeclarator,
+                    comma.origin,
+                    format!(
+                        "expected init declarator after comma, found: {:?}",
+                        self.current_token_kind_for_err()
+                    ),
+                );
+                self.new_node_unknown()
+            });
+            declarators.push(declarator);
+        }
+
+        Some(self.new_node(Node {
+            kind: NodeKind::InitDeclarators(declarators),
+            origin: self.origin(init_declarator),
+        }))
     }
 
     // storage_class_specifier → "auto" | "register" | "static" | "extern" | "typedef" ;
@@ -2145,7 +2187,7 @@ impl<'a> Parser<'a> {
     }
 
     // type_qualifier          → "const" | "restrict" | "volatile" ;
-    fn parse_type_qualifier(&self) -> Option<Token> {
+    fn parse_type_qualifier(&mut self) -> Option<Token> {
         if self.error_mode {
             return None;
         }
@@ -2156,6 +2198,89 @@ impl<'a> Parser<'a> {
             ) => self.eat_token().copied(),
             _ => None,
         }
+    }
+
+    // d_storage_class_specifier
+    //                          → storage_class_specifier | "self" | "this" ;
+    fn parse_d_storage_class_specifier(&mut self) -> Option<Token> {
+        if self.error_mode {
+            return None;
+        }
+
+        match self.peek().map(|t| t.kind) {
+            Some(TokenKind::KeywordSelf | TokenKind::KeywordThis) => self.eat_token().copied(),
+            _ => self.parse_storage_class_specifier(),
+        }
+    }
+
+    // init_declarator         → declarator ;
+    fn parse_init_declarator(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        self.parse_declarator()
+    }
+
+    // declarator              → pointer? direct_declarator ;
+    fn parse_declarator(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let ptr = self.parse_pointer();
+        let direct_declarator = self.parse_direct_declarator();
+        if ptr.is_none() && direct_declarator.is_none() {
+            return None;
+        }
+        let direct_declarator = direct_declarator.unwrap_or_else(|| {
+            self.add_error_with_explanation(
+                ErrorKind::MissingDirectDeclarator,
+                self.current_or_last_origin_for_err(),
+                format!(
+                    "expected directed declarator in declaration, found: {:?}",
+                    self.current_token_kind_for_err()
+                ),
+            );
+            self.new_node_unknown()
+        });
+
+        Some(self.new_node(Node {
+            kind: NodeKind::Declarator(ptr, direct_declarator),
+            origin: self.origin(direct_declarator),
+        }))
+    }
+
+    // direct_declarator       → IDENT
+    //                          | "(" declarator ")"
+    //                          | direct_declarator array
+    //                          | direct_declarator function ;
+    fn parse_direct_declarator(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        match self.peek().map(|t| t.kind) {
+            Some(TokenKind::Identifier) => {
+                let token = *self.eat_token().unwrap();
+                return Some(self.new_node(Node {
+                    kind: NodeKind::DirectDeclarator(token),
+                    origin: token.origin,
+                }));
+            }
+            Some(TokenKind::LeftParen) => todo!(),
+            Some(TokenKind::LeftSquareBracket) => todo!(),
+            _ => None,
+        }
+    }
+
+    fn parse_pointer(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let _star = self.match_kind(TokenKind::Star)?;
+        todo!()
     }
 }
 
@@ -2272,6 +2397,19 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
             log(nodes, *decl_specifiers, indent + 2);
             if let Some(init_declarator_list) = init_declarator_list {
                 log(nodes, *init_declarator_list, indent + 2);
+            }
+        }
+        NodeKind::DeclarationSpecifiers(_tokens) => {}
+        NodeKind::DirectDeclarator(_token) => {}
+        NodeKind::Declarator(ptr, declarator) => {
+            if let Some(ptr) = ptr {
+                log(nodes, *ptr, indent + 2);
+            }
+            log(nodes, *declarator, indent + 2);
+        }
+        NodeKind::InitDeclarators(node_ids) => {
+            for node_id in node_ids {
+                log(nodes, *node_id, indent + 2);
             }
         }
     }

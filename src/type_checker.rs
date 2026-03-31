@@ -351,6 +351,10 @@ pub fn check_node(
         NodeKind::TypeName(_node_id, _node_id1) => todo!(),
         NodeKind::OffsetOf(_node_id, _token) => todo!(),
         NodeKind::Declaration(_, _) => todo!(),
+        NodeKind::DeclarationSpecifiers(_tokens) => todo!(),
+        NodeKind::DirectDeclarator(_token) => todo!(),
+        NodeKind::Declarator(_node_id, _node_id1) => todo!(),
+        NodeKind::InitDeclarators(_node_ids) => todo!(),
     }
 }
 

@@ -1,4 +1,4 @@
-typedef struct  {int somefield;} mytype;
+int a();
 BEGIN {
-  print(offsetof( mytype, somefield));
+  /*print(offsetof( mytype, somefield));*/
 }
