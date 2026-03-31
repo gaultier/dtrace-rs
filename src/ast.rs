@@ -80,8 +80,8 @@ pub enum NodeKind {
     DStorageClassSpecifier(TokenKind),
     StorageClassSpecifier(TokenKind),
     TypeSpecifier(TokenKind),
-    EnumDeclaration(Option<Token>, Option<NodeId>),
-    EnumeratorDeclaration(Token, Option<NodeId>),
+    EnumDeclaration(Option<String>, Option<NodeId>),
+    EnumeratorDeclaration(String, Option<NodeId>),
     EnumeratorsDeclaration(Vec<NodeId>),
 }
 
@@ -2044,8 +2044,8 @@ impl<'a> Parser<'a> {
             NodeKind::DStorageClassSpecifier(_token_kind) => {}
             NodeKind::StorageClassSpecifier(_token_kind) => {}
             NodeKind::TypeSpecifier(_token_kind) => {}
-            NodeKind::EnumDeclaration(_token, _node_id) => {}
-            NodeKind::EnumeratorDeclaration(_token, _node_id) => {}
+            NodeKind::EnumDeclaration(_name, _node_id) => {}
+            NodeKind::EnumeratorDeclaration(_name, _node_id) => {}
             NodeKind::EnumeratorsDeclaration(_node_ids) => {}
         }
     }
@@ -2329,7 +2329,7 @@ impl<'a> Parser<'a> {
         }
 
         let enum_tok = self.match_kind(TokenKind::KeywordEnum)?;
-        let name = self.match_kind(TokenKind::Identifier);
+        let name_tok = self.match_kind(TokenKind::Identifier);
         let enumerator_list: Option<NodeId> =
             if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
                 let enumerator_list = self.parse_enumerator_list().unwrap_or_else(|| {
@@ -2352,6 +2352,7 @@ impl<'a> Parser<'a> {
                 None
             };
 
+        let name = name_tok.map(|t| Self::str_from_source(self.input, &t.origin).to_owned());
         Some(self.new_node(Node {
             kind: NodeKind::EnumDeclaration(name, enumerator_list),
             origin: enum_tok.origin,
@@ -2393,7 +2394,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let identifier = self.match_kind(TokenKind::Identifier)?;
+        let identifier_tok = self.match_kind(TokenKind::Identifier)?;
         let expr = if let Some(eq) = self.match_kind(TokenKind::Eq) {
             // Intentionally avoid to call `parse_expr()` which is too generic and will interpret
             // the comma as a comma expression, instead of a delimiter between enumerators.
@@ -2412,9 +2413,10 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let identifier = Self::str_from_source(self.input, &identifier_tok.origin).to_owned();
         Some(self.new_node(Node {
             kind: NodeKind::EnumeratorDeclaration(identifier, expr),
-            origin: identifier.origin,
+            origin: identifier_tok.origin,
         }))
     }
 }
