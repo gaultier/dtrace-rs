@@ -1564,43 +1564,57 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let mut probe_specifier = self.parse_probe_specifier().unwrap_or_else(|| {
-            self.add_error_with_explanation(
-                ErrorKind::MissingProbeSpecifier,
-                self.current_or_last_token_origin()
-                    .unwrap_or(Origin::new_unknown()),
-                format!(
-                    "expected probe specifier, found: {:?}",
-                    self.current_token_kind_for_err()
-                ),
-            );
-            self.new_node_unknown()
-        });
+        let probe_specifier = self.parse_probe_specifier()?;
 
-        if self.peek().map(|t| t.kind) == Some(TokenKind::Comma) {
-            let first_comma_origin = self.peek().unwrap().origin;
-            let mut specifiers = vec![probe_specifier];
-
-            while let Some(comma) = self.match_kind(TokenKind::Comma) {
-                let specifier = self.parse_probe_specifier().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
-                        ErrorKind::MissingExpected,
-                        comma.origin,
-                        format!(
-                            "expected probe specifier following comma, found: {:?}",
-                            self.current_token_kind_for_err()
-                        ),
-                    );
-                    self.new_node_unknown()
-                });
-                specifiers.push(specifier);
-            }
-
-            probe_specifier = self.new_node(Node {
-                kind: NodeKind::ProbeSpecifiers(specifiers),
-                origin: first_comma_origin,
-            });
+        if self.peek().map(|t| t.kind) != Some(TokenKind::Comma) {
+            return Some(probe_specifier);
         }
+        let first_comma_origin = self.peek().unwrap().origin;
+        let mut specifiers = vec![probe_specifier];
+
+        while let Some(comma) = self.match_kind(TokenKind::Comma) {
+            let specifier = self.parse_probe_specifier().unwrap_or_else(|| {
+                self.add_error_with_explanation(
+                    ErrorKind::MissingExpected,
+                    comma.origin,
+                    format!(
+                        "expected probe specifier following comma, found: {:?}",
+                        self.current_token_kind_for_err()
+                    ),
+                );
+                self.new_node_unknown()
+            });
+            specifiers.push(specifier);
+        }
+
+        return Some(self.new_node(Node {
+            kind: NodeKind::ProbeSpecifiers(specifiers),
+            origin: first_comma_origin,
+        }));
+    }
+
+    fn current_origin_for_err(&self) -> Origin {
+        let tok = self.peek();
+        tok.map(|t| t.origin).unwrap_or(Origin::new_unknown())
+    }
+
+    fn current_token_kind_for_err(&self) -> TokenKind {
+        self.peek().map(|t| t.kind).unwrap_or(TokenKind::Eof)
+    }
+
+    fn parse_probe_specifiers(&mut self) -> Option<NodeId> {
+        self.parse_probe_specifier_list()
+    }
+
+    //probe_definition        → probe_specifiers
+    //                          | probe_specifiers "{" statement_list "}"
+    //                          | probe_specifiers "/" expression "/" "{" statement_list "}" ;
+    fn parse_probe_definition(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let probe_specifier = self.parse_probe_specifiers()?;
 
         // In file mode, a predication or action MUST follow.
 
@@ -1629,40 +1643,17 @@ impl<'a> Parser<'a> {
 
         self.add_error_with_explanation(
             ErrorKind::MissingPredicateOrAction,
-            self.current_origin_for_err(),
+            self.current_or_last_token_origin()
+                .unwrap_or_else(|| Origin::new_unknown()),
             format!(
                 "a predicate or action must follow a probe specifier in file mode, found: {:?}",
                 self.current_token_kind_for_err()
             ),
         );
-        None
-    }
-
-    fn current_origin_for_err(&self) -> Origin {
-        let tok = self.peek();
-        tok.map(|t| t.origin).unwrap_or(Origin::new_unknown())
-    }
-
-    fn current_token_kind_for_err(&self) -> TokenKind {
-        self.peek().map(|t| t.kind).unwrap_or(TokenKind::Eof)
-    }
-
-    fn parse_probe_specifiers(&mut self) -> Option<NodeId> {
-        self.parse_probe_specifier_list()
-    }
-
-    //probe_definition        → probe_specifiers
-    //                          | probe_specifiers "{" statement_list "}"
-    //                          | probe_specifiers "/" expression "/" "{" statement_list "}" ;
-    fn parse_probe_definition(&mut self) -> Option<NodeId> {
-        if self.error_mode {
-            return None;
-        }
-
-        let probe_specifier = self.parse_probe_specifiers()?;
-        // TODO: trailing stuff.
-
-        Some(probe_specifier)
+        return Some(self.new_node(Node {
+            kind: NodeKind::ProbeDefinition(probe_specifier, predicate, None),
+            origin: self.current_origin_for_err(),
+        }));
     }
 
     // external_declaration    → inline_definition
