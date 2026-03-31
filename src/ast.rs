@@ -2072,10 +2072,18 @@ impl<'a> Parser<'a> {
         )
     }
 
+    // declaration_specifiers  → ( d_storage_class_specifier
+    //                            | type_specifier
+    //                            | type_qualifier )+ ;
     fn parse_declaration_specifiers(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
+
+        let specifier = self
+            .parse_storage_class_specifier()
+            .or_else(|| self.parse_type_specifier())
+            .or_else(|| self.parse_type_qualifier());
 
         todo!()
     }
@@ -2086,6 +2094,68 @@ impl<'a> Parser<'a> {
         }
 
         todo!()
+    }
+
+    // storage_class_specifier → "auto" | "register" | "static" | "extern" | "typedef" ;
+    fn parse_storage_class_specifier(&mut self) -> Option<Token> {
+        if self.error_mode {
+            return None;
+        }
+
+        match self.peek().map(|t| t.kind) {
+            Some(
+                TokenKind::KeywordAuto
+                | TokenKind::KeywordRegister
+                | TokenKind::KeywordStatic
+                | TokenKind::KeywordExtern
+                | TokenKind::KeywordTypedef,
+            ) => self.eat_token().copied(),
+            _ => None,
+        }
+    }
+    // type_specifier          → "void" | "char" | "short" | "int" | "long"
+    //                          | "float" | "double" | "signed" | "unsigned"
+    //                          | "userland" | "string" | TNAME
+    //                          | struct_or_union_specifier
+    //                          | enum_specifier ;
+    fn parse_type_specifier(&mut self) -> Option<Token> {
+        if self.error_mode {
+            return None;
+        }
+
+        match self.peek().map(|t| t.kind) {
+            Some(
+                TokenKind::KeywordVoid
+                | TokenKind::KeywordChar
+                | TokenKind::KeywordShort
+                | TokenKind::KeywordInt
+                | TokenKind::KeywordLong
+                | TokenKind::KeywordFloat
+                | TokenKind::KeywordDouble
+                | TokenKind::KeywordSigned
+                | TokenKind::KeywordUnsigned
+                | TokenKind::KeywordUserland
+                | TokenKind::KeywordString
+                | TokenKind::Identifier,
+            ) => self.eat_token().copied(),
+            Some(TokenKind::KeywordStruct | TokenKind::KeywordUnion) => todo!(),
+            Some(TokenKind::KeywordEnum) => todo!(),
+            _ => None,
+        }
+    }
+
+    // type_qualifier          → "const" | "restrict" | "volatile" ;
+    fn parse_type_qualifier(&self) -> Option<Token> {
+        if self.error_mode {
+            return None;
+        }
+
+        match self.peek().map(|t| t.kind) {
+            Some(
+                TokenKind::KeywordConst | TokenKind::KeywordRestrict | TokenKind::KeywordVolatile,
+            ) => self.eat_token().copied(),
+            _ => None,
+        }
     }
 }
 
