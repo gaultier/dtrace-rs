@@ -1362,7 +1362,7 @@ impl<'a> Parser<'a> {
                     origin: if_token.origin,
                 }))
             }
-            _ => todo!(),
+            _ => self.parse_expr(),
         }
     }
 

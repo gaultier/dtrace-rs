@@ -4,4 +4,6 @@ BEGIN {
   } else {
     print("not ok");
   }
+
+  if (1) print("inline")
 }
