@@ -67,6 +67,7 @@ pub enum NodeKind {
     PostfixArguments(NodeId, Option<NodeId>),
     TernaryExpr(NodeId, NodeId, NodeId),
     PostfixArrayAccess(NodeId, Option<NodeId>),
+    FieldAccess(NodeId, TokenKind, Token),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -634,7 +635,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let mut expr = self.parse_primary_expr()?;
+        let mut lhs = self.parse_primary_expr()?;
 
         loop {
             match self.peek() {
@@ -644,38 +645,83 @@ impl<'a> Parser<'a> {
                 }) => {
                     let token = *self.eat_token().unwrap();
 
-                    let args = self.parse_argument_expr_list();
+                    let rhs = self.parse_argument_expr_list();
                     self.expect_token_one(
                         TokenKind::RightSquareBracket,
                         "matching square bracket in argument list",
                     );
 
-                    return Some(self.new_node(Node {
-                        kind: NodeKind::PostfixArrayAccess(expr, args),
+                    lhs = self.new_node(Node {
+                        kind: NodeKind::PostfixArrayAccess(lhs, rhs),
                         origin: token.origin,
-                    }));
+                    });
                 }
                 Some(Token {
                     kind: TokenKind::LeftParen,
                     ..
                 }) => {
-                    let lparen = *self.eat_token().unwrap();
+                    let token = *self.eat_token().unwrap();
 
-                    let args = self.parse_argument_expr_list();
+                    let rhs = self.parse_argument_expr_list();
                     self.expect_token_one(
                         TokenKind::RightParen,
                         "matching parenthesis in argument list",
                     );
 
-                    return Some(self.new_node(Node {
-                        kind: NodeKind::PostfixArguments(expr, args),
-                        origin: lparen.origin,
-                    }));
+                    lhs = self.new_node(Node {
+                        kind: NodeKind::PostfixArguments(lhs, rhs),
+                        origin: token.origin,
+                    });
                 }
                 Some(Token {
                     kind: TokenKind::Dot,
                     ..
-                }) => todo!(),
+                }) => {
+                    let op = *self.eat_token().unwrap();
+                    match self.peek().map(|t| t.kind) {
+                        // Certain DTrace-specific keywords may appear as struct/union member names in member-access
+                        // expressions.
+                        Some(
+                            TokenKind::Identifier
+                            | TokenKind::KeywordProbe
+                            | TokenKind::KeywordProvider
+                            | TokenKind::KeywordSelf
+                            | TokenKind::KeywordString
+                            | TokenKind::KeywordStringof
+                            | TokenKind::KeywordUserland
+                            | TokenKind::KeywordXlate
+                            | TokenKind::KeywordTranslator,
+                        ) => {
+                            let rhs = *self.eat_token().unwrap();
+
+                            lhs = self.new_node(Node {
+                                kind: NodeKind::FieldAccess(lhs, op.kind, rhs),
+                                origin: op.origin,
+                            });
+                        }
+                        _ => {
+                            self.add_error_with_explanation(
+                                ErrorKind::MissingExpected,
+                                op.origin,
+                                format!(
+                                    "expected identifier or keyword in member access, found: {:?}",
+                                    self.current_token_kind_for_err()
+                                ),
+                            );
+                            lhs = self.new_node(Node {
+                                kind: NodeKind::FieldAccess(
+                                    lhs,
+                                    op.kind,
+                                    Token {
+                                        kind: TokenKind::Unknown,
+                                        origin: Origin::new_unknown(),
+                                    },
+                                ),
+                                origin: op.origin,
+                            });
+                        }
+                    }
+                }
                 Some(Token {
                     kind: TokenKind::Arrow,
                     ..
@@ -686,8 +732,8 @@ impl<'a> Parser<'a> {
                 }) => {
                     let op = *self.eat_token().unwrap();
 
-                    expr = self.new_node(Node {
-                        kind: NodeKind::PostfixIncDecrement(expr, op.kind),
+                    lhs = self.new_node(Node {
+                        kind: NodeKind::PostfixIncDecrement(lhs, op.kind),
                         origin: op.origin,
                     });
                 }
@@ -703,7 +749,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Some(expr)
+        Some(lhs)
     }
 
     // argument_expression_list
@@ -1884,6 +1930,7 @@ impl<'a> Parser<'a> {
             NodeKind::PostfixArguments(_, _node_id) => todo!(),
             NodeKind::TernaryExpr(_node_id, _node_id1, _node_id2) => todo!(),
             NodeKind::PostfixArrayAccess(_node_id, _node_id1) => todo!(),
+            NodeKind::FieldAccess(_node_id, _token_kind, _token) => todo!(),
         }
     }
 
@@ -1996,6 +2043,9 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
             log(nodes, *lhs, indent + 2);
             log(nodes, *mhs, indent + 2);
             log(nodes, *rhs, indent + 2);
+        }
+        NodeKind::FieldAccess(node_id, _, _) => {
+            log(nodes, *node_id, indent + 2);
         }
     }
 }
