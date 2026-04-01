@@ -31,7 +31,7 @@ pub fn format<W: Write>(
                 format(w, *id, nodes, input, indent + 2, true)?;
             }
             indentify(w, indent, true)?;
-            w.write_all(b"}")?;
+            w.write_all(b"}\n")?;
         }
         NodeKind::ProbeDefinition(probe, pred, actions) => {
             format(w, *probe, nodes, input, indent, true)?;
@@ -112,10 +112,10 @@ pub fn format<W: Write>(
         NodeKind::ExprStmt(node_id) => {
             indentify(w, indent, initial_indent)?;
             format(w, *node_id, nodes, input, indent, true)?;
-            writeln!(w, ";\n")?;
+            w.write_all(b";\n")?;
         }
         NodeKind::EmptyStmt => {
-            todo!()
+            w.write_all(b";\n")?;
         }
         NodeKind::PostfixArrayAccess(primary, args) => {
             todo!()
