@@ -293,6 +293,7 @@ pub fn check_node(
         NodeKind::ParamEllipsis => todo!(),
         NodeKind::Parameters(_node_ids) => todo!(),
         NodeKind::ParameterDeclarationSpecifiers(_node_ids) => todo!(),
+        NodeKind::Character => todo!(),
     }
 }
 

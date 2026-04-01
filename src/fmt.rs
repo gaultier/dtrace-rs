@@ -12,7 +12,7 @@ pub fn format<W: Write>(
     let node = &nodes[node_id];
 
     match &node.kind {
-        NodeKind::Unknown => {
+        NodeKind::Unknown | NodeKind::Character => {
             let src = Parser::str_from_source(input, &node.origin);
             write!(w, "{:width$}{src}", "", width = indent, src = src)?;
         }
@@ -81,7 +81,7 @@ pub fn format<W: Write>(
         NodeKind::PostfixIncDecrement(node_id, _token_kind) => todo!(),
         NodeKind::ExprStmt(node_id) => {
             format(w, *node_id, nodes, input, indent)?;
-            writeln!(w, "")?;
+            writeln!(w, ";")?;
         }
         NodeKind::EmptyStmt => {
             todo!()

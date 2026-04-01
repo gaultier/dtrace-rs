@@ -82,6 +82,7 @@ pub(crate) enum NodeKind {
     ParamEllipsis,
     Parameters(Vec<NodeId>),
     ParameterDeclarationSpecifiers(Vec<NodeId>),
+    Character,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -319,6 +320,16 @@ impl<'a> Parser<'a> {
                 kind: TokenKind::LiteralNumber,
                 ..
             }) => self.parse_literal_number(),
+            Some(Token {
+                kind: TokenKind::LiteralCharacter,
+                ..
+            }) => {
+                let tok = *self.eat_token().unwrap();
+                Some(self.new_node(Node {
+                    kind: NodeKind::Character,
+                    origin: tok.origin,
+                }))
+            }
             Some(
                 tok @ Token {
                     kind: TokenKind::LiteralString | TokenKind::KeywordSelf | TokenKind::KeywordThis,
@@ -2025,6 +2036,7 @@ impl<'a> Parser<'a> {
             NodeKind::ParamEllipsis => {}
             NodeKind::Parameters(_) => {}
             NodeKind::ParameterDeclarationSpecifiers(_node_ids) => {}
+            NodeKind::Character => {}
         }
     }
 
@@ -3076,6 +3088,7 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
             }
         }
         NodeKind::Unary(_token_kind, node_id) => log(nodes, *node_id, indent + 2),
+        NodeKind::Character => {}
     }
 }
 
