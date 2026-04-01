@@ -1885,13 +1885,15 @@ impl<'a> Parser<'a> {
     }
 
     #[warn(unused_results)]
-    pub fn parse(&mut self) {
+    pub fn parse(&mut self) -> Option<NodeId> {
         let root = self.parse_program();
         if let Some(root) = root {
             log(&self.nodes, root, 0);
         }
 
-        self.resolve_nodes();
+        // self.resolve_nodes();
+
+        root
     }
 
     fn resolve_node(

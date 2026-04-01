@@ -24,14 +24,15 @@ fn main() {
         .map(|()| log::set_max_level(LevelFilter::Trace))
         .unwrap();
 
-    let file_name = std::env::args().skip(1).next().unwrap();
+    let mut args = std::env::args().skip(1);
+    let cmd = args.next().unwrap();
+    let file_name = args.next().unwrap();
     let file_content = std::fs::read_to_string(&file_name).unwrap();
     let mut file_id_to_name = HashMap::new();
     file_id_to_name.insert(1, file_name.clone());
 
     let compiled = compile(&file_content, 1, &file_id_to_name);
 
-    println!("--- Errors: {} ---", compiled.errors.len());
     for err in &compiled.errors {
         err.write(&mut std::io::stderr(), &file_content, &file_id_to_name)
             .unwrap();
@@ -40,4 +41,13 @@ fn main() {
     if !compiled.errors.is_empty() {
         std::process::exit(1)
     };
+
+    if cmd == "ast" {
+    } else if cmd == "fmt"
+        && let Some(root) = compiled.ast_root
+    {
+        let mut stdout = std::io::stdout().lock();
+        compiler_rs_lib::fmt::format(&mut stdout, root, &compiled.ast_nodes, &file_content, 0)
+            .unwrap();
+    }
 }

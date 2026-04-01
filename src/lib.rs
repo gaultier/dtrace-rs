@@ -1,6 +1,6 @@
 pub mod ast;
 pub mod error;
-mod fmt;
+pub mod fmt;
 pub mod lex;
 mod origin;
 mod type_checker;
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use log::trace;
 
 use crate::{
-    ast::{Node, Parser},
+    ast::{Node, NodeId, Parser},
     error::Error,
     lex::{Lexer, Token},
     origin::FileId,
@@ -160,8 +160,10 @@ pub struct CompileResult {
     pub errors: Vec<Error>,
     pub lex_tokens: Vec<Token>,
     pub ast_nodes: Vec<Node>,
+    pub ast_root: Option<NodeId>,
 }
 
+#[warn(unused_results)]
 pub fn compile(
     input: &str,
     file_id: FileId,
@@ -172,7 +174,7 @@ pub fn compile(
     trace!("tokens: {:?}", lexer.tokens);
 
     let mut parser = Parser::new(input, &lexer, file_id_to_name);
-    parser.parse();
+    let root = parser.parse();
     trace!("parser errors: {:?}", parser.errors);
 
     if !parser.errors.is_empty() {
@@ -180,12 +182,14 @@ pub fn compile(
             lex_tokens: parser.tokens,
             ast_nodes: parser.nodes,
             errors: parser.errors,
+            ast_root: root,
         };
     }
 
     CompileResult {
         lex_tokens: lexer.tokens,
-        ast_nodes: vec![], //parser.nodes,
+        ast_nodes: parser.nodes,
         errors: lexer.errors,
+        ast_root: root,
     }
 }

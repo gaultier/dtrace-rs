@@ -1,50 +1,52 @@
+use std::io::Write;
+
 use crate::ast::{Node, NodeId, NodeKind, Parser};
 
-pub fn format(
-    f: &mut std::fmt::Formatter<'_>,
+pub fn format<W: Write>(
+    w: &mut W,
     node_id: NodeId,
     nodes: &[Node],
     input: &str,
     indent: usize,
-) -> std::fmt::Result {
+) -> std::io::Result<()> {
     let node = &nodes[node_id];
 
     match &node.kind {
         NodeKind::Unknown => {
             let src = Parser::str_from_source(input, &node.origin);
-            write!(f, "{:width$}{src}", "", width = indent, src = src)?;
+            write!(w, "{:width$}{src}", "", width = indent, src = src)?;
         }
         NodeKind::Block(node_ids) => {
-            write!(f, "{:width$}{{", "", width = indent)?;
+            write!(w, "{:width$}{{", "", width = indent)?;
             for id in node_ids {
-                format(f, *id, nodes, input, indent + 2)?;
+                format(w, *id, nodes, input, indent + 2)?;
             }
-            write!(f, "{:width$}}}", "", width = indent)?;
+            write!(w, "{:width$}}}", "", width = indent)?;
         }
         NodeKind::ProbeDefinition(probe, pred, actions) => {
-            format(f, *probe, nodes, input, indent)?;
+            format(w, *probe, nodes, input, indent)?;
 
             if let Some(pred) = pred {
-                write!(f, "\n{:width$}/", "", width = indent)?;
-                format(f, *pred, nodes, input, indent)?;
-                writeln!(f, " /")?;
+                write!(w, "\n{:width$}/", "", width = indent)?;
+                format(w, *pred, nodes, input, indent)?;
+                writeln!(w, " /")?;
             }
 
             if let Some(actions) = actions {
-                write!(f, "{:width$}{{", "", width = indent)?;
-                format(f, *actions, nodes, input, indent + 2)?;
-                write!(f, "{:width$}}}", "", width = indent)?;
+                write!(w, "{:width$}{{", "", width = indent)?;
+                format(w, *actions, nodes, input, indent + 2)?;
+                write!(w, "{:width$}}}", "", width = indent)?;
             }
         }
         NodeKind::Number(_) | NodeKind::Identifier(_) | NodeKind::ProbeSpecifier(_) => {
             let src = Parser::str_from_source(input, &node.origin);
-            write!(f, "{:width$}{src}", "", width = indent, src = src)?;
+            write!(w, "{:width$}{src}", "", width = indent, src = src)?;
         }
         NodeKind::Assignment(lhs, tok, rhs) | NodeKind::BinaryOp(lhs, tok, rhs) => {
-            format(f, *lhs, nodes, input, indent)?;
+            format(w, *lhs, nodes, input, indent)?;
             let src = Parser::str_from_source(input, &tok.origin);
-            write!(f, " {} ", src)?;
-            format(f, *rhs, nodes, input, indent)?;
+            write!(w, " {} ", src)?;
+            format(w, *rhs, nodes, input, indent)?;
         }
         NodeKind::If {
             cond,
@@ -56,9 +58,15 @@ pub fn format(
         NodeKind::TranslationUnit(decls) => {
             todo!()
         }
-        NodeKind::PrimaryToken(_) => {}
-        NodeKind::Cast(_, _) => {}
-        NodeKind::Aggregation(_) => {}
+        NodeKind::PrimaryToken(_) => {
+            todo!()
+        }
+        NodeKind::Cast(_, _) => {
+            todo!()
+        }
+        NodeKind::Aggregation(_) => {
+            todo!()
+        }
         NodeKind::ProbeSpecifiers(node_ids) | NodeKind::CommaExpr(node_ids) => {
             todo!()
         }
@@ -69,7 +77,9 @@ pub fn format(
         NodeKind::StringofExpr(node_id) => todo!(),
         NodeKind::PostfixIncDecrement(node_id, _token_kind) => todo!(),
         NodeKind::ExprStmt(node_id) => todo!(),
-        NodeKind::EmptyStmt => {}
+        NodeKind::EmptyStmt => {
+            todo!()
+        }
         NodeKind::PostfixArrayAccess(primary, args) | NodeKind::PostfixArguments(primary, args) => {
             todo!()
         }
@@ -103,7 +113,9 @@ pub fn format(
         NodeKind::TypeQualifier(_)
         | NodeKind::DStorageClassSpecifier(_)
         | NodeKind::StorageClassSpecifier(_)
-        | NodeKind::TypeSpecifier(_) => {}
+        | NodeKind::TypeSpecifier(_) => {
+            todo!()
+        }
         NodeKind::EnumDeclaration(_token, node_id) => {
             todo!()
         }
@@ -152,7 +164,9 @@ pub fn format(
         NodeKind::Array(params) => {
             todo!()
         }
-        NodeKind::ParamEllipsis => {}
+        NodeKind::ParamEllipsis => {
+            todo!()
+        }
         NodeKind::Parameters(node_ids) => {
             todo!()
         }
