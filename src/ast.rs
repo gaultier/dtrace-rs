@@ -32,7 +32,6 @@ pub enum NodeKind {
     // TODO: Should we just use 'Block'?
     File(Vec<NodeId>), // Root.
     Number(u64),
-    Bool(bool),
     PrimaryToken(TokenKind),
     Cast(String, NodeId),
     ProbeSpecifier(String),
@@ -1538,7 +1537,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn str_from_source(src: &'a str, origin: &Origin) -> &'a str {
+    pub(crate) fn str_from_source(src: &'a str, origin: &Origin) -> &'a str {
         &src[origin.offset as usize..origin.offset as usize + origin.len as usize]
     }
 

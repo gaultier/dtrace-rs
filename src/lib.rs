@@ -1,5 +1,6 @@
 pub mod ast;
 pub mod error;
+mod fmt;
 pub mod lex;
 mod origin;
 mod type_checker;

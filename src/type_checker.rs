@@ -13,7 +13,6 @@ use crate::{
 pub enum TypeKind {
     Void,
     Number,
-    Bool,
     Any,
     Function(Type, Vec<Type>),
 }
@@ -48,7 +47,6 @@ impl Display for Type {
         match &*self.kind {
             TypeKind::Void => f.write_str("void"),
             TypeKind::Number => write!(f, "int"),
-            TypeKind::Bool => f.write_str("bool"),
             TypeKind::Any => f.write_str("any"),
             TypeKind::Function(ret, args) => {
                 f.write_str("(")?;
@@ -94,7 +92,6 @@ impl Type {
             (TypeKind::Any, x) if x != &TypeKind::Any => Ok(other.clone()),
             (x, TypeKind::Any) if x != &TypeKind::Any => Ok(self.clone()),
             (TypeKind::Void, TypeKind::Void) => Ok(self.clone()),
-            (TypeKind::Bool, TypeKind::Bool) => Ok(self.clone()),
             (TypeKind::Number, TypeKind::Number) => {
                 if self.size == other.size {
                     Ok(self.clone())
@@ -113,10 +110,6 @@ impl Type {
 
     pub(crate) fn new_any() -> Self {
         Type::new(&TypeKind::Any, &Some(Size::_64), &Origin::new_builtin())
-    }
-
-    pub(crate) fn new_bool() -> Self {
-        Type::new(&TypeKind::Bool, &Some(Size::_8), &Origin::new_builtin())
     }
 
     pub(crate) fn new_void() -> Self {
@@ -196,12 +189,6 @@ pub fn check_node(
             ));
         }
         NodeKind::ProbeSpecifier(_) => todo!(),
-        NodeKind::Bool(_) => {
-            assert!(matches!(
-                *node_to_type.get(&node_id).unwrap().kind,
-                TypeKind::Bool
-            ));
-        }
         NodeKind::Identifier(identifier) => {
             let def_id = name_to_def.get_definitive(identifier).unwrap();
             // This could happen due to some parsing/resolving errors.
@@ -284,7 +271,7 @@ pub fn check_node(
             if let Err(err) = typ {
                 errs.push(err);
             }
-            node_to_type.insert(node_id, Type::new_bool());
+            node_to_type.insert(node_id, Type::new_int());
         }
         NodeKind::BinaryOp(_lhs, _, _rhs) => {
             unreachable!()

@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy)]
-pub(crate) enum ErrorKind {
+pub enum ErrorKind {
     UnknownToken,
     InvalidLiteralNumber,
     InvalidLiteralString,
