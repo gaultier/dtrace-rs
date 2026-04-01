@@ -8,5 +8,4 @@ BEGIN {
   }
 
   if (1) print("inline");
-  else print("else inline");
 }

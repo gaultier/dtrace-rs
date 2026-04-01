@@ -70,7 +70,7 @@ pub fn format<W: Write>(
         } => {
             indentify(w, indent, with_heading_indent)?;
             w.write_all(b"if (")?;
-            format(w, *cond, nodes, input, indent, true, true)?;
+            format(w, *cond, nodes, input, indent, false, false)?;
             w.write_all(b") ")?;
 
             let then_block_node = &nodes[*then_block];
@@ -92,7 +92,10 @@ pub fn format<W: Write>(
                 w.write_all(b" else ")?;
 
                 let else_block_node = &nodes[*else_block];
-                if matches!(else_block_node.kind, NodeKind::If { .. }) {
+                if matches!(
+                    else_block_node.kind,
+                    NodeKind::Block { .. } | NodeKind::If { .. }
+                ) {
                     format(w, *else_block, nodes, input, indent, false, true)?;
                 } else {
                     // Simulate block.
