@@ -90,6 +90,7 @@ pub enum NodeKind {
     StructFieldDeclaratorList(Vec<NodeId>),
     SpecifierQualifierList(Vec<NodeId>),
     Xlate(NodeId, NodeId),
+    DirectAbstractDeclarator(NodeId),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2112,10 +2113,19 @@ impl<'a> Parser<'a> {
         );
     }
 
+    // abstract_declarator     → pointer
+    //                        | pointer? direct_abstract_declarator ;
     fn parse_abstract_declarator(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
+
+        let ptr = self.parse_pointer();
+        let direct = self.parse_direct_abstract_declarator();
+        if ptr.is_none() && direct.is_none() {
+            return None;
+        }
+
         todo!()
     }
 
@@ -2607,6 +2617,113 @@ impl<'a> Parser<'a> {
             kind: NodeKind::StructFieldDeclarator(declarator, const_expr),
             origin: self.origin(declarator),
         }))
+    }
+
+    // direct_abstract_declarator
+    //                        → "(" abstract_declarator ")"
+    //                        | direct_abstract_declarator? array
+    //                        | direct_abstract_declarator? function ;
+    fn parse_direct_abstract_declarator(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let mut lhs = match self.peek().map(|t| t.kind) {
+            Some(TokenKind::LeftParen)
+                if matches!(
+                    self.peek_peek().map(|t| t.kind),
+                    Some(TokenKind::Star | TokenKind::LeftParen | TokenKind::LeftSquareBracket,)
+                ) =>
+            {
+                let tok = *self.eat_token().unwrap();
+
+                let abstract_decl = self.parse_abstract_declarator().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingAbstractDeclarator,
+                        tok.origin,
+                        format!(
+                            "expected abstract declarator after parenthesis, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
+                self.expect_token_one(
+                    TokenKind::RightParen,
+                    "matching parenthesis in direct abstract declarator",
+                );
+
+                 Some(self.new_node(Node {
+                    kind: NodeKind::DirectAbstractDeclarator(abstract_decl),
+                    origin: tok.origin,
+                }))
+            }
+            Some(TokenKind::LeftParen) => {
+                let func = self.parse_array().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingFunction,
+                        self.current_or_last_origin_for_err(),
+                        format!(
+                            "expected function after parenthesis, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
+                 Some(func)
+            }
+            Some(TokenKind::LeftSquareBracket) => {
+                let array = self.parse_array().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingArray,
+                        self.current_or_last_origin_for_err(),
+                        format!(
+                            "expected array after square bracket, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
+                 Some(array)
+            }
+            _ => None,
+        };
+
+        loop {
+            match self.peek().map(|t|t.kind) {
+                Some(TokenKind::LeftSquareBracket) => {
+                let array = self.parse_array().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingArray,
+                        self.current_or_last_origin_for_err(),
+                        format!(
+                            "expected array after square bracket, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
+                 lhs = self.new_node(Node{});
+                }
+                _ => break;
+                }
+        }
+
+        lhs
+    }
+
+    fn parse_array(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let left_square_bracket = self.match_kind(TokenKind::LeftSquareBracket)?;
+
+        self.expect_token_one(
+            TokenKind::LeftSquareBracket,
+            "match square bracket for array",
+        );
+        todo!()
     }
 }
 

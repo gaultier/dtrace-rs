@@ -222,7 +222,7 @@ impl Lexer {
             "inline" => TokenKind::KeywordInline,
             "int" => TokenKind::KeywordInt,
             "long" => TokenKind::KeywordLong,
-            "offsetOf" => TokenKind::KeywordOffsetOf,
+            "offsetof" => TokenKind::KeywordOffsetOf,
             "probe" => TokenKind::KeywordProbe,
             "provider" => TokenKind::KeywordProvider,
             "register" => TokenKind::KeywordRegister,
