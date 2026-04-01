@@ -8,7 +8,6 @@ pub type FileId = u32;
 pub enum OriginKind {
     File(FileId),
     Builtin,
-    SynthFromCodegen,
     Unknown, // Only used for the 'unknown' type.
 }
 
@@ -34,7 +33,6 @@ impl<'a> Display for OriginFormatter<'a> {
                 f.write_str(file_name)
             }
             OriginKind::Builtin => f.write_str("builtin"),
-            OriginKind::SynthFromCodegen => f.write_str("synth_codegen"),
             OriginKind::Unknown => f.write_str("unknown"),
         }?;
         write!(
@@ -67,16 +65,6 @@ impl Origin {
             offset,
             len,
             kind: OriginKind::File(file_id),
-        }
-    }
-
-    pub(crate) fn new_synth_codegen() -> Self {
-        Origin {
-            line: 0,
-            column: 0,
-            offset: 0,
-            len: 0,
-            kind: OriginKind::SynthFromCodegen,
         }
     }
 
