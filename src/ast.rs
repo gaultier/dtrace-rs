@@ -2724,20 +2724,6 @@ impl<'a> Parser<'a> {
                 // TODO: `DirectAbstractArray(None, array)`?
                 Some(array)
             }
-            Some(TokenKind::LeftParen) => {
-                let func = self.parse_array().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
-                        ErrorKind::MissingFunction,
-                        self.current_or_last_origin_for_err(),
-                        format!(
-                            "expected function after parenthesis, found: {:?}",
-                            self.current_token_kind_for_err()
-                        ),
-                    );
-                    self.new_node_unknown()
-                });
-                Some(func)
-            }
             _ => None,
         };
 
@@ -2805,10 +2791,6 @@ impl<'a> Parser<'a> {
             TokenKind::LeftSquareBracket,
             "match square bracket for array",
         );
-        todo!()
-    }
-
-    fn parse_d_expr(&self) -> Option<NodeId> {
         todo!()
     }
 }
@@ -3027,23 +3009,9 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
 }
 
 impl NodeKind {
-    fn as_file_mut(&mut self) -> Option<&mut Vec<NodeId>> {
-        match self {
-            NodeKind::File(v) => Some(v),
-            _ => None,
-        }
-    }
-
     pub(crate) fn as_identifier(&self) -> Option<&str> {
         match self {
             NodeKind::Identifier(s) => Some(s),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn as_arguments(&self) -> Option<&[NodeId]> {
-        match self {
-            NodeKind::Arguments(args) => Some(args),
             _ => None,
         }
     }
