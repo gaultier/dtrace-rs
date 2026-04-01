@@ -17,26 +17,26 @@ pub fn format<W: Write>(
             write!(w, "{:width$}{src}", "", width = indent, src = src)?;
         }
         NodeKind::Block(node_ids) => {
-            write!(w, "{:width$}{{", "", width = indent)?;
+            writeln!(w, "{:width$}{{", "", width = indent)?;
             for id in node_ids {
                 format(w, *id, nodes, input, indent + 2)?;
             }
-            write!(w, "{:width$}}}", "", width = indent)?;
+            writeln!(w, "{:width$}}}", "", width = indent)?;
         }
         NodeKind::ProbeDefinition(probe, pred, actions) => {
             format(w, *probe, nodes, input, indent)?;
+            writeln!(w, "")?;
 
             if let Some(pred) = pred {
-                write!(w, "\n{:width$}/", "", width = indent)?;
+                write!(w, "{:width$}/", "", width = indent)?;
                 format(w, *pred, nodes, input, indent)?;
                 writeln!(w, " /")?;
             }
 
             if let Some(actions) = actions {
-                write!(w, "{:width$}{{", "", width = indent)?;
-                format(w, *actions, nodes, input, indent + 2)?;
-                write!(w, "{:width$}}}", "", width = indent)?;
+                format(w, *actions, nodes, input, indent)?;
             }
+            writeln!(w, "")?;
         }
         NodeKind::Number(_) | NodeKind::Identifier(_) | NodeKind::ProbeSpecifier(_) => {
             let src = Parser::str_from_source(input, &node.origin);
@@ -56,7 +56,9 @@ pub fn format<W: Write>(
             todo!()
         }
         NodeKind::TranslationUnit(decls) => {
-            todo!()
+            for decl in decls {
+                format(w, *decl, nodes, input, indent)?;
+            }
         }
         NodeKind::PrimaryToken(_) => {
             todo!()
@@ -76,7 +78,10 @@ pub fn format<W: Write>(
         NodeKind::SizeofExpr(node_id) => todo!(),
         NodeKind::StringofExpr(node_id) => todo!(),
         NodeKind::PostfixIncDecrement(node_id, _token_kind) => todo!(),
-        NodeKind::ExprStmt(node_id) => todo!(),
+        NodeKind::ExprStmt(node_id) => {
+            format(w, *node_id, nodes, input, indent)?;
+            writeln!(w, "")?;
+        }
         NodeKind::EmptyStmt => {
             todo!()
         }
