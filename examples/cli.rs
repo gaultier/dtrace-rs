@@ -47,8 +47,15 @@ fn main() {
         && let Some(root) = compiled.ast_root
     {
         let mut stdout = std::io::stdout().lock();
-        compiler_rs_lib::fmt::format(&mut stdout, root, &compiled.ast_nodes, &file_content, 0)
-            .unwrap();
+        compiler_rs_lib::fmt::format(
+            &mut stdout,
+            root,
+            &compiled.ast_nodes,
+            &file_content,
+            0,
+            true,
+        )
+        .unwrap();
         stdout.flush().unwrap();
     }
 }

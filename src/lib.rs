@@ -7,8 +7,6 @@ mod type_checker;
 
 use std::collections::HashMap;
 
-use log::trace;
-
 use crate::{
     ast::{Node, NodeId, Parser},
     error::Error,

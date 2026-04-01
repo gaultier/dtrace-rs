@@ -2,12 +2,20 @@ use std::io::Write;
 
 use crate::ast::{Node, NodeId, NodeKind, Parser};
 
+fn indentify<W: Write>(w: &mut W, indent: usize, initial_indent: bool) -> std::io::Result<()> {
+    if initial_indent {
+        write!(w, "{:width$}", "", width = indent)?;
+    }
+    Ok(())
+}
+
 pub fn format<W: Write>(
     w: &mut W,
     node_id: NodeId,
     nodes: &[Node],
     input: &str,
     indent: usize,
+    initial_indent: bool,
 ) -> std::io::Result<()> {
     let node = &nodes[node_id];
 
@@ -17,47 +25,69 @@ pub fn format<W: Write>(
             w.write_all(src.as_bytes())?;
         }
         NodeKind::Block(node_ids) => {
-            writeln!(w, "{:width$}{{", "", width = indent)?;
+            indentify(w, indent, initial_indent)?;
+            w.write_all(b"{\n")?;
             for id in node_ids {
-                format(w, *id, nodes, input, indent + 2)?;
+                format(w, *id, nodes, input, indent + 2, true)?;
             }
-            writeln!(w, "{:width$}}}", "", width = indent)?;
+            indentify(w, indent, true)?;
+            w.write_all(b"}")?;
         }
         NodeKind::ProbeDefinition(probe, pred, actions) => {
-            format(w, *probe, nodes, input, indent)?;
-            writeln!(w, "")?;
+            format(w, *probe, nodes, input, indent, true)?;
+            w.write_all(b"\n")?;
 
             if let Some(pred) = pred {
-                write!(w, "{:width$}/", "", width = indent)?;
-                format(w, *pred, nodes, input, indent)?;
-                writeln!(w, " /")?;
+                indentify(w, indent, initial_indent)?;
+                w.write_all(b"/ ")?;
+                format(w, *pred, nodes, input, indent, true)?;
+                w.write_all(b" /")?;
             }
 
             if let Some(actions) = actions {
-                format(w, *actions, nodes, input, indent)?;
+                format(w, *actions, nodes, input, indent, true)?;
             }
-            writeln!(w, "")?;
+            w.write_all(b"\n")?;
         }
         NodeKind::Number(_) | NodeKind::Identifier(_) | NodeKind::ProbeSpecifier(_) => {
             let src = Parser::str_from_source(input, &node.origin);
             w.write_all(src.as_bytes())?;
         }
         NodeKind::Assignment(lhs, tok, rhs) | NodeKind::BinaryOp(lhs, tok, rhs) => {
-            format(w, *lhs, nodes, input, indent)?;
+            format(w, *lhs, nodes, input, indent, true)?;
             let src = Parser::str_from_source(input, &tok.origin);
             write!(w, " {} ", src)?;
-            format(w, *rhs, nodes, input, indent)?;
+            format(w, *rhs, nodes, input, indent, true)?;
         }
         NodeKind::If {
             cond,
             then_block,
             else_block,
         } => {
-            todo!()
+            indentify(w, indent, initial_indent)?;
+            w.write_all(b"if (")?;
+            format(w, *cond, nodes, input, indent, true)?;
+            w.write_all(b") ")?;
+
+            format(w, *then_block, nodes, input, indent, false)?;
+
+            if let Some(else_block) = else_block {
+                indentify(w, indent, initial_indent)?;
+                w.write_all(b"else")?;
+
+                let else_block_node = &nodes[*else_block];
+                if matches!(else_block_node.kind, NodeKind::If { .. }) {
+                    w.write_all(b" ")?;
+                    format(w, *else_block, nodes, input, indent, false)?;
+                } else {
+                    w.write_all(b"\n")?;
+                    format(w, *else_block, nodes, input, indent, true)?;
+                }
+            }
         }
         NodeKind::TranslationUnit(decls) => {
             for decl in decls {
-                format(w, *decl, nodes, input, indent)?;
+                format(w, *decl, nodes, input, indent, true)?;
             }
         }
         NodeKind::PrimaryToken(_) => {
@@ -80,9 +110,9 @@ pub fn format<W: Write>(
         NodeKind::StringofExpr(node_id) => todo!(),
         NodeKind::PostfixIncDecrement(node_id, _token_kind) => todo!(),
         NodeKind::ExprStmt(node_id) => {
-            write!(w, "{:width$}", "", width = indent)?;
-            format(w, *node_id, nodes, input, indent)?;
-            writeln!(w, ";")?;
+            indentify(w, indent, initial_indent)?;
+            format(w, *node_id, nodes, input, indent, true)?;
+            writeln!(w, ";\n")?;
         }
         NodeKind::EmptyStmt => {
             todo!()
@@ -91,12 +121,12 @@ pub fn format<W: Write>(
             todo!()
         }
         NodeKind::PostfixArguments(primary, args) => {
-            format(w, *primary, nodes, input, indent)?;
-            write!(w, "(")?;
+            format(w, *primary, nodes, input, indent, true)?;
+            w.write_all(b"(")?;
             if let Some(args) = args {
-                format(w, *args, nodes, input, indent)?;
+                format(w, *args, nodes, input, indent, true)?;
             }
-            write!(w, ")")?;
+            w.write_all(b")")?;
         }
         NodeKind::TernaryExpr(lhs, mhs, rhs) => {
             todo!()
