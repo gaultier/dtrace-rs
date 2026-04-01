@@ -475,10 +475,19 @@ impl<'a> Parser<'a> {
             } else {
                 String::new()
             };
-            self.expect_token_one(TokenKind::RightParen, "closing cast right parenthesis");
-            let node = self
-                .parse_cast_expr()
-                .unwrap_or_else(|| self.new_node_unknown());
+            let right_paren =
+                self.expect_token_one(TokenKind::RightParen, "closing cast right parenthesis");
+            let node = self.parse_cast_expr().unwrap_or_else(|| {
+                self.add_error_with_explanation(
+                    ErrorKind::MissingExpr,
+                    right_paren.map(|t| t.origin).unwrap_or(op.origin),
+                    format!(
+                        "expected expression after parenthesis in cast, found: {:?}",
+                        self.current_token_kind_for_err()
+                    ),
+                );
+                self.new_node_unknown()
+            });
             return Some(self.new_node(Node {
                 kind: NodeKind::Cast(typ_str, node),
                 origin: op.origin,
@@ -2076,17 +2085,15 @@ impl<'a> Parser<'a> {
             }
             NodeKind::Unknown => {}
             NodeKind::PrimaryToken(_) => {}
-            NodeKind::Cast(_, _) => {
-                todo!()
-            }
-            NodeKind::Aggregation(_) => todo!(),
-            NodeKind::CommaExpr(_node_ids) => todo!(),
-            NodeKind::SizeofType(_) => todo!(),
-            NodeKind::SizeofExpr(_node_id) => todo!(),
-            NodeKind::StringofExpr(_node_id) => todo!(),
-            NodeKind::PostfixIncDecrement(_node_id, _token_kind) => todo!(),
-            NodeKind::ExprStmt(_node_id) => todo!(),
-            NodeKind::EmptyStmt => todo!(),
+            NodeKind::Cast(_, _) => {}
+            NodeKind::Aggregation(_) => {}
+            NodeKind::CommaExpr(_node_ids) => {}
+            NodeKind::SizeofType(_) => {}
+            NodeKind::SizeofExpr(_node_id) => {}
+            NodeKind::StringofExpr(_node_id) => {}
+            NodeKind::PostfixIncDecrement(_node_id, _token_kind) => {}
+            NodeKind::ExprStmt(_node_id) => {}
+            NodeKind::EmptyStmt => {}
             NodeKind::PostfixArguments(_, _node_id) => {}
             NodeKind::TernaryExpr(_node_id, _node_id1, _node_id2) => {}
             NodeKind::PostfixArrayAccess(_node_id, _node_id1) => {}
@@ -2288,10 +2295,10 @@ impl<'a> Parser<'a> {
                 let kind = self.peek().unwrap().kind;
                 let name = Self::str_from_source(self.input, &origin);
                 if self.typenames.contains(name) {
-                    return Some(self.new_node(Node {
+                    Some(self.new_node(Node {
                         kind: NodeKind::TypeSpecifier(kind),
                         origin,
-                    }));
+                    }))
                 } else {
                     None
                 }
