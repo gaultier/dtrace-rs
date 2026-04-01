@@ -91,6 +91,7 @@ pub enum NodeKind {
     SpecifierQualifierList(Vec<NodeId>),
     Xlate(NodeId, NodeId),
     DirectAbstractDeclarator(NodeId),
+    DirectAbstractArray(Option<NodeId>, NodeId),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2653,7 +2654,7 @@ impl<'a> Parser<'a> {
                     "matching parenthesis in direct abstract declarator",
                 );
 
-                 Some(self.new_node(Node {
+                Some(self.new_node(Node {
                     kind: NodeKind::DirectAbstractDeclarator(abstract_decl),
                     origin: tok.origin,
                 }))
@@ -2670,7 +2671,7 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
-                 Some(func)
+                Some(func)
             }
             Some(TokenKind::LeftSquareBracket) => {
                 let array = self.parse_array().unwrap_or_else(|| {
@@ -2684,29 +2685,74 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
-                 Some(array)
+                // TODO: `DirectAbstractArray(None, array)`?
+                Some(array)
             }
-            _ => None,
-        };
-
-        loop {
-            match self.peek().map(|t|t.kind) {
-                Some(TokenKind::LeftSquareBracket) => {
-                let array = self.parse_array().unwrap_or_else(|| {
+            Some(TokenKind::LeftParen) => {
+                let func = self.parse_array().unwrap_or_else(|| {
                     self.add_error_with_explanation(
-                        ErrorKind::MissingArray,
+                        ErrorKind::MissingFunction,
                         self.current_or_last_origin_for_err(),
                         format!(
-                            "expected array after square bracket, found: {:?}",
+                            "expected function after parenthesis, found: {:?}",
                             self.current_token_kind_for_err()
                         ),
                     );
                     self.new_node_unknown()
                 });
-                 lhs = self.new_node(Node{});
+                Some(func)
+            }
+            _ => None,
+        };
+
+        loop {
+            match self.peek().map(|t| t.kind) {
+                Some(TokenKind::LeftSquareBracket) => {
+                    let origin = self.peek().unwrap().origin;
+                    let array = self.parse_array().unwrap_or_else(|| {
+                        self.add_error_with_explanation(
+                            ErrorKind::MissingArray,
+                            self.current_or_last_origin_for_err(),
+                            format!(
+                                "expected array after square bracket, found: {:?}",
+                                self.current_token_kind_for_err()
+                            ),
+                        );
+                        self.new_node_unknown()
+                    });
+                    lhs = Some(self.new_node(Node {
+                        kind: NodeKind::DirectAbstractArray(lhs, array),
+                        origin,
+                    }));
                 }
-                _ => break;
+                Some(TokenKind::LeftParen)
+                    if !matches!(
+                        self.peek_peek().map(|t| t.kind),
+                        Some(TokenKind::Star | TokenKind::LeftParen | TokenKind::LeftSquareBracket,)
+                    ) =>
+                {
+                    let origin = self.peek().unwrap().origin;
+
+                    let func = self.parse_array().unwrap_or_else(|| {
+                        self.add_error_with_explanation(
+                            ErrorKind::MissingFunction,
+                            self.current_or_last_origin_for_err(),
+                            format!(
+                                "expected function after parenthesis, found: {:?}",
+                                self.current_token_kind_for_err()
+                            ),
+                        );
+                        self.new_node_unknown()
+                    });
+                    lhs = Some(self.new_node(Node {
+                        kind: DirectAbstractFunction(lhs, func),
+                        origin,
+                    }))
                 }
+                _ => {
+                    break;
+                }
+            }
         }
 
         lhs
@@ -2725,6 +2771,10 @@ impl<'a> Parser<'a> {
         );
         todo!()
     }
+}
+
+fn DirectAbstractFunction(lhs: Option<NodeId>, func: NodeId) -> NodeKind {
+    todo!()
 }
 
 fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
