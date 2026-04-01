@@ -89,6 +89,7 @@ pub enum NodeKind {
     StructFieldDeclaration(NodeId, Option<NodeId>),
     StructFieldDeclaratorList(Vec<NodeId>),
     SpecifierQualifierList(Vec<NodeId>),
+    Xlate(NodeId, NodeId),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -714,7 +715,7 @@ impl<'a> Parser<'a> {
             }) => {
                 let op = *self.eat_token().unwrap();
                 let lt = self.expect_token_one(TokenKind::Lt, "'<' after xlate");
-                let _type_name = self.parse_type_name().unwrap_or_else(|| {
+                let type_name = self.parse_type_name().unwrap_or_else(|| {
                     self.add_error_with_explanation(
                         ErrorKind::MissingTypeName,
                         lt.map(|t| t.origin).unwrap_or(op.origin),
@@ -726,14 +727,28 @@ impl<'a> Parser<'a> {
                     self.new_node_unknown()
                 });
                 self.expect_token_one(TokenKind::Gt, "'>' after type name");
-                self.expect_token_one(TokenKind::LeftParen, "opening parenthesis after '>'");
-                let _ = self.parse_expr(); // TODO: Error.
+                let left_paren =
+                    self.expect_token_one(TokenKind::LeftParen, "opening parenthesis after '>'");
+                let expr = self.parse_expr().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpr,
+                        left_paren.map(|t| t.origin).unwrap_or(op.origin),
+                        format!(
+                            "expected expression for xlate after type name, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
                 self.expect_token_one(
                     TokenKind::RightParen,
                     "closing parenthesis after expression",
                 );
 
-                todo!()
+                return Some(self.new_node(Node {
+                    kind: NodeKind::Xlate(type_name, expr),
+                    origin: op.origin,
+                }));
             }
             _ => {}
         }
@@ -2077,8 +2092,9 @@ impl<'a> Parser<'a> {
             NodeKind::StructFieldsDeclaration(_node_ids) => {}
             NodeKind::StructFieldDeclarator(_node_id, _node_id1) => {}
             NodeKind::StructFieldDeclaration(_node_id, _node_id1) => {}
-            NodeKind::StructFieldDeclaratorList(_node_ids) => todo!(),
-            NodeKind::SpecifierQualifierList(_node_ids) => todo!(),
+            NodeKind::StructFieldDeclaratorList(_node_ids) => {}
+            NodeKind::SpecifierQualifierList(_node_ids) => {}
+            NodeKind::Xlate(_node_id, _node_id1) => {}
         }
     }
 
@@ -2776,6 +2792,10 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
             for node_id in node_ids {
                 log(nodes, *node_id, indent + 2);
             }
+        }
+        NodeKind::Xlate(type_name, expr) => {
+            log(nodes, *type_name, indent + 2);
+            log(nodes, *expr, indent + 2);
         }
     }
 }
