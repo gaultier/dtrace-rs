@@ -8,7 +8,7 @@ use std::{
 use crate::{
     error::{Error, ErrorKind},
     lex::{Lexer, Token, TokenKind},
-    origin::{FileId, Origin, OriginKind},
+    origin::{FileId, Origin},
     type_checker::Type,
 };
 use log::trace;
@@ -19,18 +19,9 @@ use serde::Serialize;
 pub struct NodeId(pub(crate) usize);
 
 #[derive(Serialize, Clone, PartialEq, Eq, Debug)]
-pub struct FnDef {
-    pub(crate) name: String,
-    pub(crate) args: Vec<NodeId>,
-    pub(crate) ret: Option<NodeId>,
-    pub(crate) body: NodeId,
-}
-
-#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
-pub enum NodeKind {
+pub(crate) enum NodeKind {
     Unknown,
     // TODO: Should we just use 'Block'?
-    File(Vec<NodeId>), // Root.
     Number(u64),
     PrimaryToken(TokenKind),
     Cast(String, NodeId),
@@ -47,12 +38,6 @@ pub enum NodeKind {
     SizeofType(String),
     SizeofExpr(NodeId),
     StringofExpr(NodeId),
-    FnCall {
-        // Can be a variable (function pointer), or a string.
-        callee: NodeId,
-        args: NodeId,
-    },
-    FnDef(FnDef),
     TranslationUnit(Vec<NodeId>),
     If {
         cond: NodeId,
@@ -60,7 +45,6 @@ pub enum NodeKind {
         else_block: Option<NodeId>,
     },
     Block(Vec<NodeId>),
-    VarDecl(String, NodeId),
     PostfixIncDecrement(NodeId, TokenKind),
     ExprStmt(NodeId),
     EmptyStmt,
@@ -1918,21 +1902,8 @@ impl<'a> Parser<'a> {
         file_id_to_name: &'a HashMap<FileId, String>,
     ) {
         let node = &nodes[node_id];
-        if !matches!(node.kind, NodeKind::File(_)) && node.origin.kind == OriginKind::Builtin {
-            return;
-        }
 
         match &node.kind {
-            NodeKind::File(decls) => {
-                // Already called `.enter()` for builtins.
-                assert_eq!(name_to_def.scopes.len(), 1);
-
-                for decl in decls {
-                    Self::resolve_node(*decl, nodes, errors, name_to_def, file_id_to_name);
-                }
-
-                name_to_def.leave();
-            }
             NodeKind::ProbeDefinition(probe, pred, actions) => {
                 Self::resolve_node(*probe, nodes, errors, name_to_def, file_id_to_name);
                 if let Some(pred) = pred {
@@ -1942,7 +1913,7 @@ impl<'a> Parser<'a> {
                     Self::resolve_node(*actions, nodes, errors, name_to_def, file_id_to_name);
                 }
             }
-            NodeKind::Number(_) | NodeKind::Bool(_) | NodeKind::ProbeSpecifier(_) => {}
+            NodeKind::Number(_) | NodeKind::ProbeSpecifier(_) => {}
             NodeKind::Unary(_, expr) => {
                 Self::resolve_node(*expr, nodes, errors, name_to_def, file_id_to_name);
             }
@@ -1965,8 +1936,6 @@ impl<'a> Parser<'a> {
                 let def = &nodes[*def_id];
 
                 match def.kind {
-                    NodeKind::FnDef { .. } => {}
-                    NodeKind::VarDecl(_, _) => {}
                     NodeKind::Identifier(_) => {}
                     _ => {
                         panic!("identifier refers to invalid node: {:?}", def);
@@ -1976,56 +1945,6 @@ impl<'a> Parser<'a> {
             NodeKind::BinaryOp(lhs, _, rhs) => {
                 Self::resolve_node(*lhs, nodes, errors, name_to_def, file_id_to_name);
                 Self::resolve_node(*rhs, nodes, errors, name_to_def, file_id_to_name);
-            }
-            NodeKind::VarDecl(identifier, expr) => {
-                Self::resolve_node(*expr, nodes, errors, name_to_def, file_id_to_name);
-
-                if let Some((prev, scope)) = name_to_def.get_scoped(identifier)
-                    && scope == ScopeResolution::Current
-                {
-                    let prev_origin = nodes[*prev].origin;
-                    errors.push(Error::new(
-                        ErrorKind::NameAlreadyDefined,
-                        node.origin,
-                        format!(
-                            "{} redeclared, already declared here: {}",
-                            identifier,
-                            prev_origin.display(file_id_to_name)
-                        ),
-                    ));
-                }
-
-                name_to_def.insert(identifier.to_owned(), node_id);
-            }
-            NodeKind::FnCall { callee, args } => {
-                Self::resolve_node(*callee, nodes, errors, name_to_def, file_id_to_name);
-                let callee_name = nodes[*callee].kind.as_identifier().unwrap();
-                let def_id = name_to_def.get_scoped(callee_name);
-                if def_id.is_none() {
-                    errors.push(Error {
-                        kind: ErrorKind::UnknownIdentifier,
-                        origin: node.origin,
-                        explanation: format!("unknown identifier: {}", callee_name),
-                    });
-
-                    // TODO: Should we pretend we found it?
-                    return;
-                }
-                let def = &nodes[*def_id.unwrap().0];
-
-                match def.kind {
-                    NodeKind::FnDef { .. } => {} // All good.
-                    _ => {
-                        // Once function pointers are supported, VarDecl is also a viable option.
-                        errors.push(Error {
-                            kind: ErrorKind::CallingANonFunction,
-                            origin: node.origin,
-                            explanation: String::from("calling a non-function"),
-                        });
-                    }
-                }
-
-                Self::resolve_node(*args, nodes, errors, name_to_def, file_id_to_name);
             }
             NodeKind::Arguments(args) => {
                 for arg in args {
@@ -2040,37 +1959,6 @@ impl<'a> Parser<'a> {
                 }
 
                 name_to_def.leave();
-            }
-            NodeKind::FnDef(FnDef {
-                name,
-                args,
-                ret,
-                body,
-            }) => {
-                if let Some((prev, _)) = name_to_def.get_scoped(name) {
-                    let prev = &nodes[*prev];
-                    errors.push(Error::new(
-                        ErrorKind::NameAlreadyDefined,
-                        node.origin,
-                        format!(
-                            "name {} already defined here: {}",
-                            name,
-                            prev.origin.display(file_id_to_name)
-                        ),
-                    ));
-                }
-                // TODO: Check shadowing of function name?
-                name_to_def.insert(name.to_owned(), node_id);
-
-                for arg in args {
-                    Self::resolve_node(*arg, nodes, errors, name_to_def, file_id_to_name);
-                }
-
-                if let Some(ret) = ret {
-                    Self::resolve_node(*ret, nodes, errors, name_to_def, file_id_to_name);
-                }
-
-                Self::resolve_node(*body, nodes, errors, name_to_def, file_id_to_name);
             }
             NodeKind::If {
                 cond,
@@ -2917,7 +2805,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let param_decl_specifiers = self
+        let _param_decl_specifiers = self
             .parse_parameter_declaration_specifiers()
             .unwrap_or_else(|| {
                 self.add_error_with_explanation(
@@ -2981,7 +2869,7 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
     );
     match &node.kind {
         NodeKind::Unknown => {}
-        NodeKind::Block(node_ids) | NodeKind::Arguments(node_ids) | NodeKind::File(node_ids) => {
+        NodeKind::Block(node_ids) | NodeKind::Arguments(node_ids) => {
             for id in node_ids {
                 log(nodes, *id, indent + 2);
             }
@@ -2996,35 +2884,10 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
                 log(nodes, *actions, indent + 2);
             }
         }
-        NodeKind::Number(_)
-        | NodeKind::Identifier(_)
-        | NodeKind::Bool(_)
-        | NodeKind::ProbeSpecifier(_) => {}
+        NodeKind::Number(_) | NodeKind::Identifier(_) | NodeKind::ProbeSpecifier(_) => {}
         NodeKind::Assignment(lhs, _, rhs) | NodeKind::BinaryOp(lhs, _, rhs) => {
             log(nodes, *lhs, indent + 2);
             log(nodes, *rhs, indent + 2);
-        }
-        NodeKind::VarDecl(_, node_id) | NodeKind::Unary(_, node_id) => {
-            log(nodes, *node_id, indent + 2);
-        }
-        NodeKind::FnCall { callee, args } => {
-            log(nodes, *callee, indent + 2);
-            log(nodes, *args, indent + 2);
-        }
-        NodeKind::FnDef(FnDef {
-            name: _,
-            args,
-            ret,
-            body,
-        }) => {
-            for id in args {
-                log(nodes, *id, indent + 2);
-            }
-
-            if let Some(ret) = ret {
-                log(nodes, *ret, indent + 2);
-            }
-            log(nodes, *body, indent + 2);
         }
         NodeKind::If {
             cond,
@@ -3209,15 +3072,7 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
                 log(nodes, *node_id, indent + 2);
             }
         }
-    }
-}
-
-impl NodeKind {
-    pub(crate) fn as_identifier(&self) -> Option<&str> {
-        match self {
-            NodeKind::Identifier(s) => Some(s),
-            _ => None,
-        }
+        NodeKind::Unary(_token_kind, node_id) => log(nodes, *node_id, indent + 2),
     }
 }
 

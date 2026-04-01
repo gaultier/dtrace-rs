@@ -6,7 +6,7 @@ use crate::{
     ast::{NameToDef, Node, NodeId, NodeKind},
     error::Error,
     lex::TokenKind,
-    origin::{Origin, OriginKind},
+    origin::Origin,
 };
 
 #[derive(Serialize, Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
@@ -135,52 +135,10 @@ pub fn check_node(
     let node = &nodes[node_id];
     match &node.kind {
         NodeKind::Unknown => {}
-        NodeKind::File(decls) => {
-            for decl in decls {
-                check_node(*decl, nodes, errs, node_to_type, name_to_def);
-            }
-        }
-        NodeKind::VarDecl(_identifier, expr) => {
-            check_node(*expr, nodes, errs, node_to_type, name_to_def);
-
-            let expr_typ = node_to_type.get(expr).unwrap();
-            node_to_type.insert(node_id, expr_typ.clone());
-        }
         NodeKind::TranslationUnit(decls) => {
             for decl in decls {
                 check_node(*decl, nodes, errs, node_to_type, name_to_def);
             }
-        }
-        NodeKind::FnDef(crate::ast::FnDef {
-            name: _,
-            args,
-            ret,
-            body,
-        }) => {
-            if node.origin.kind == OriginKind::Builtin {
-                return;
-            }
-
-            for arg in args {
-                check_node(*arg, nodes, errs, node_to_type, name_to_def);
-            }
-            // TODO: More checks.
-
-            if let Some(ret) = ret {
-                check_node(*ret, nodes, errs, node_to_type, name_to_def);
-            }
-
-            let arg_types: Vec<Type> = args
-                .iter()
-                .map(|a| node_to_type.get(a).unwrap().clone())
-                .collect();
-            let ret_type = ret
-                .map(|r| node_to_type.get(&r).unwrap().clone())
-                .unwrap_or_else(Type::new_void);
-            let typ = Type::new_function(&ret_type, &arg_types, &node.origin);
-            node_to_type.insert(node_id, typ);
-
-            check_node(*body, nodes, errs, node_to_type, name_to_def);
         }
         NodeKind::Number(_) => {
             assert!(matches!(
@@ -198,50 +156,6 @@ pub fn check_node(
             let def_type = node_to_type.get(def_id).unwrap_or(&default_type);
 
             node_to_type.insert(node_id, def_type.clone());
-        }
-        NodeKind::FnCall { callee, args } => {
-            let callee_name = nodes[*callee].kind.as_identifier().unwrap();
-            let def_id = name_to_def.get_definitive(callee_name).unwrap();
-            let def_type = node_to_type.get(def_id).unwrap();
-            let (ret_type, args_type) = match &*def_type.kind {
-                TypeKind::Function(ret_type, args_type) => (ret_type.clone(), args_type.clone()),
-                _ => {
-                    panic!("invalid function type")
-                }
-            };
-            if *ret_type.kind != TypeKind::Void {
-                todo!();
-            }
-
-            let args = match &nodes[*args].kind {
-                NodeKind::Arguments(args) => args,
-                _ => panic!("invalid function arguments"),
-            };
-
-            if args.len() != args_type.len() {
-                errs.push(Error::new_incompatible_arguments_count(
-                    &node.origin,
-                    args_type.len(),
-                    args.len(),
-                ));
-
-                return;
-            }
-
-            for (i, arg) in args.iter().enumerate() {
-                check_node(*arg, nodes, errs, node_to_type, name_to_def);
-                let arg_type = node_to_type.get(arg).unwrap();
-
-                let _typ = match arg_type.merge(&args_type[i], &node.origin) {
-                    Err(err) => {
-                        errs.push(err);
-                        continue;
-                    }
-                    Ok(t) => t,
-                };
-            }
-
-            node_to_type.insert(node_id, ret_type);
         }
         NodeKind::BinaryOp(lhs, TokenKind::Plus | TokenKind::Star | TokenKind::Slash, rhs) => {
             check_node(*lhs, nodes, errs, node_to_type, name_to_def);
