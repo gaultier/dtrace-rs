@@ -1,3 +1,5 @@
+enum b{ a = 1, b = 2};
+struct a { float x; int y,z;};
 BEGIN {
-  offsetof(struct a, y)
+  print(offsetof(struct a, y))
 }
