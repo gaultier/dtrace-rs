@@ -93,6 +93,7 @@ pub enum NodeKind {
     DirectAbstractDeclarator(NodeId),
     DirectAbstractArray(Option<NodeId>, NodeId),
     DirectAbstractFunction(Option<NodeId>, NodeId),
+    AbstractDeclarator(Option<NodeId>, Option<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2123,6 +2124,7 @@ impl<'a> Parser<'a> {
             NodeKind::DirectAbstractDeclarator(_node_id) => {}
             NodeKind::DirectAbstractArray(_node_id, _node_id1) => {}
             NodeKind::DirectAbstractFunction(_node_id, _node_id1) => {}
+            NodeKind::AbstractDeclarator(_node_id, _node_id1) => {}
         }
     }
 
@@ -2153,7 +2155,15 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        todo!()
+        Some(
+            self.new_node(Node {
+                kind: NodeKind::AbstractDeclarator(ptr, direct),
+                origin: ptr
+                    .map(|p| self.origin(p))
+                    .or_else(|| direct.map(|d| self.origin(d)))
+                    .unwrap(),
+            }),
+        )
     }
 
     // declaration             → declaration_specifiers init_declarator_list? ";" ;
@@ -3004,6 +3014,14 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
                 log(nodes, *base, indent + 2);
             }
             log(nodes, *suffix, indent + 2);
+        }
+        NodeKind::AbstractDeclarator(ptr, abstract_decl) => {
+            if let Some(node_id) = ptr {
+                log(nodes, *node_id, indent + 2);
+            }
+            if let Some(node_id) = abstract_decl {
+                log(nodes, *node_id, indent + 2);
+            }
         }
     }
 }
