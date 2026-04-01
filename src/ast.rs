@@ -2966,7 +2966,12 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
                 log(nodes, *node_id, indent + 2);
             }
         }
-        NodeKind::DirectDeclarator(_token) => {}
+        NodeKind::DirectDeclarator(base, suffix) => {
+            log(nodes, *base, indent + 2);
+            if let Some(node_id) = suffix {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
         NodeKind::Declarator(ptr, declarator) => {
             if let Some(ptr) = ptr {
                 log(nodes, *ptr, indent + 2);
