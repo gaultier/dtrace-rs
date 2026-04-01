@@ -14,7 +14,7 @@ pub fn format<W: Write>(
     match &node.kind {
         NodeKind::Unknown | NodeKind::Character => {
             let src = Parser::str_from_source(input, &node.origin);
-            write!(w, "{:width$}{src}", "", width = indent, src = src)?;
+            w.write_all(src.as_bytes())?;
         }
         NodeKind::Block(node_ids) => {
             writeln!(w, "{:width$}{{", "", width = indent)?;
@@ -40,7 +40,7 @@ pub fn format<W: Write>(
         }
         NodeKind::Number(_) | NodeKind::Identifier(_) | NodeKind::ProbeSpecifier(_) => {
             let src = Parser::str_from_source(input, &node.origin);
-            write!(w, "{:width$}{src}", "", width = indent, src = src)?;
+            w.write_all(src.as_bytes())?;
         }
         NodeKind::Assignment(lhs, tok, rhs) | NodeKind::BinaryOp(lhs, tok, rhs) => {
             format(w, *lhs, nodes, input, indent)?;
@@ -62,13 +62,13 @@ pub fn format<W: Write>(
         }
         NodeKind::PrimaryToken(_) => {
             let src = Parser::str_from_source(input, &node.origin);
-            w.write(src.as_bytes())?;
+            w.write_all(src.as_bytes())?;
         }
         NodeKind::Cast(_, _) => {
             todo!()
         }
-        NodeKind::Aggregation(_) => {
-            todo!()
+        NodeKind::Aggregation(s) => {
+            w.write_all(s.as_bytes())?;
         }
         NodeKind::ProbeSpecifiers(node_ids) | NodeKind::CommaExpr(node_ids) => {
             todo!()
@@ -80,6 +80,7 @@ pub fn format<W: Write>(
         NodeKind::StringofExpr(node_id) => todo!(),
         NodeKind::PostfixIncDecrement(node_id, _token_kind) => todo!(),
         NodeKind::ExprStmt(node_id) => {
+            write!(w, "{:width$}", "", width = indent)?;
             format(w, *node_id, nodes, input, indent)?;
             writeln!(w, ";")?;
         }
