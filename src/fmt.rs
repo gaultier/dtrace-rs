@@ -61,7 +61,8 @@ pub fn format<W: Write>(
             }
         }
         NodeKind::PrimaryToken(_) => {
-            todo!()
+            let src = Parser::str_from_source(input, &node.origin);
+            w.write(src.as_bytes())?;
         }
         NodeKind::Cast(_, _) => {
             todo!()
@@ -85,8 +86,16 @@ pub fn format<W: Write>(
         NodeKind::EmptyStmt => {
             todo!()
         }
-        NodeKind::PostfixArrayAccess(primary, args) | NodeKind::PostfixArguments(primary, args) => {
+        NodeKind::PostfixArrayAccess(primary, args) => {
             todo!()
+        }
+        NodeKind::PostfixArguments(primary, args) => {
+            format(w, *primary, nodes, input, indent)?;
+            write!(w, "(")?;
+            if let Some(args) = args {
+                format(w, *args, nodes, input, indent)?;
+            }
+            write!(w, ")")?;
         }
         NodeKind::TernaryExpr(lhs, mhs, rhs) => {
             todo!()
