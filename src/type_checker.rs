@@ -369,6 +369,9 @@ pub fn check_node(
         NodeKind::StructFieldDeclaratorList(_node_ids) => todo!(),
         NodeKind::SpecifierQualifierList(_node_ids) => todo!(),
         NodeKind::Xlate(_node_id, _node_id1) => todo!(),
+        NodeKind::DirectAbstractDeclarator(_node_id) => todo!(),
+        NodeKind::DirectAbstractArray(_node_id, _node_id1) => todo!(),
+        NodeKind::DirectAbstractFunction(_node_id, _node_id1) => todo!(),
     }
 }
 

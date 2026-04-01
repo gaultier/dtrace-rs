@@ -92,6 +92,7 @@ pub enum NodeKind {
     Xlate(NodeId, NodeId),
     DirectAbstractDeclarator(NodeId),
     DirectAbstractArray(Option<NodeId>, NodeId),
+    DirectAbstractFunction(Option<NodeId>, NodeId),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2097,6 +2098,9 @@ impl<'a> Parser<'a> {
             NodeKind::StructFieldDeclaratorList(_node_ids) => {}
             NodeKind::SpecifierQualifierList(_node_ids) => {}
             NodeKind::Xlate(_node_id, _node_id1) => {}
+            NodeKind::DirectAbstractDeclarator(_node_id) => {}
+            NodeKind::DirectAbstractArray(_node_id, _node_id1) => {}
+            NodeKind::DirectAbstractFunction(_node_id, _node_id1) => {}
         }
     }
 
@@ -2745,7 +2749,7 @@ impl<'a> Parser<'a> {
                         self.new_node_unknown()
                     });
                     lhs = Some(self.new_node(Node {
-                        kind: DirectAbstractFunction(lhs, func),
+                        kind: NodeKind::DirectAbstractFunction(lhs, func),
                         origin,
                     }))
                 }
@@ -2763,7 +2767,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let left_square_bracket = self.match_kind(TokenKind::LeftSquareBracket)?;
+        let _left_square_bracket = self.match_kind(TokenKind::LeftSquareBracket)?;
 
         self.expect_token_one(
             TokenKind::LeftSquareBracket,
@@ -2771,10 +2775,6 @@ impl<'a> Parser<'a> {
         );
         todo!()
     }
-}
-
-fn DirectAbstractFunction(lhs: Option<NodeId>, func: NodeId) -> NodeKind {
-    todo!()
 }
 
 fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
@@ -2963,6 +2963,21 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         NodeKind::Xlate(type_name, expr) => {
             log(nodes, *type_name, indent + 2);
             log(nodes, *expr, indent + 2);
+        }
+        NodeKind::DirectAbstractDeclarator(node_id) => {
+            log(nodes, *node_id, indent + 2);
+        }
+        NodeKind::DirectAbstractArray(base, suffix) => {
+            if let Some(base) = base {
+                log(nodes, *base, indent + 2);
+            }
+            log(nodes, *suffix, indent + 2);
+        }
+        NodeKind::DirectAbstractFunction(base, suffix) => {
+            if let Some(base) = base {
+                log(nodes, *base, indent + 2);
+            }
+            log(nodes, *suffix, indent + 2);
         }
     }
 }
