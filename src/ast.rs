@@ -94,6 +94,7 @@ pub enum NodeKind {
     DirectAbstractArray(Option<NodeId>, NodeId),
     DirectAbstractFunction(Option<NodeId>, NodeId),
     AbstractDeclarator(Option<NodeId>, Option<NodeId>),
+    Pointer(Vec<NodeId>, Option<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2125,6 +2126,7 @@ impl<'a> Parser<'a> {
             NodeKind::DirectAbstractArray(_node_id, _node_id1) => {}
             NodeKind::DirectAbstractFunction(_node_id, _node_id1) => {}
             NodeKind::AbstractDeclarator(_node_id, _node_id1) => {}
+            NodeKind::Pointer(_node_ids, _node_id) => {}
         }
     }
 
@@ -2426,8 +2428,19 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let _star = self.match_kind(TokenKind::Star)?;
-        todo!()
+        let star = self.match_kind(TokenKind::Star)?;
+
+        let mut type_qualifiers = Vec::new();
+        while let Some(typ) = self.parse_type_qualifier() {
+            type_qualifiers.push(typ);
+        }
+
+        let ptr = self.parse_pointer();
+
+        Some(self.new_node(Node {
+            kind: NodeKind::Pointer(type_qualifiers, ptr),
+            origin: star.origin,
+        }))
     }
 
     // enum_specifier          → "enum" ( IDENT | TNAME )? "{" enumerator_list "}"
@@ -3002,6 +3015,14 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
                 log(nodes, *node_id, indent + 2);
             }
             if let Some(node_id) = abstract_decl {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
+        NodeKind::Pointer(type_qualifiers, ptr) => {
+            for node_id in type_qualifiers {
+                log(nodes, *node_id, indent + 2);
+            }
+            if let Some(node_id) = ptr {
                 log(nodes, *node_id, indent + 2);
             }
         }

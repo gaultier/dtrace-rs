@@ -373,6 +373,7 @@ pub fn check_node(
         NodeKind::DirectAbstractArray(_node_id, _node_id1) => todo!(),
         NodeKind::DirectAbstractFunction(_node_id, _node_id1) => todo!(),
         NodeKind::AbstractDeclarator(_node_id, _node_id1) => todo!(),
+        NodeKind::Pointer(_node_ids, _node_id) => todo!(),
     }
 }
 
