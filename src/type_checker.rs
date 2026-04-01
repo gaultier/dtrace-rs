@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::{
     ast::{NameToDef, Node, NodeId, NodeKind},
     error::Error,
-    lex::TokenKind,
+    lex::{Token, TokenKind},
     origin::Origin,
 };
 
@@ -157,7 +157,14 @@ pub fn check_node(
 
             node_to_type.insert(node_id, def_type.clone());
         }
-        NodeKind::BinaryOp(lhs, TokenKind::Plus | TokenKind::Star | TokenKind::Slash, rhs) => {
+        NodeKind::BinaryOp(
+            lhs,
+            Token {
+                kind: TokenKind::Plus | TokenKind::Star | TokenKind::Slash,
+                ..
+            },
+            rhs,
+        ) => {
             check_node(*lhs, nodes, errs, node_to_type, name_to_def);
             check_node(*rhs, nodes, errs, node_to_type, name_to_def);
 
@@ -175,7 +182,14 @@ pub fn check_node(
                 }
             }
         }
-        NodeKind::BinaryOp(lhs, TokenKind::EqEq, rhs) => {
+        NodeKind::BinaryOp(
+            lhs,
+            Token {
+                kind: TokenKind::EqEq,
+                ..
+            },
+            rhs,
+        ) => {
             check_node(*lhs, nodes, errs, node_to_type, name_to_def);
             check_node(*rhs, nodes, errs, node_to_type, name_to_def);
 

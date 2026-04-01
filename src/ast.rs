@@ -28,7 +28,7 @@ pub(crate) enum NodeKind {
     ProbeSpecifier(String),
     ProbeSpecifiers(Vec<NodeId>),
     ProbeDefinition(NodeId, Option<NodeId>, Option<NodeId>),
-    BinaryOp(NodeId, TokenKind, NodeId),
+    BinaryOp(NodeId, Token, NodeId),
     Identifier(String),
     Aggregation(String),
     Unary(TokenKind, NodeId),
@@ -394,7 +394,7 @@ impl<'a> Parser<'a> {
                 Some(x) => x,
             };
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                kind: NodeKind::BinaryOp(lhs, op, rhs),
                 origin: op.origin,
             });
         }
@@ -442,7 +442,7 @@ impl<'a> Parser<'a> {
                 Some(x) => x,
             };
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                kind: NodeKind::BinaryOp(lhs, op, rhs),
                 origin: op.origin,
             });
         }
@@ -1126,7 +1126,7 @@ impl<'a> Parser<'a> {
                 Some(x) => x,
             };
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                kind: NodeKind::BinaryOp(lhs, op, rhs),
                 origin: op.origin,
             });
         }
@@ -1158,7 +1158,7 @@ impl<'a> Parser<'a> {
                 Some(x) => x,
             };
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                kind: NodeKind::BinaryOp(lhs, op, rhs),
                 origin: op.origin,
             });
         }
@@ -1190,7 +1190,7 @@ impl<'a> Parser<'a> {
                 Some(x) => x,
             };
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                kind: NodeKind::BinaryOp(lhs, op, rhs),
                 origin: op.origin,
             });
         }
@@ -1222,7 +1222,7 @@ impl<'a> Parser<'a> {
                 Some(x) => x,
             };
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                kind: NodeKind::BinaryOp(lhs, op, rhs),
                 origin: op.origin,
             });
         }
@@ -1254,7 +1254,7 @@ impl<'a> Parser<'a> {
                 Some(x) => x,
             };
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                kind: NodeKind::BinaryOp(lhs, op, rhs),
                 origin: op.origin,
             });
         }
@@ -1286,7 +1286,7 @@ impl<'a> Parser<'a> {
                 Some(x) => x,
             };
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                kind: NodeKind::BinaryOp(lhs, op, rhs),
                 origin: op.origin,
             });
         }
@@ -1325,7 +1325,7 @@ impl<'a> Parser<'a> {
                 Some(x) => x,
             };
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                kind: NodeKind::BinaryOp(lhs, op, rhs),
                 origin: op.origin,
             });
         }
@@ -1366,7 +1366,7 @@ impl<'a> Parser<'a> {
                 Some(x) => x,
             };
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                kind: NodeKind::BinaryOp(lhs, op, rhs),
                 origin: op.origin,
             });
         }
@@ -1399,7 +1399,7 @@ impl<'a> Parser<'a> {
             });
 
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op.kind, rhs),
+                kind: NodeKind::BinaryOp(lhs, op, rhs),
                 origin: op.origin,
             });
         }
@@ -3120,12 +3120,26 @@ mod tests {
         assert!(parser.errors.is_empty());
 
         match &root.kind {
-            NodeKind::BinaryOp(lhs, TokenKind::Plus, rhs) => {
+            NodeKind::BinaryOp(
+                lhs,
+                Token {
+                    kind: TokenKind::Plus,
+                    ..
+                },
+                rhs,
+            ) => {
                 let lhs = &parser.nodes[*lhs];
                 assert!(matches!(lhs.kind, NodeKind::Number(123)));
                 let rhs = &parser.nodes[*rhs];
                 match rhs.kind {
-                    NodeKind::BinaryOp(mhs, TokenKind::Plus, rhs) => {
+                    NodeKind::BinaryOp(
+                        mhs,
+                        Token {
+                            kind: TokenKind::Plus,
+                            ..
+                        },
+                        rhs,
+                    ) => {
                         let mhs = &parser.nodes[mhs];
                         let rhs = &parser.nodes[rhs];
                         assert!(matches!(mhs.kind, NodeKind::Number(45)));

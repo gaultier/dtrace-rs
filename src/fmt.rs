@@ -40,8 +40,11 @@ pub fn format(
             let src = Parser::str_from_source(input, &node.origin);
             write!(f, "{:width$}{src}", "", width = indent, src = src)?;
         }
-        NodeKind::Assignment(lhs, _, rhs) | NodeKind::BinaryOp(lhs, _, rhs) => {
-            todo!()
+        NodeKind::Assignment(lhs, tok, rhs) | NodeKind::BinaryOp(lhs, tok, rhs) => {
+            format(f, *lhs, nodes, input, indent)?;
+            let src = Parser::str_from_source(input, &tok.origin);
+            write!(f, " {} ", src)?;
+            format(f, *rhs, nodes, input, indent)?;
         }
         NodeKind::If {
             cond,
