@@ -23,6 +23,7 @@ pub enum TokenKind {
     Identifier,
     ProbeSpecifier,
     Dot,
+    DotDotDot,
     Caret,
     CaretCaret,
     Ampersand,
@@ -496,6 +497,19 @@ impl Lexer {
                         kind: TokenKind::Plus,
                         origin,
                     });
+                    self.advance(c, &mut it);
+                }
+                '.' if peek3(&it) == (Some('.'), Some('.')) => {
+                    let origin = Origin {
+                        len: 3,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::DotDotDot,
+                        origin,
+                    });
+                    self.advance(c, &mut it);
+                    self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
                 '.' => {

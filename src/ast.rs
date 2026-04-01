@@ -95,6 +95,9 @@ pub enum NodeKind {
     DirectAbstractFunction(Option<NodeId>, NodeId),
     AbstractDeclarator(Option<NodeId>, Option<NodeId>),
     Pointer(Vec<NodeId>, Option<NodeId>),
+    Array(Option<NodeId>),
+    ParamEllipsis,
+    Parameters(Vec<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2127,6 +2130,9 @@ impl<'a> Parser<'a> {
             NodeKind::DirectAbstractFunction(_node_id, _node_id1) => {}
             NodeKind::AbstractDeclarator(_node_id, _node_id1) => {}
             NodeKind::Pointer(_node_ids, _node_id) => {}
+            NodeKind::Array(_) => {}
+            NodeKind::ParamEllipsis => {}
+            NodeKind::Parameters(_) => {}
         }
     }
 
@@ -2827,21 +2833,61 @@ impl<'a> Parser<'a> {
         lhs
     }
 
+    // array                   → "[" array_parameters "]" ;
     fn parse_array(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
 
-        let _left_square_bracket = self.match_kind(TokenKind::LeftSquareBracket)?;
+        let left_square_bracket = self.match_kind(TokenKind::LeftSquareBracket)?;
+
+        let params = self.parse_array_parameters();
 
         self.expect_token_one(
             TokenKind::LeftSquareBracket,
             "match square bracket for array",
         );
-        todo!()
+
+        Some(self.new_node(Node {
+            kind: NodeKind::Array(params),
+            origin: left_square_bracket.origin,
+        }))
     }
 
     fn parse_function(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        todo!()
+    }
+
+    // array_parameters        → /* empty */ | constant_expression | parameter_type_list ;
+    fn parse_array_parameters(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        // Empty (valid).
+        if let Some(Token {
+            kind: TokenKind::RightSquareBracket,
+            ..
+        }) = self.peek()
+        {
+            return None;
+        }
+
+        if let Some(tok) = self.match_kind(TokenKind::DotDotDot) {
+            let param = self.new_node(Node {
+                kind: NodeKind::ParamEllipsis,
+                origin: tok.origin,
+            });
+            return Some(self.new_node(Node {
+                kind: NodeKind::Parameters(vec![param]),
+                origin: tok.origin,
+            }));
+        }
+
         todo!()
     }
 }
@@ -3066,6 +3112,17 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
                 log(nodes, *node_id, indent + 2);
             }
             if let Some(node_id) = ptr {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
+        NodeKind::Array(params) => {
+            if let Some(node_id) = params {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
+        NodeKind::ParamEllipsis => {}
+        NodeKind::Parameters(node_ids) => {
+            for node_id in node_ids {
                 log(nodes, *node_id, indent + 2);
             }
         }

@@ -42,6 +42,7 @@ pub(crate) enum ErrorKind {
     MissingArray,
     MissingFunction,
     MissingDeclarator,
+    MissingArrayParameters,
 }
 
 #[derive(Serialize, Debug, Clone)]

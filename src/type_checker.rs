@@ -374,6 +374,9 @@ pub fn check_node(
         NodeKind::DirectAbstractFunction(_node_id, _node_id1) => todo!(),
         NodeKind::AbstractDeclarator(_node_id, _node_id1) => todo!(),
         NodeKind::Pointer(_node_ids, _node_id) => todo!(),
+        NodeKind::Array(_node_id) => todo!(),
+        NodeKind::ParamEllipsis => todo!(),
+        NodeKind::Parameters(_node_ids) => todo!(),
     }
 }
 
