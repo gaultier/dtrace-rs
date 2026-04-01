@@ -128,15 +128,15 @@ pub fn format<W: Write>(
         NodeKind::Aggregation(s) => {
             w.write_all(s.as_bytes())?;
         }
-        NodeKind::ProbeSpecifiers(node_ids) | NodeKind::CommaExpr(node_ids) => {
+        NodeKind::ProbeSpecifiers(_node_ids) | NodeKind::CommaExpr(_node_ids) => {
             todo!()
         }
         NodeKind::SizeofType(_) => {
             todo!()
         }
-        NodeKind::SizeofExpr(node_id) => todo!(),
-        NodeKind::StringofExpr(node_id) => todo!(),
-        NodeKind::PostfixIncDecrement(node_id, _token_kind) => todo!(),
+        NodeKind::SizeofExpr(_node_id) => todo!(),
+        NodeKind::StringofExpr(_node_id) => todo!(),
+        NodeKind::PostfixIncDecrement(_node_id, _token_kind) => todo!(),
         NodeKind::ExprStmt(node_id) => {
             indentify(w, indent, with_heading_indent)?;
             format(w, *node_id, nodes, input, indent, true, true)?;
@@ -146,7 +146,7 @@ pub fn format<W: Write>(
             }
         }
         NodeKind::EmptyStmt => {}
-        NodeKind::PostfixArrayAccess(primary, args) => {
+        NodeKind::PostfixArrayAccess(_primary, _args) => {
             todo!()
         }
         NodeKind::PostfixArguments(primary, args) => {
@@ -157,31 +157,31 @@ pub fn format<W: Write>(
             }
             w.write_all(b")")?;
         }
-        NodeKind::TernaryExpr(lhs, mhs, rhs) => {
+        NodeKind::TernaryExpr(_lhs, _mhs, _rhs) => {
             todo!()
         }
-        NodeKind::FieldAccess(node_id, _, _) => {
+        NodeKind::FieldAccess(_node_id, _, _) => {
             todo!()
         }
-        NodeKind::TypeName(specifier, declarator) => {
+        NodeKind::TypeName(_specifier, _declarator) => {
             todo!()
         }
-        NodeKind::OffsetOf(node_id, _token) => {
+        NodeKind::OffsetOf(_node_id, _token) => {
             todo!()
         }
-        NodeKind::Declaration(decl_specifiers, init_declarator_list) => {
+        NodeKind::Declaration(_decl_specifiers, _init_declarator_list) => {
             todo!()
         }
-        NodeKind::DeclarationSpecifiers(node_ids) => {
+        NodeKind::DeclarationSpecifiers(_node_ids) => {
             todo!()
         }
-        NodeKind::DirectDeclarator(base, suffix) => {
+        NodeKind::DirectDeclarator(_base, _suffix) => {
             todo!()
         }
-        NodeKind::Declarator(ptr, declarator) => {
+        NodeKind::Declarator(_ptr, _declarator) => {
             todo!()
         }
-        NodeKind::InitDeclarators(node_ids) => {
+        NodeKind::InitDeclarators(_node_ids) => {
             todo!()
         }
         NodeKind::TypeQualifier(_)
@@ -190,65 +190,65 @@ pub fn format<W: Write>(
         | NodeKind::TypeSpecifier(_) => {
             todo!()
         }
-        NodeKind::EnumDeclaration(_token, node_id) => {
+        NodeKind::EnumDeclaration(_token, _node_id) => {
             todo!()
         }
-        NodeKind::EnumeratorDeclaration(_token, node_id) => {
+        NodeKind::EnumeratorDeclaration(_token, _node_id) => {
             todo!()
         }
-        NodeKind::EnumeratorsDeclaration(node_ids) => {
+        NodeKind::EnumeratorsDeclaration(_node_ids) => {
             todo!()
         }
-        NodeKind::StructDeclaration(_, node_id) => {
+        NodeKind::StructDeclaration(_, _node_id) => {
             todo!()
         }
-        NodeKind::StructFieldsDeclaration(node_ids) => {
+        NodeKind::StructFieldsDeclaration(_node_ids) => {
             todo!()
         }
-        NodeKind::StructFieldDeclarator(declarator, const_expr) => {
+        NodeKind::StructFieldDeclarator(_declarator, _const_expr) => {
             todo!()
         }
-        NodeKind::StructFieldDeclaration(specifier_qualifier_list, declarator_list) => {
+        NodeKind::StructFieldDeclaration(_specifier_qualifier_list, _declarator_list) => {
             todo!()
         }
-        NodeKind::StructFieldDeclaratorList(node_ids) => {
+        NodeKind::StructFieldDeclaratorList(_node_ids) => {
             todo!()
         }
-        NodeKind::SpecifierQualifierList(node_ids) => {
+        NodeKind::SpecifierQualifierList(_node_ids) => {
             todo!()
         }
-        NodeKind::Xlate(type_name, expr) => {
+        NodeKind::Xlate(_type_name, _expr) => {
             todo!()
         }
-        NodeKind::DirectAbstractDeclarator(node_id) => {
+        NodeKind::DirectAbstractDeclarator(_node_id) => {
             todo!()
         }
-        NodeKind::DirectAbstractArray(base, suffix) => {
+        NodeKind::DirectAbstractArray(_base, _suffix) => {
             todo!()
         }
-        NodeKind::DirectAbstractFunction(base, suffix) => {
+        NodeKind::DirectAbstractFunction(_base, _suffix) => {
             todo!()
         }
-        NodeKind::AbstractDeclarator(ptr, abstract_decl) => {
+        NodeKind::AbstractDeclarator(_ptr, _abstract_decl) => {
             todo!()
         }
-        NodeKind::Pointer(type_qualifiers, ptr) => {
+        NodeKind::Pointer(_type_qualifiers, _ptr) => {
             todo!()
         }
-        NodeKind::Array(params) => {
+        NodeKind::Array(_params) => {
             todo!()
         }
         NodeKind::ParamEllipsis => {
             todo!()
         }
-        NodeKind::Parameters(node_ids) => {
+        NodeKind::Parameters(_node_ids) => {
             todo!()
         }
-        NodeKind::ParameterDeclarationSpecifiers(node_ids) => {
+        NodeKind::ParameterDeclarationSpecifiers(_node_ids) => {
             todo!()
         }
-        NodeKind::Unary(token_kind, node_id) => todo!(),
-        NodeKind::Arguments(node_ids) => todo!(),
+        NodeKind::Unary(_token_kind, _node_id) => todo!(),
+        NodeKind::Arguments(_node_ids) => todo!(),
     }
     Ok(())
 }
