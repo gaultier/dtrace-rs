@@ -69,7 +69,20 @@ pub fn format<W: Write>(
             format(w, *cond, nodes, input, indent, true)?;
             w.write_all(b") ")?;
 
-            format(w, *then_block, nodes, input, indent, false)?;
+            let then_block_node = &nodes[*then_block];
+            if matches!(then_block_node.kind, NodeKind::Block { .. }) {
+                format(w, *then_block, nodes, input, indent, true)?;
+            } else {
+                // Simulate block.
+                w.write_all(b"{\n")?;
+
+                indentify(w, indent + 2, true)?;
+                format(w, *then_block, nodes, input, indent + 2, true)?;
+                w.write_all(b";\n")?;
+
+                indentify(w, indent, true)?;
+                w.write_all(b"}\n")?;
+            }
 
             if let Some(else_block) = else_block {
                 indentify(w, indent, initial_indent)?;
@@ -114,9 +127,7 @@ pub fn format<W: Write>(
             format(w, *node_id, nodes, input, indent, true)?;
             w.write_all(b";\n")?;
         }
-        NodeKind::EmptyStmt => {
-            w.write_all(b";\n")?;
-        }
+        NodeKind::EmptyStmt => {}
         NodeKind::PostfixArrayAccess(primary, args) => {
             todo!()
         }
