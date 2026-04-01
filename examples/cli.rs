@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Write};
 
 use compiler_rs_lib::compile;
 use log::{LevelFilter, Log};
@@ -49,5 +49,6 @@ fn main() {
         let mut stdout = std::io::stdout().lock();
         compiler_rs_lib::fmt::format(&mut stdout, root, &compiled.ast_nodes, &file_content, 0)
             .unwrap();
+        stdout.flush().unwrap();
     }
 }

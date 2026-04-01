@@ -1739,8 +1739,9 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        trace!("[D001] {}", self.tokens_consumed);
 
-        if let Some(lcurly) = self.match_kind(TokenKind::LeftCurly) {
+        if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
             let stmts = self.parse_statement_list();
 
             self.expect_token_one(
@@ -1749,7 +1750,7 @@ impl<'a> Parser<'a> {
             );
             let node_id = self.new_node(Node {
                 kind: NodeKind::ProbeDefinition(probe_specifier, predicate, stmts),
-                origin: lcurly.origin,
+                origin: left_curly.origin,
             });
 
             return Some(node_id);
@@ -1858,17 +1859,17 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            // `d_expression` is the same `expression`.
-            if let Some(expr) = self.parse_expr() {
-                return Some(expr);
-            }
-
             if let Some(prog) = self.parse_d_program() {
                 return Some(prog);
             }
 
             if let Some(typ) = self.parse_type_name() {
                 return Some(typ);
+            }
+
+            // `d_expression` is the same `expression`.
+            if let Some(expr) = self.parse_expr() {
+                return Some(expr);
             }
 
             // Catch-all.

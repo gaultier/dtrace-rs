@@ -171,11 +171,9 @@ pub fn compile(
 ) -> CompileResult {
     let mut lexer = Lexer::new(file_id);
     lexer.lex(input);
-    trace!("tokens: {:?}", lexer.tokens);
 
     let mut parser = Parser::new(input, &lexer, file_id_to_name);
     let root = parser.parse();
-    trace!("parser errors: {:?}", parser.errors);
 
     if !parser.errors.is_empty() {
         return CompileResult {
