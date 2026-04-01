@@ -98,6 +98,7 @@ pub enum NodeKind {
     Array(Option<NodeId>),
     ParamEllipsis,
     Parameters(Vec<NodeId>),
+    ParameterDeclarationSpecifiers(Vec<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2133,6 +2134,7 @@ impl<'a> Parser<'a> {
             NodeKind::Array(_) => {}
             NodeKind::ParamEllipsis => {}
             NodeKind::Parameters(_) => {}
+            NodeKind::ParameterDeclarationSpecifiers(_node_ids) => {}
         }
     }
 
@@ -2890,6 +2892,83 @@ impl<'a> Parser<'a> {
 
         todo!()
     }
+
+    // parameter_type_list → parameter_list ( "," "..." )?
+    fn parse_parameter_type_list(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        todo!()
+    }
+
+    // parameter_list          → parameter_declaration ( "," parameter_declaration )* ;
+    fn parse_parameter_list(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        todo!()
+    }
+
+    // parameter_declaration → parameter_declaration_specifiers
+    //                        ( declarator | abstract_declarator )? ;
+    fn parse_parameter_declaration(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let param_decl_specifiers = self
+            .parse_parameter_declaration_specifiers()
+            .unwrap_or_else(|| {
+                self.add_error_with_explanation(
+                    ErrorKind::MissingParameterDeclarationSpecifiers,
+                    self.current_or_last_origin_for_err(),
+                    format!(
+                        "expected parameter declaration, found: {:?}",
+                        self.current_token_kind_for_err()
+                    ),
+                );
+
+                self.new_node_unknown()
+            });
+        todo!()
+    }
+
+    // parameter_declaration_specifiers → ( storage_class_specifier
+    //                                   | type_specifier
+    //                                   | type_qualifier )+ ;
+    fn parse_parameter_declaration_specifiers(&mut self) -> Option<NodeId> {
+        let mut specifiers = Vec::new();
+
+        while let Some(spec) = self
+            .parse_storage_class_specifier()
+            .or_else(|| self.parse_type_specifier())
+            .or_else(|| self.parse_type_qualifier())
+        {
+            specifiers.push(spec);
+        }
+        if specifiers.is_empty() {
+            self.add_error_with_explanation(
+                ErrorKind::MissingParameterDeclarationSpecifiers,
+                self.current_or_last_origin_for_err(),
+                format!(
+                    "expected parameter declaration specifiers, found: {:?}",
+                    self.current_token_kind_for_err()
+                ),
+            );
+        }
+
+        let origin = specifiers
+            .first()
+            .map(|n| self.origin(*n))
+            .unwrap_or_else(|| self.current_or_last_origin_for_err());
+
+        Some(self.new_node(Node {
+            kind: NodeKind::ParameterDeclarationSpecifiers(specifiers),
+            origin,
+        }))
+    }
 }
 
 fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
@@ -3122,6 +3201,11 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         }
         NodeKind::ParamEllipsis => {}
         NodeKind::Parameters(node_ids) => {
+            for node_id in node_ids {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
+        NodeKind::ParameterDeclarationSpecifiers(node_ids) => {
             for node_id in node_ids {
                 log(nodes, *node_id, indent + 2);
             }
