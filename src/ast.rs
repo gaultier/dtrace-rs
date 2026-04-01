@@ -349,15 +349,25 @@ impl<'a> Parser<'a> {
                 kind: TokenKind::LeftParen,
                 ..
             }) => {
-                let lparen = self.match_kind(TokenKind::LeftParen)?;
-                let e = self.parse_expr().unwrap_or_else(|| self.new_node_unknown());
+                let left_paren = self.match_kind(TokenKind::LeftParen)?;
+                let e = self.parse_expr().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingExpr,
+                        left_paren.origin,
+                        format!(
+                            "expected expression after parenthesis, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
                 let _ = self.expect_token_one(
                     TokenKind::RightParen,
                     "primary expression closing parenthesis",
                 );
                 Some(self.new_node(Node {
                     kind: NodeKind::Unary(TokenKind::LeftParen, e),
-                    origin: lparen.origin,
+                    origin: left_paren.origin,
                 }))
             }
             _ => None,
@@ -1850,13 +1860,18 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            // TODO: d_expr
+            // `d_expression` is the same `expression`.
+            if let Some(expr) = self.parse_expr() {
+                return Some(expr);
+            }
 
             if let Some(prog) = self.parse_d_program() {
                 return Some(prog);
             }
 
-            // TODO: d_type
+            if let Some(typ) = self.parse_type_name() {
+                return Some(typ);
+            }
 
             // Catch-all.
             self.add_error_with_explanation(
@@ -2773,6 +2788,10 @@ impl<'a> Parser<'a> {
             TokenKind::LeftSquareBracket,
             "match square bracket for array",
         );
+        todo!()
+    }
+
+    fn parse_d_expr(&self) -> Option<NodeId> {
         todo!()
     }
 }
