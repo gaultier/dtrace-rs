@@ -73,7 +73,7 @@ pub enum NodeKind {
     OffsetOf(NodeId, Token),
     Declaration(NodeId, Option<NodeId>),
     DeclarationSpecifiers(Vec<NodeId>),
-    DirectDeclarator(Token),
+    DirectDeclarator(NodeId, Option<NodeId>),
     Declarator(Option<NodeId>, NodeId),
     InitDeclarators(Vec<NodeId>),
     TypeQualifier(TokenKind),
@@ -2105,7 +2105,7 @@ impl<'a> Parser<'a> {
             NodeKind::OffsetOf(_node_id, _token) => {}
             NodeKind::Declaration(_node_id, _node_id1) => {}
             NodeKind::DeclarationSpecifiers(_tokens) => {}
-            NodeKind::DirectDeclarator(_token) => {}
+            NodeKind::DirectDeclarator(_, _) => {}
             NodeKind::Declarator(_node_id, _node_id1) => {}
             NodeKind::InitDeclarators(_node_ids) => {}
             NodeKind::TypeQualifier(_token_kind) => {}
@@ -2409,18 +2409,52 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        match self.peek().map(|t| t.kind) {
+        let mut lhs = match self.peek().map(|t| t.kind) {
             Some(TokenKind::Identifier) => {
                 let token = *self.eat_token().unwrap();
+                let identifier = Self::str_from_source(self.input, &token.origin).to_owned();
+                let identifier_node = self.new_node(Node {
+                    kind: NodeKind::Identifier(identifier),
+                    origin: token.origin,
+                });
                 Some(self.new_node(Node {
-                    kind: NodeKind::DirectDeclarator(token),
+                    kind: NodeKind::DirectDeclarator(identifier_node, None),
                     origin: token.origin,
                 }))
             }
-            Some(TokenKind::LeftParen) => todo!(),
-            Some(TokenKind::LeftSquareBracket) => todo!(),
+            Some(TokenKind::LeftParen) => {
+                let left_paren = *self.eat_token().unwrap();
+                let decl = self.parse_declarator().unwrap_or_else(|| {
+                    self.add_error_with_explanation(
+                        ErrorKind::MissingDeclarator,
+                        left_paren.origin,
+                        format!(
+                            "expected declarator after parenthesis, found: {:?}",
+                            self.current_token_kind_for_err()
+                        ),
+                    );
+                    self.new_node_unknown()
+                });
+                self.expect_token_one(
+                    TokenKind::LeftParen,
+                    "matching parenthesis after declarator",
+                );
+                Some(self.new_node(Node {
+                    kind: NodeKind::DirectDeclarator(decl, None),
+                    origin: left_paren.origin,
+                }))
+            }
             _ => None,
+        }?;
+
+        while let Some(node) = self.parse_array().or_else(|| self.parse_function()) {
+            lhs = self.new_node(Node {
+                kind: NodeKind::DirectDeclarator(lhs, Some(node)),
+                origin: self.origin(node),
+            });
         }
+
+        Some(lhs)
     }
 
     fn parse_pointer(&mut self) -> Option<NodeId> {
@@ -2709,7 +2743,7 @@ impl<'a> Parser<'a> {
                 }))
             }
             Some(TokenKind::LeftParen) => {
-                let func = self.parse_array().unwrap_or_else(|| {
+                let func = self.parse_function().unwrap_or_else(|| {
                     self.add_error_with_explanation(
                         ErrorKind::MissingFunction,
                         self.current_or_last_origin_for_err(),
@@ -2804,6 +2838,10 @@ impl<'a> Parser<'a> {
             TokenKind::LeftSquareBracket,
             "match square bracket for array",
         );
+        todo!()
+    }
+
+    fn parse_function(&mut self) -> Option<NodeId> {
         todo!()
     }
 }
