@@ -54,6 +54,7 @@ fn main() {
             &file_content,
             0,
             true,
+            true,
         )
         .unwrap();
         stdout.flush().unwrap();

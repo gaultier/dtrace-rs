@@ -2,8 +2,8 @@ use std::io::Write;
 
 use crate::ast::{Node, NodeId, NodeKind, Parser};
 
-fn indentify<W: Write>(w: &mut W, indent: usize, initial_indent: bool) -> std::io::Result<()> {
-    if initial_indent {
+fn indentify<W: Write>(w: &mut W, indent: usize, with_heading_indent: bool) -> std::io::Result<()> {
+    if with_heading_indent {
         write!(w, "{:width$}", "", width = indent)?;
     }
     Ok(())
@@ -15,7 +15,8 @@ pub fn format<W: Write>(
     nodes: &[Node],
     input: &str,
     indent: usize,
-    initial_indent: bool,
+    with_heading_indent: bool,
+    with_trailing_newline: bool,
 ) -> std::io::Result<()> {
     let node = &nodes[node_id];
 
@@ -25,27 +26,30 @@ pub fn format<W: Write>(
             w.write_all(src.as_bytes())?;
         }
         NodeKind::Block(node_ids) => {
-            indentify(w, indent, initial_indent)?;
+            indentify(w, indent, with_heading_indent)?;
             w.write_all(b"{\n")?;
             for id in node_ids {
-                format(w, *id, nodes, input, indent + 2, true)?;
+                format(w, *id, nodes, input, indent + 2, true, true)?;
             }
             indentify(w, indent, true)?;
-            w.write_all(b"}\n")?;
+            w.write_all(b"}")?;
+            if with_trailing_newline {
+                w.write_all(b"\n")?;
+            }
         }
         NodeKind::ProbeDefinition(probe, pred, actions) => {
-            format(w, *probe, nodes, input, indent, true)?;
+            format(w, *probe, nodes, input, indent, true, true)?;
             w.write_all(b"\n")?;
 
             if let Some(pred) = pred {
-                indentify(w, indent, initial_indent)?;
+                indentify(w, indent, with_heading_indent)?;
                 w.write_all(b"/ ")?;
-                format(w, *pred, nodes, input, indent, true)?;
+                format(w, *pred, nodes, input, indent, true, true)?;
                 w.write_all(b" /")?;
             }
 
             if let Some(actions) = actions {
-                format(w, *actions, nodes, input, indent, true)?;
+                format(w, *actions, nodes, input, indent, true, true)?;
             }
             w.write_all(b"\n")?;
         }
@@ -54,30 +58,30 @@ pub fn format<W: Write>(
             w.write_all(src.as_bytes())?;
         }
         NodeKind::Assignment(lhs, tok, rhs) | NodeKind::BinaryOp(lhs, tok, rhs) => {
-            format(w, *lhs, nodes, input, indent, true)?;
+            format(w, *lhs, nodes, input, indent, true, true)?;
             let src = Parser::str_from_source(input, &tok.origin);
             write!(w, " {} ", src)?;
-            format(w, *rhs, nodes, input, indent, true)?;
+            format(w, *rhs, nodes, input, indent, true, true)?;
         }
         NodeKind::If {
             cond,
             then_block,
             else_block,
         } => {
-            indentify(w, indent, initial_indent)?;
+            indentify(w, indent, with_heading_indent)?;
             w.write_all(b"if (")?;
-            format(w, *cond, nodes, input, indent, true)?;
+            format(w, *cond, nodes, input, indent, true, true)?;
             w.write_all(b") ")?;
 
             let then_block_node = &nodes[*then_block];
             if matches!(then_block_node.kind, NodeKind::Block { .. }) {
-                format(w, *then_block, nodes, input, indent, true)?;
+                format(w, *then_block, nodes, input, indent, false, false)?;
             } else {
                 // Simulate block.
                 w.write_all(b"{\n")?;
 
                 indentify(w, indent + 2, true)?;
-                format(w, *then_block, nodes, input, indent + 2, true)?;
+                format(w, *then_block, nodes, input, indent + 2, true, false)?;
                 w.write_all(b";\n")?;
 
                 indentify(w, indent, true)?;
@@ -85,22 +89,30 @@ pub fn format<W: Write>(
             }
 
             if let Some(else_block) = else_block {
-                indentify(w, indent, initial_indent)?;
-                w.write_all(b"else")?;
+                w.write_all(b" else ")?;
 
                 let else_block_node = &nodes[*else_block];
                 if matches!(else_block_node.kind, NodeKind::If { .. }) {
-                    w.write_all(b" ")?;
-                    format(w, *else_block, nodes, input, indent, false)?;
+                    format(w, *else_block, nodes, input, indent, false, true)?;
                 } else {
-                    w.write_all(b"\n")?;
-                    format(w, *else_block, nodes, input, indent, true)?;
+                    // Simulate block.
+                    w.write_all(b"{\n")?;
+
+                    indentify(w, indent + 2, true)?;
+                    format(w, *else_block, nodes, input, indent + 2, true, false)?;
+                    w.write_all(b";\n")?;
+
+                    indentify(w, indent, true)?;
+                    w.write_all(b"}\n")?;
                 }
+            } else {
+                // No else, we need to write the newline ourselves.
+                w.write_all(b"\n")?;
             }
         }
         NodeKind::TranslationUnit(decls) => {
             for decl in decls {
-                format(w, *decl, nodes, input, indent, true)?;
+                format(w, *decl, nodes, input, indent, true, true)?;
             }
         }
         NodeKind::PrimaryToken(_) => {
@@ -123,19 +135,22 @@ pub fn format<W: Write>(
         NodeKind::StringofExpr(node_id) => todo!(),
         NodeKind::PostfixIncDecrement(node_id, _token_kind) => todo!(),
         NodeKind::ExprStmt(node_id) => {
-            indentify(w, indent, initial_indent)?;
-            format(w, *node_id, nodes, input, indent, true)?;
-            w.write_all(b";\n")?;
+            indentify(w, indent, with_heading_indent)?;
+            format(w, *node_id, nodes, input, indent, true, true)?;
+            w.write_all(b";")?;
+            if with_trailing_newline {
+                w.write_all(b"\n")?;
+            }
         }
         NodeKind::EmptyStmt => {}
         NodeKind::PostfixArrayAccess(primary, args) => {
             todo!()
         }
         NodeKind::PostfixArguments(primary, args) => {
-            format(w, *primary, nodes, input, indent, true)?;
+            format(w, *primary, nodes, input, indent, true, true)?;
             w.write_all(b"(")?;
             if let Some(args) = args {
-                format(w, *args, nodes, input, indent, true)?;
+                format(w, *args, nodes, input, indent, true, true)?;
             }
             w.write_all(b")")?;
         }

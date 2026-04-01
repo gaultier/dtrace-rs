@@ -1750,8 +1750,6 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        trace!("[D001] {}", self.tokens_consumed);
-
         if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
             let stmts = self.parse_statement_list();
 
