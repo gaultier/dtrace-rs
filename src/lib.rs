@@ -7,10 +7,12 @@ mod type_checker;
 
 use std::collections::HashMap;
 
+use log::trace;
+
 use crate::{
     ast::{Node, NodeId, Parser},
     error::Error,
-    lex::{Lexer, Token},
+    lex::{ControlDirective, Lexer, Token},
     origin::FileId,
 };
 
@@ -157,6 +159,7 @@ mod wasm32 {
 pub struct CompileResult {
     pub errors: Vec<Error>,
     pub lex_tokens: Vec<Token>,
+    pub control_directives: Vec<ControlDirective>,
     pub ast_nodes: Vec<Node>,
     pub ast_root: Option<NodeId>,
 }
@@ -170,22 +173,34 @@ pub fn compile(
     let mut lexer = Lexer::new(file_id);
     lexer.lex(input);
 
+    for c in &lexer.control_directives {
+        trace!(
+            "control directive: {}:{:?}",
+            c.origin.display(file_id_to_name),
+            c.kind
+        );
+    }
+
     let mut parser = Parser::new(input, &lexer, file_id_to_name);
     let root = parser.parse();
 
     if !parser.errors.is_empty() {
         return CompileResult {
             lex_tokens: parser.tokens,
+            control_directives: lexer.control_directives,
             ast_nodes: parser.nodes,
             errors: parser.errors,
             ast_root: root,
         };
     }
 
+    // TODO: Resolving, type checking, etc.
+
     CompileResult {
         lex_tokens: lexer.tokens,
         ast_nodes: parser.nodes,
         errors: lexer.errors,
         ast_root: root,
+        control_directives: lexer.control_directives,
     }
 }

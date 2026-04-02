@@ -13,15 +13,15 @@ enum LexerState {
 }
 
 #[derive(Debug)]
-enum ControlDirectiveKind {
+pub enum ControlDirectiveKind {
     Line(usize, Option<String>, Option<usize>),
     Pragma, // TODO: Flesh out.
 }
 
 #[derive(Debug)]
-struct ControlDirective {
-    origin: Origin,
-    kind: ControlDirectiveKind,
+pub struct ControlDirective {
+    pub origin: Origin,
+    pub kind: ControlDirectiveKind,
 }
 
 #[derive(Debug)]
@@ -31,7 +31,7 @@ pub struct Lexer {
     pub errors: Vec<Error>,
     pub tokens: Vec<Token>,
     state: LexerState,
-    control_directives: Vec<ControlDirective>,
+    pub control_directives: Vec<ControlDirective>,
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone)]
@@ -1177,7 +1177,11 @@ impl Lexer {
         };
 
         let line_src = str_from_source(input, &line.origin);
-        let file_src = file.map(|f| str_from_source(input, &f.origin).to_owned());
+        let file_src = file.map(|f| {
+            let s = str_from_source(input, &f.origin);
+            // Without the double quotes.
+            s[1..s.len() - 1].to_owned()
+        });
         let line_num: usize = match str::parse::<usize>(line_src) {
             Err(err) => {
                 self.errors.push(Error::new(
