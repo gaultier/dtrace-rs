@@ -13,12 +13,25 @@ enum LexerState {
 }
 
 #[derive(Debug)]
+enum ControlDirectiveKind {
+    Line(usize, Option<String>, Option<usize>),
+    Pragma, // TODO: Flesh out.
+}
+
+#[derive(Debug)]
+struct ControlDirective {
+    origin: Origin,
+    kind: ControlDirectiveKind,
+}
+
+#[derive(Debug)]
 pub struct Lexer {
     origin: Origin,
     error_mode: bool,
     pub errors: Vec<Error>,
     pub tokens: Vec<Token>,
     state: LexerState,
+    control_directives: Vec<ControlDirective>,
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone)]
@@ -26,7 +39,6 @@ pub enum TokenKind {
     LiteralNumber,
     LiteralString,
     LiteralCharacter,
-    LiteralBool,
     Identifier,
     ProbeSpecifier,
     Dot,
@@ -176,6 +188,7 @@ impl Lexer {
             errors: Vec::new(),
             tokens: Vec::new(),
             state: LexerState::Default,
+            control_directives: Vec::new(),
         }
     }
 
@@ -213,7 +226,6 @@ impl Lexer {
 
         let lit = &input[origin.offset as usize..origin.offset as usize + len as usize];
         let kind = match lit {
-            "true" | "false" => TokenKind::LiteralBool,
             "auto" => TokenKind::KeywordAuto,
             "break" => TokenKind::KeywordBreak,
             "case" => TokenKind::KeywordCase,
@@ -1080,11 +1092,136 @@ impl Lexer {
         }
     }
 
-    fn control_directive_line(&self, tokens: &[Token], input: &str) {
-        todo!()
+    fn control_directive_line(&mut self, tokens: &[Token], input: &str) {
+        assert!(!tokens.is_empty());
+
+        let (line, file, trailing) = match tokens {
+            // `#5`
+            [
+                line @ Token {
+                    kind: TokenKind::LiteralNumber,
+                    ..
+                },
+            ] => (line, None, None),
+            // `#5 "foo.d"`
+            [
+                line @ Token {
+                    kind: TokenKind::LiteralNumber,
+                    ..
+                },
+                file @ Token {
+                    kind: TokenKind::LiteralString,
+                    ..
+                },
+            ] => (line, Some(file), None),
+            // `#5 "foo.d" 0`
+            [
+                line @ Token {
+                    kind: TokenKind::LiteralNumber,
+                    ..
+                },
+                file @ Token {
+                    kind: TokenKind::LiteralString,
+                    ..
+                },
+                trailing @ Token {
+                    kind: TokenKind::LiteralNumber,
+                    ..
+                },
+            ] => (line, Some(file), Some(trailing)),
+            // `#line 5`
+            [
+                Token {
+                    kind: TokenKind::Identifier,
+                    ..
+                },
+                line @ Token {
+                    kind: TokenKind::LiteralNumber,
+                    ..
+                },
+            ] => (line, None, None),
+            // `#line 5 "foo.d"`
+            [
+                Token {
+                    kind: TokenKind::Identifier,
+                    ..
+                },
+                line @ Token {
+                    kind: TokenKind::LiteralNumber,
+                    ..
+                },
+                file @ Token {
+                    kind: TokenKind::LiteralString,
+                    ..
+                },
+            ] => (line, Some(file), None),
+            // `#line 5 "foo.d" 0`
+            [
+                Token {
+                    kind: TokenKind::Identifier,
+                    ..
+                },
+                line @ Token {
+                    kind: TokenKind::LiteralNumber,
+                    ..
+                },
+                file @ Token {
+                    kind: TokenKind::LiteralString,
+                    ..
+                },
+                trailing @ Token {
+                    kind: TokenKind::LiteralNumber,
+                    ..
+                },
+            ] => (line, Some(file), Some(trailing)),
+            other => {
+                self.errors.push(Error::new(
+                    ErrorKind::InvalidControlDirective,
+                    other[0].origin,
+                    String::new(),
+                ));
+                return;
+            }
+        };
+
+        let line_src = str_from_source(input, &line.origin);
+        let file_src = file.map(|f| str_from_source(input, &f.origin).to_owned());
+        let line_num: usize = match str::parse::<usize>(line_src) {
+            Err(err) => {
+                self.errors.push(Error::new(
+                    ErrorKind::InvalidLiteralNumber,
+                    line.origin,
+                    err.to_string(),
+                ));
+                return;
+            }
+            Ok(n) => n,
+        };
+
+        let trailing_num = match trailing.map(|t| str_from_source(input, &t.origin)) {
+            Some("0") => Some(0),
+            Some("1") => Some(1),
+            Some("2") => Some(2),
+            Some(other) => {
+                self.errors.push(Error::new(
+                    ErrorKind::InvalidLiteralNumber,
+                    trailing.unwrap().origin,
+                    format!("expected 0, 1, or 2 as trailing number in the line control directive, found: {}", other)
+                ));
+                return;
+            }
+            None => None,
+        };
+
+        self.control_directives.push(ControlDirective {
+            origin: line.origin,
+            kind: ControlDirectiveKind::Line(line_num, file_src, trailing_num),
+        });
+        dbg!(&self.control_directives.last().unwrap().kind);
     }
 
     fn control_directive_pragma(&self, tokens: &[Token], input: &str) {
+        assert!(!tokens.is_empty());
         todo!()
     }
 }
