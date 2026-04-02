@@ -15,7 +15,7 @@ enum LexerState {
 #[derive(Debug)]
 pub enum ControlDirectiveKind {
     Line(usize, Option<String>, Option<usize>),
-    Pragma, // TODO: Flesh out.
+    PragmaError(String),
 }
 
 #[derive(Debug)]
@@ -1065,6 +1065,7 @@ impl Lexer {
                     // Ignore any #ident or #pragma ident lines.
                     "pragma" if tokens.len() == 1 => {}
                     "ident" => {}
+                    "error" => self.control_directive_error(&tokens, input),
                     _ => {
                         self.errors.push(Error::new(
                             ErrorKind::InvalidControlDirective,
@@ -1219,7 +1220,24 @@ impl Lexer {
 
     fn control_directive_pragma(&self, tokens: &[Token], _input: &str) {
         assert!(!tokens.is_empty());
+
         todo!()
+    }
+
+    fn control_directive_error(&mut self, tokens: &[Token], input: &str) {
+        assert!(!tokens.is_empty());
+
+        let src = match (tokens.get(1), tokens.last()) {
+            (Some(start), Some(end)) => input[start.origin.offset as usize
+                ..end.origin.offset as usize + end.origin.len as usize]
+                .to_owned(),
+            _ => String::new(),
+        };
+
+        self.control_directives.push(ControlDirective {
+            origin: tokens[0].origin,
+            kind: ControlDirectiveKind::PragmaError(src),
+        });
     }
 }
 
