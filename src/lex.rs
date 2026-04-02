@@ -118,6 +118,7 @@ pub enum TokenKind {
     GtEq,
     LtEq,
     GtGt,
+    Pound,
 }
 
 #[derive(Serialize, Debug, Copy, Clone, PartialEq, Eq)]
@@ -415,6 +416,17 @@ impl Lexer {
             }
             match c {
                 '\n' => {
+                    self.advance(c, &mut it);
+                }
+                '#' if !self.has_any_previous_tokens_on_same_line() => {
+                    let origin = Origin {
+                        len: 1,
+                        ..self.origin
+                    };
+                    self.tokens.push(Token {
+                        kind: TokenKind::Pound,
+                        origin,
+                    });
                     self.advance(c, &mut it);
                 }
                 '-' if peek2(&it) == Some('-') => {
@@ -996,6 +1008,13 @@ impl Lexer {
             kind: TokenKind::Eof,
             origin,
         });
+    }
+
+    fn has_any_previous_tokens_on_same_line(&self) -> bool {
+        self.tokens
+            .iter()
+            .rev()
+            .any(|tok| tok.origin.line == self.origin.line)
     }
 }
 

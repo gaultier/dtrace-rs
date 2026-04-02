@@ -1790,9 +1790,12 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        // TODO: inline_definition.
         // TODO: translator_definition.
         // TODO: provider_definition.
+
+        if let Some(stmt) = self.parse_inline_definition() {
+            return Some(stmt);
+        };
 
         if let Some(stmt) = self.parse_probe_definition() {
             return Some(stmt);
@@ -1804,6 +1807,10 @@ impl<'a> Parser<'a> {
     // inline_definition       → "inline" declaration_specifiers declarator
     //                          "=" assignment_expression ";" ;
     fn parse_inline_definition(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
         let tok = self.match_kind(TokenKind::KeywordInline)?;
 
         let decl_specifiers = self.parse_declaration_specifiers().unwrap_or_else(|| {
@@ -1870,8 +1877,10 @@ impl<'a> Parser<'a> {
             return None;
         }
 
+        let decl = self.parse_external_declaration()?;
+
         // Heuristic.
-        let mut decls = Vec::with_capacity(self.remaining_tokens_count() / 8);
+        let mut decls = vec![decl];
 
         for _i in 0..self.remaining_tokens_count() {
             if self.is_at_end() {
@@ -1880,14 +1889,6 @@ impl<'a> Parser<'a> {
             if let Some(decl) = self.parse_external_declaration() {
                 decls.push(decl);
             }
-        }
-
-        if decls.is_empty() {
-            self.add_error_with_explanation(
-                ErrorKind::EmptyTranslationUnit,
-                self.current_or_last_origin_for_err(),
-                "empty translation unit, no declarations found".to_owned(),
-            );
         }
 
         let node_id = self.new_node(Node {
@@ -1917,6 +1918,7 @@ impl<'a> Parser<'a> {
             };
 
             if self.error_mode {
+                trace!("skipping to next line");
                 self.skip_to_next_line();
                 self.error_mode = false;
                 continue;
