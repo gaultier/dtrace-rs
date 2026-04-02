@@ -1215,13 +1215,41 @@ impl Lexer {
             origin: line.origin,
             kind: ControlDirectiveKind::Line(line_num, file_src, trailing_num),
         });
-        dbg!(&self.control_directives.last().unwrap().kind);
     }
 
-    fn control_directive_pragma(&self, tokens: &[Token], _input: &str) {
+    fn control_directive_pragma(&mut self, tokens: &[Token], input: &str) {
         assert!(!tokens.is_empty());
-
-        todo!()
+        match tokens {
+            // `#pragma error`
+            [
+                Token {
+                    kind: TokenKind::Identifier,
+                    ..
+                },
+                directive @ Token {
+                    kind: TokenKind::Identifier,
+                    ..
+                },
+                ..,
+            ] if str_from_source(input, &directive.origin) == "error" => {
+                self.control_directive_error(&tokens[1..], input)
+            }
+            // `#pragma line`
+            [
+                Token {
+                    kind: TokenKind::Identifier,
+                    ..
+                },
+                directive @ Token {
+                    kind: TokenKind::Identifier,
+                    ..
+                },
+                ..,
+            ] if str_from_source(input, &directive.origin) == "line" => {
+                self.control_directive_line(&tokens[1..], input)
+            }
+            _ => todo!(),
+        }
     }
 
     fn control_directive_error(&mut self, tokens: &[Token], input: &str) {
