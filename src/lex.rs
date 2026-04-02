@@ -1038,42 +1038,54 @@ impl Lexer {
             .copied()
             .collect::<Vec<_>>();
 
-        if tokens.is_empty() {
-            // According to K&R[A12.9], we silently ignore null directive lines.
-            return;
-        }
-
-        for tok in tokens {
-            match tok.kind {
-                TokenKind::LiteralNumber => {
-                    // Line directive.
-                    todo!()
-                }
-                TokenKind::Identifier => {
-                    let src = str_from_source(input, &tok.origin);
-                    match src {
-                        "line" => todo!(),
-                        "pragma" => todo!(),
-                        _ => {
-                            self.errors.push(Error::new(
-                                ErrorKind::InvalidControlDirective,
-                                tok.origin,
-                                String::new(),
-                            ));
-                            return;
-                        }
+        match tokens.first() {
+            None => {
+                // According to K&R[A12.9], we silently ignore null directive lines.
+            }
+            Some(Token {
+                kind: TokenKind::LiteralNumber,
+                ..
+            }) => {
+                self.control_directive_line(&tokens, input);
+            }
+            Some(
+                tok @ Token {
+                    kind: TokenKind::Identifier,
+                    ..
+                },
+            ) => {
+                let src = str_from_source(input, &tok.origin);
+                match src {
+                    "line" => self.control_directive_line(&tokens, input),
+                    "pragma" if tokens.len() > 1 => self.control_directive_pragma(&tokens, input),
+                    // Ignore any #ident or #pragma ident lines.
+                    "pragma" if tokens.len() == 1 => {}
+                    "ident" => {}
+                    _ => {
+                        self.errors.push(Error::new(
+                            ErrorKind::InvalidControlDirective,
+                            tok.origin,
+                            String::new(),
+                        ));
                     }
                 }
-                _ => {
-                    self.errors.push(Error::new(
-                        ErrorKind::InvalidControlDirective,
-                        tok.origin,
-                        String::new(),
-                    ));
-                    return;
-                }
+            }
+            Some(other) => {
+                self.errors.push(Error::new(
+                    ErrorKind::InvalidControlDirective,
+                    other.origin,
+                    String::new(),
+                ));
             }
         }
+    }
+
+    fn control_directive_line(&self, tokens: &[Token], input: &str) {
+        todo!()
+    }
+
+    fn control_directive_pragma(&self, tokens: &[Token], input: &str) {
+        todo!()
     }
 }
 
