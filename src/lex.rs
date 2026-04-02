@@ -1232,21 +1232,15 @@ impl Lexer {
             Some("error") => self.control_directive_error(&tokens[1..], input),
             // `#pragma line`
             Some("line") => self.control_directive_line(&tokens[1..], input),
-            // `#pragma ident`. Ignore.
-            Some("ident") => {}
             // `#pragma attributes`
             Some("attributes") => self.control_directive_attributes(&tokens[1..], input),
             // `#pragma binding`
             Some("binding") => self.control_directive_binding(&tokens[1..], input),
             // `#pragma option`
             Some("option") => self.control_directive_option(&tokens[1..], input),
-            _ => {
-                self.errors.push(Error::new(
-                    ErrorKind::InvalidControlDirective,
-                    tokens.get(1).map(|t| t.origin).unwrap_or(tokens[0].origin),
-                    String::new(),
-                ));
-            }
+            // `#pragma`, `#pragma ident`, or `#pragma someunknownstuff`: Ignore.
+            Some("ident") => {}
+            _ => {}
         }
     }
 
