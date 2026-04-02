@@ -22,6 +22,7 @@
 #pragma line 5 "foo.d" 4
 
 #ident 2
+#pragma ident 3
 
 BEGIN {
 }

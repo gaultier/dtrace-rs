@@ -1248,6 +1248,20 @@ impl Lexer {
             ] if str_from_source(input, &directive.origin) == "line" => {
                 self.control_directive_line(&tokens[1..], input)
             }
+            // `#pragma ident`
+            [
+                Token {
+                    kind: TokenKind::Identifier,
+                    ..
+                },
+                directive @ Token {
+                    kind: TokenKind::Identifier,
+                    ..
+                },
+                ..,
+            ] if str_from_source(input, &directive.origin) == "ident" => {
+                // Ignore ident.
+            }
             _ => todo!(),
         }
     }
