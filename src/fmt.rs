@@ -122,8 +122,9 @@ pub fn format<W: Write>(
             let src = Parser::str_from_source(input, &node.origin);
             w.write_all(src.as_bytes())?;
         }
-        NodeKind::Cast(_, _) => {
-            todo!()
+        NodeKind::Cast(type_name, node_id) => {
+            write!(w, "({})", &type_name)?;
+            format(w, *node_id, nodes, input, indent, true, true)?;
         }
         NodeKind::Aggregation(s) => {
             w.write_all(s.as_bytes())?;
