@@ -44,6 +44,7 @@ pub enum ErrorKind {
     MissingDeclarator,
     MissingArrayParameters,
     MissingParameterDeclarationSpecifiers,
+    MissingDeclarationSpecifiers,
 }
 
 #[derive(Serialize, Debug, Clone)]

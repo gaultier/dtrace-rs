@@ -83,6 +83,7 @@ pub(crate) enum NodeKind {
     Parameters(Vec<NodeId>),
     ParameterDeclarationSpecifiers(Vec<NodeId>),
     Character,
+    InlineDefinition(NodeId, NodeId, NodeId),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -1800,6 +1801,59 @@ impl<'a> Parser<'a> {
         self.parse_declaration()
     }
 
+    // inline_definition       → "inline" declaration_specifiers declarator
+    //                          "=" assignment_expression ";" ;
+    fn parse_inline_definition(&mut self) -> Option<NodeId> {
+        let tok = self.match_kind(TokenKind::KeywordInline)?;
+
+        let decl_specifiers = self.parse_declaration_specifiers().unwrap_or_else(|| {
+            self.add_error_with_explanation(
+                ErrorKind::MissingDeclarationSpecifiers,
+                tok.origin,
+                format!(
+                    "expected declaration specifiers, found: {:?}",
+                    self.current_token_kind_for_err()
+                ),
+            );
+            self.new_node_unknown()
+        });
+        let declarator = self.parse_declarator().unwrap_or_else(|| {
+            self.add_error_with_explanation(
+                ErrorKind::MissingDeclarator,
+                tok.origin,
+                format!(
+                    "expected declarator, found: {:?}",
+                    self.current_token_kind_for_err()
+                ),
+            );
+            self.new_node_unknown()
+        });
+
+        self.expect_token_one(TokenKind::Eq, "equal sign after declarator");
+
+        let expr = self.parse_assignment_expr().unwrap_or_else(|| {
+            self.add_error_with_explanation(
+                ErrorKind::MissingExpr,
+                tok.origin,
+                format!(
+                    "expected expression after equal sign, found: {:?}",
+                    self.current_token_kind_for_err()
+                ),
+            );
+            self.new_node_unknown()
+        });
+
+        self.expect_token_one(
+            TokenKind::SemiColon,
+            "semicolon at the end of an inline definition",
+        );
+
+        Some(self.new_node(Node {
+            kind: NodeKind::InlineDefinition(decl_specifiers, declarator, expr),
+            origin: tok.origin,
+        }))
+    }
+
     fn is_at_end(&self) -> bool {
         matches!(
             self.peek(),
@@ -2035,6 +2089,7 @@ impl<'a> Parser<'a> {
             NodeKind::Parameters(_) => {}
             NodeKind::ParameterDeclarationSpecifiers(_node_ids) => {}
             NodeKind::Character => {}
+            NodeKind::InlineDefinition(_node_id, _node_id1, _node_id2) => {}
         }
     }
 
@@ -3087,6 +3142,11 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         }
         NodeKind::Unary(_token_kind, node_id) => log(nodes, *node_id, indent + 2),
         NodeKind::Character => {}
+        NodeKind::InlineDefinition(decl_specifiers, declarator, expr) => {
+            log(nodes, *decl_specifiers, indent + 2);
+            log(nodes, *declarator, indent + 2);
+            log(nodes, *expr, indent + 2);
+        }
     }
 }
 

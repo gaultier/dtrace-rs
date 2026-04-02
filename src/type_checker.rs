@@ -294,6 +294,7 @@ pub fn check_node(
         NodeKind::Parameters(_node_ids) => todo!(),
         NodeKind::ParameterDeclarationSpecifiers(_node_ids) => todo!(),
         NodeKind::Character => todo!(),
+        NodeKind::InlineDefinition(_node_id, _node_id1, _node_id2) => todo!(),
     }
 }
 
