@@ -1050,7 +1050,7 @@ impl Lexer {
                 kind: TokenKind::LiteralNumber,
                 ..
             }) => {
-                self.control_directive_line(&tokens, input);
+                self.control_directive_line(tokens, input);
             }
             Some(
                 tok @ Token {
@@ -1060,12 +1060,12 @@ impl Lexer {
             ) => {
                 let src = str_from_source(input, &tok.origin);
                 match src {
-                    "line" => self.control_directive_line(&tokens, input),
-                    "pragma" if tokens.len() > 1 => self.control_directive_pragma(&tokens, input),
+                    "line" => self.control_directive_line(tokens, input),
+                    "pragma" if tokens.len() > 1 => self.control_directive_pragma(tokens, input),
                     // Ignore any #ident or #pragma ident lines.
                     "pragma" if tokens.len() == 1 => {}
                     "ident" => {}
-                    "error" => self.control_directive_error(&tokens, input),
+                    "error" => self.control_directive_error(tokens, input),
                     _ => {
                         self.errors.push(Error::new(
                             ErrorKind::InvalidControlDirective,
