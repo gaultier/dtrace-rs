@@ -1248,15 +1248,23 @@ impl Lexer {
             // `#pragma error`, or  `#pragma D error`.
             (Some("D"), Some("error")) => self.control_directive_error(&tokens[2..], input),
             (Some("error"), _) => self.control_directive_error(&tokens[1..], input),
+
             // `#pragma line`.
             (Some("D"), Some("line")) => self.control_directive_line(&tokens[2..], input),
             (Some("line"), _) => self.control_directive_line(&tokens[1..], input),
+
             // `#pragma attributes`.
-            (Some("attributes"), _) => self.control_directive_attributes(&tokens[1..], input),
+            (Some("D"), Some("attributes")) => self.pragma_attributes(&tokens[2..], input),
+            (Some("attributes"), _) => self.pragma_attributes(&tokens[1..], input),
+
             // `#pragma binding`.
-            (Some("binding"), _) => self.control_directive_binding(&tokens[1..], input),
+            (Some("D"), Some("binding")) => self.pragma_binding(&tokens[2..], input),
+            (Some("binding"), _) => self.pragma_binding(&tokens[1..], input),
+
             // `#pragma option`.
-            (Some("option"), _) => self.control_directive_option(&tokens[1..], input),
+            (Some("D"), Some("option")) => self.pragma_option(&tokens[2..], input),
+            (Some("option"), _) => self.pragma_option(&tokens[1..], input),
+
             // `#pragma`, `#pragma ident`,  `#pragma D ident`, or `#pragma someunknownstuff`: Ignore.
             (Some("D"), Some("ident")) | (Some("ident"), _) => {}
             _ => {}
@@ -1279,15 +1287,15 @@ impl Lexer {
         });
     }
 
-    fn control_directive_attributes(&self, tokens: &[Token], input: &str) {
+    fn pragma_attributes(&self, tokens: &[Token], input: &str) {
         todo!()
     }
 
-    fn control_directive_binding(&self, tokens: &[Token], input: &str) {
+    fn pragma_binding(&self, tokens: &[Token], input: &str) {
         todo!()
     }
 
-    fn control_directive_option(&self, tokens: &[Token], input: &str) {
+    fn pragma_option(&self, tokens: &[Token], input: &str) {
         todo!()
     }
 }
