@@ -1221,7 +1221,7 @@ impl Lexer {
         dbg!(&self.control_directives.last().unwrap().kind);
     }
 
-    fn control_directive_pragma(&self, tokens: &[Token], input: &str) {
+    fn control_directive_pragma(&self, tokens: &[Token], _input: &str) {
         assert!(!tokens.is_empty());
         todo!()
     }
