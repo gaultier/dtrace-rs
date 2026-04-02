@@ -439,8 +439,12 @@ impl Lexer {
             }
             match c {
                 '\n' => {
-                    if let LexerState::InsideControlDirective(_) = self.state {
-                        self.control_directive(input);
+                    if let LexerState::InsideControlDirective(line) = self.state {
+                        let tokens: Vec<Token> = self
+                            .tokens
+                            .extract_if(.., |tok| tok.origin.line == line)
+                            .collect::<Vec<Token>>();
+                        self.control_directive(input, &tokens);
                         self.state = LexerState::Default;
                     }
                     self.advance(c, &mut it);
@@ -1037,19 +1041,7 @@ impl Lexer {
             .any(|tok| tok.origin.line == self.origin.line)
     }
 
-    fn control_directive(&mut self, input: &str) {
-        let line = match self.state {
-            LexerState::Default => unreachable!(),
-            LexerState::InsideControlDirective(line) => line,
-        };
-
-        let tokens: Vec<Token> = self
-            .tokens
-            .iter()
-            .filter(|tok| tok.origin.line == line)
-            .copied()
-            .collect::<Vec<_>>();
-
+    fn control_directive(&mut self, input: &str, tokens: &[Token]) {
         match tokens.first() {
             None => {
                 // According to K&R[A12.9], we silently ignore null directive lines.
