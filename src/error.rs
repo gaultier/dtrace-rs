@@ -45,6 +45,7 @@ pub enum ErrorKind {
     MissingArrayParameters,
     MissingParameterDeclarationSpecifiers,
     MissingDeclarationSpecifiers,
+    InvalidControlDirective,
 }
 
 #[derive(Serialize, Debug, Clone)]

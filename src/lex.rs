@@ -6,12 +6,19 @@ use crate::{
     origin::{FileId, Origin},
 };
 
+#[derive(PartialEq, Eq, Debug)]
+enum LexerState {
+    Default,
+    InsideControlDirective(u32 /* line */),
+}
+
 #[derive(Debug)]
 pub struct Lexer {
     origin: Origin,
     error_mode: bool,
     pub errors: Vec<Error>,
     pub tokens: Vec<Token>,
+    state: LexerState,
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone)]
@@ -118,7 +125,10 @@ pub enum TokenKind {
     GtEq,
     LtEq,
     GtGt,
-    Pound,
+}
+
+pub(crate) fn str_from_source<'a>(src: &'a str, origin: &Origin) -> &'a str {
+    &src[origin.offset as usize..origin.offset as usize + origin.len as usize]
 }
 
 #[derive(Serialize, Debug, Copy, Clone, PartialEq, Eq)]
@@ -165,6 +175,7 @@ impl Lexer {
             error_mode: false,
             errors: Vec::new(),
             tokens: Vec::new(),
+            state: LexerState::Default,
         }
     }
 
@@ -416,17 +427,14 @@ impl Lexer {
             }
             match c {
                 '\n' => {
+                    if let LexerState::InsideControlDirective(_) = self.state {
+                        self.control_directive(input);
+                        self.state = LexerState::Default;
+                    }
                     self.advance(c, &mut it);
                 }
                 '#' if !self.has_any_previous_tokens_on_same_line() => {
-                    let origin = Origin {
-                        len: 1,
-                        ..self.origin
-                    };
-                    self.tokens.push(Token {
-                        kind: TokenKind::Pound,
-                        origin,
-                    });
+                    self.state = LexerState::InsideControlDirective(self.origin.line);
                     self.advance(c, &mut it);
                 }
                 '-' if peek2(&it) == Some('-') => {
@@ -1015,6 +1023,57 @@ impl Lexer {
             .iter()
             .rev()
             .any(|tok| tok.origin.line == self.origin.line)
+    }
+
+    fn control_directive(&mut self, input: &str) {
+        let line = match self.state {
+            LexerState::Default => unreachable!(),
+            LexerState::InsideControlDirective(line) => line,
+        };
+
+        let tokens: Vec<Token> = self
+            .tokens
+            .iter()
+            .filter(|tok| tok.origin.line == line)
+            .copied()
+            .collect::<Vec<_>>();
+
+        if tokens.is_empty() {
+            // According to K&R[A12.9], we silently ignore null directive lines.
+            return;
+        }
+
+        for tok in tokens {
+            match tok.kind {
+                TokenKind::LiteralNumber => {
+                    // Line directive.
+                    todo!()
+                }
+                TokenKind::Identifier => {
+                    let src = str_from_source(input, &tok.origin);
+                    match src {
+                        "line" => todo!(),
+                        "pragma" => todo!(),
+                        _ => {
+                            self.errors.push(Error::new(
+                                ErrorKind::InvalidControlDirective,
+                                tok.origin,
+                                String::new(),
+                            ));
+                            return;
+                        }
+                    }
+                }
+                _ => {
+                    self.errors.push(Error::new(
+                        ErrorKind::InvalidControlDirective,
+                        tok.origin,
+                        String::new(),
+                    ));
+                    return;
+                }
+            }
+        }
     }
 }
 
