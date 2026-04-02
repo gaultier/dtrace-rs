@@ -1198,19 +1198,20 @@ impl Lexer {
             Ok(n) => n,
         };
 
-        let trailing_num = match trailing.map(|t| str_from_source(input, &t.origin)) {
-            Some("0") => Some(0),
-            Some("1") => Some(1),
-            Some("2") => Some(2),
-            Some(other) => {
-                self.errors.push(Error::new(
-                    ErrorKind::InvalidLiteralNumber,
-                    trailing.unwrap().origin,
-                    format!("expected 0, 1, or 2 as trailing number in the line control directive, found: {}", other)
-                ));
-                return;
+        let trailing_num = if let Some(trailing) = trailing {
+            match str::parse::<usize>(str_from_source(input, &trailing.origin)) {
+                Ok(num) => Some(num),
+                Err(err) => {
+                    self.errors.push(Error::new(
+                        ErrorKind::InvalidLiteralNumber,
+                        trailing.origin,
+                        err.to_string(),
+                    ));
+                    return;
+                }
             }
-            None => None,
+        } else {
+            None
         };
 
         self.control_directives.push(ControlDirective {
