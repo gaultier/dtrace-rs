@@ -24,5 +24,8 @@
 #ident 2
 #pragma ident 3
 
+#foo
+#pragma bar
+
 BEGIN {
 }

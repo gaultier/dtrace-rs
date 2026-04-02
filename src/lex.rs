@@ -1219,50 +1219,34 @@ impl Lexer {
 
     fn control_directive_pragma(&mut self, tokens: &[Token], input: &str) {
         assert!(!tokens.is_empty());
-        match tokens {
+
+        let directive = match tokens.get(1) {
+            Some(Token {
+                kind: TokenKind::Identifier,
+                origin,
+            }) => Some(str_from_source(input, &origin)),
+            _ => None,
+        };
+        match directive {
             // `#pragma error`
-            [
-                Token {
-                    kind: TokenKind::Identifier,
-                    ..
-                },
-                directive @ Token {
-                    kind: TokenKind::Identifier,
-                    ..
-                },
-                ..,
-            ] if str_from_source(input, &directive.origin) == "error" => {
-                self.control_directive_error(&tokens[1..], input)
-            }
+            Some("error") => self.control_directive_error(&tokens[1..], input),
             // `#pragma line`
-            [
-                Token {
-                    kind: TokenKind::Identifier,
-                    ..
-                },
-                directive @ Token {
-                    kind: TokenKind::Identifier,
-                    ..
-                },
-                ..,
-            ] if str_from_source(input, &directive.origin) == "line" => {
-                self.control_directive_line(&tokens[1..], input)
+            Some("line") => self.control_directive_line(&tokens[1..], input),
+            // `#pragma ident`. Ignore.
+            Some("ident") => {}
+            // `#pragma attributes`
+            Some("attributes") => self.control_directive_attributes(&tokens[1..], input),
+            // `#pragma binding`
+            Some("binding") => self.control_directive_binding(&tokens[1..], input),
+            // `#pragma option`
+            Some("option") => self.control_directive_option(&tokens[1..], input),
+            _ => {
+                self.errors.push(Error::new(
+                    ErrorKind::InvalidControlDirective,
+                    tokens.get(1).map(|t| t.origin).unwrap_or(tokens[0].origin),
+                    String::new(),
+                ));
             }
-            // `#pragma ident`
-            [
-                Token {
-                    kind: TokenKind::Identifier,
-                    ..
-                },
-                directive @ Token {
-                    kind: TokenKind::Identifier,
-                    ..
-                },
-                ..,
-            ] if str_from_source(input, &directive.origin) == "ident" => {
-                // Ignore ident.
-            }
-            _ => todo!(),
         }
     }
 
@@ -1280,6 +1264,18 @@ impl Lexer {
             origin: tokens[0].origin,
             kind: ControlDirectiveKind::PragmaError(src),
         });
+    }
+
+    fn control_directive_attributes(&self, tokens: &[Token], input: &str) {
+        todo!()
+    }
+
+    fn control_directive_binding(&self, tokens: &[Token], input: &str) {
+        todo!()
+    }
+
+    fn control_directive_option(&self, tokens: &[Token], input: &str) {
+        todo!()
     }
 }
 
