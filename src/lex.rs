@@ -1231,8 +1231,8 @@ impl Lexer {
                     origin: origin2,
                 }),
             ) => (
-                Some(str_from_source(input, &origin1)),
-                Some(str_from_source(input, &origin2)),
+                Some(str_from_source(input, origin1)),
+                Some(str_from_source(input, origin2)),
             ),
             (
                 Some(Token {
@@ -1240,7 +1240,7 @@ impl Lexer {
                     origin: origin1,
                 }),
                 _,
-            ) => (Some(str_from_source(input, &origin1)), None),
+            ) => (Some(str_from_source(input, origin1)), None),
             _ => (None, None),
         };
 
@@ -1287,15 +1287,15 @@ impl Lexer {
         });
     }
 
-    fn pragma_attributes(&self, tokens: &[Token], input: &str) {
+    fn pragma_attributes(&self, _tokens: &[Token], _input: &str) {
         todo!()
     }
 
-    fn pragma_binding(&self, tokens: &[Token], input: &str) {
+    fn pragma_binding(&self, _tokens: &[Token], _input: &str) {
         todo!()
     }
 
-    fn pragma_option(&self, tokens: &[Token], input: &str) {
+    fn pragma_option(&self, _tokens: &[Token], _input: &str) {
         todo!()
     }
 }
