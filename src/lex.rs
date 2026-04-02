@@ -1220,26 +1220,45 @@ impl Lexer {
     fn control_directive_pragma(&mut self, tokens: &[Token], input: &str) {
         assert!(!tokens.is_empty());
 
-        let directive = match tokens.get(1) {
-            Some(Token {
-                kind: TokenKind::Identifier,
-                origin,
-            }) => Some(str_from_source(input, &origin)),
-            _ => None,
+        let (directive1, directive2) = match (tokens.get(1), tokens.get(2)) {
+            (
+                Some(Token {
+                    kind: TokenKind::Identifier,
+                    origin: origin1,
+                }),
+                Some(Token {
+                    kind: TokenKind::Identifier,
+                    origin: origin2,
+                }),
+            ) => (
+                Some(str_from_source(input, &origin1)),
+                Some(str_from_source(input, &origin2)),
+            ),
+            (
+                Some(Token {
+                    kind: TokenKind::Identifier,
+                    origin: origin1,
+                }),
+                _,
+            ) => (Some(str_from_source(input, &origin1)), None),
+            _ => (None, None),
         };
-        match directive {
-            // `#pragma error`
-            Some("error") => self.control_directive_error(&tokens[1..], input),
-            // `#pragma line`
-            Some("line") => self.control_directive_line(&tokens[1..], input),
-            // `#pragma attributes`
-            Some("attributes") => self.control_directive_attributes(&tokens[1..], input),
-            // `#pragma binding`
-            Some("binding") => self.control_directive_binding(&tokens[1..], input),
-            // `#pragma option`
-            Some("option") => self.control_directive_option(&tokens[1..], input),
-            // `#pragma`, `#pragma ident`, or `#pragma someunknownstuff`: Ignore.
-            Some("ident") => {}
+
+        match (directive1, directive2) {
+            // `#pragma error`, or  `#pragma D error`.
+            (Some("D"), Some("error")) => self.control_directive_error(&tokens[2..], input),
+            (Some("error"), _) => self.control_directive_error(&tokens[1..], input),
+            // `#pragma line`.
+            (Some("D"), Some("line")) => self.control_directive_line(&tokens[2..], input),
+            (Some("line"), _) => self.control_directive_line(&tokens[1..], input),
+            // `#pragma attributes`.
+            (Some("attributes"), _) => self.control_directive_attributes(&tokens[1..], input),
+            // `#pragma binding`.
+            (Some("binding"), _) => self.control_directive_binding(&tokens[1..], input),
+            // `#pragma option`.
+            (Some("option"), _) => self.control_directive_option(&tokens[1..], input),
+            // `#pragma`, `#pragma ident`,  `#pragma D ident`, or `#pragma someunknownstuff`: Ignore.
+            (Some("D"), Some("ident")) | (Some("ident"), _) => {}
             _ => {}
         }
     }
