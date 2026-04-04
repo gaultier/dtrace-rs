@@ -5,4 +5,7 @@
 - name resolving
 - type checking
 - fmt
-- lsp
+- lsp:
+  + stdout json rpc comms
+  + document didOpen, didChange, didClose [MUST]
+  + semantic tokens (for syntax highlighting)
