@@ -27,6 +27,7 @@ pub enum ControlDirectiveKind {
     PragmaDependsOn(PragmaDependsOnKind, String),
     PragmaAttributes { attribute: Attribute, name: String },
     Ignored,
+    Option(String, Option<String>),
 }
 
 #[derive(Debug)]
@@ -1335,8 +1336,8 @@ impl Lexer {
             (Some("binding"), _) => self.pragma_binding(&tokens[1..], origin, input),
 
             // `#pragma option`.
-            (Some("D"), Some("option")) => self.pragma_option(&tokens[2..], input),
-            (Some("option"), _) => self.pragma_option(&tokens[1..], input),
+            (Some("D"), Some("option")) => self.pragma_option(&tokens[2..], origin, input),
+            (Some("option"), _) => self.pragma_option(&tokens[1..], origin, input),
 
             // `#pragma`, `#pragma ident`,  `#pragma D ident`, or `#pragma someunknownstuff`: Ignore.
             _ => Ok(ControlDirective {
@@ -1478,8 +1479,51 @@ impl Lexer {
     }
 
     #[warn(unused_results)]
-    fn pragma_option(&self, _tokens: &[Token], _input: &str) -> Result<ControlDirective, Error> {
-        todo!()
+    fn pragma_option(
+        &self,
+        tokens: &[Token],
+        origin: Origin,
+        input: &str,
+    ) -> Result<ControlDirective, Error> {
+        match tokens {
+            [
+                Token {
+                    kind: TokenKind::Identifier,
+                    origin,
+                },
+            ] => {
+                // TODO: Validate option key against a list of known values?
+
+                let s = str_from_source(input, origin);
+                if let Some((key, value)) = s.split_once('=') {
+                    if value.contains('=') {
+                        Err(Error {
+                            kind: ErrorKind::InvalidControlDirective,
+                            origin: *origin,
+                            explanation: String::new(),
+                        })
+                    } else {
+                        Ok(ControlDirective {
+                            kind: ControlDirectiveKind::Option(
+                                key.to_owned(),
+                                Some(value.to_owned()),
+                            ),
+                            origin: *origin,
+                        })
+                    }
+                } else {
+                    Ok(ControlDirective {
+                        kind: ControlDirectiveKind::Option(s.to_owned(), None),
+                        origin: *origin,
+                    })
+                }
+            }
+            _ => Err(Error {
+                kind: ErrorKind::InvalidControlDirective,
+                origin,
+                explanation: String::new(),
+            }),
+        }
     }
 
     #[warn(unused_results)]

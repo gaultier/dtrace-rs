@@ -33,5 +33,9 @@
 
 #pragma D attributes Stable/Stable/Common cwd
 
+#pragma D option quiet
+#pragma D option strsize=1024
+#pragma D option dynvarsize=512
+
 BEGIN {
 }
