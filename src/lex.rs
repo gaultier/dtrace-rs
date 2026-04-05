@@ -16,12 +16,20 @@ enum LexerState {
 pub enum ControlDirectiveKind {
     Line(usize, Option<String>, Option<usize>),
     PragmaError(String),
+    PragmaBinding(Version, String),
 }
 
 #[derive(Debug)]
 pub struct ControlDirective {
     pub origin: Origin,
     pub kind: ControlDirectiveKind,
+}
+
+#[derive(Debug)]
+pub struct Version {
+    pub major: u8,
+    pub minor: u16,
+    pub patch: Option<u16>,
 }
 
 #[derive(Debug)]
@@ -1291,13 +1299,118 @@ impl Lexer {
         todo!()
     }
 
-    fn pragma_binding(&self, _tokens: &[Token], _input: &str) {
-        todo!()
+    fn pragma_binding(&mut self, tokens: &[Token], input: &str) {
+        assert!(!tokens.is_empty());
+
+        match tokens {
+            [
+                _,
+                Token {
+                    kind: TokenKind::LiteralString,
+                    origin: origin1,
+                },
+                Token {
+                    kind: TokenKind::Identifier,
+                    origin: origin2,
+                },
+            ] => {
+                let version_str = str_from_source(input, origin1);
+                // Strip double quotes.
+                let version_str = &version_str[1..version_str.len() - 1];
+                let version = match version_str2num(version_str, *origin1) {
+                    Ok(v) => v,
+                    Err(err) => {
+                        self.errors.push(err);
+                        return;
+                    }
+                };
+                let identifier = str_from_source(input, origin2).to_owned();
+
+                self.control_directives.push(ControlDirective {
+                    origin: *origin1,
+                    kind: ControlDirectiveKind::PragmaBinding(version, identifier),
+                });
+            }
+            _ => {
+                self.errors.push(Error::new(
+                    ErrorKind::InvalidControlDirective,
+                    tokens[0].origin,
+                    String::new(),
+                ));
+                return;
+            }
+        }
     }
 
     fn pragma_option(&self, _tokens: &[Token], _input: &str) {
         todo!()
     }
+}
+
+fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> {
+    let split: Vec<_> = version_str.splitn(3, ".").collect();
+    if !(split.len() == 2 || split.len() == 3) {
+        return Err(Error {
+            kind: ErrorKind::InvalidVersionString,
+            origin,
+            explanation: format!(
+                "expected version string as \"major.minor\" or \"major.minor.patch\", found: {}",
+                version_str
+            ),
+        });
+    }
+
+    let major = str::parse::<u8>(split[0]).map_err(|err| Error {
+        kind: ErrorKind::InvalidVersionString,
+        origin,
+        explanation: format!(
+            "invalid major version in version string: {}",
+            err.to_string()
+        ),
+    })?;
+
+    let minor = str::parse::<u16>(split[1]).map_err(|err| Error {
+        kind: ErrorKind::InvalidVersionString,
+        origin,
+        explanation: format!(
+            "invalid minor version in version string: {}",
+            err.to_string()
+        ),
+    })?;
+    if minor > 0xfff {
+        return Err(Error {
+            kind: ErrorKind::InvalidVersionString,
+            origin,
+            explanation: format!("minor version too high in version string: {}", minor),
+        });
+    }
+
+    let patch = if let Some(patch) = split.get(2) {
+        let num = str::parse::<u16>(patch).map_err(|err| Error {
+            kind: ErrorKind::InvalidVersionString,
+            origin,
+            explanation: format!(
+                "invalid patch version in version string: {}",
+                err.to_string()
+            ),
+        })?;
+        if num > 0xfff {
+            return Err(Error {
+                kind: ErrorKind::InvalidVersionString,
+                origin,
+                explanation: format!("patch version too high in version string: {}", minor),
+            });
+        }
+        Some(num)
+    } else {
+        None
+    };
+
+    Ok(Version {
+        major,
+        minor,
+        patch,
+    })
 }
 
 #[cfg(test)]

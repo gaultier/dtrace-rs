@@ -1,7 +1,6 @@
-- pragmas
+- pragma option
+- pragma attribute
 - comments
-- arrays
-- functions
 - name resolving
 - type checking
 - fmt

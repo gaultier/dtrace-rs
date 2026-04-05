@@ -25,6 +25,8 @@
 #pragma bar
 #pragma 
 
+#pragma binding "256.2.3" foo
+
 
 BEGIN {
 }

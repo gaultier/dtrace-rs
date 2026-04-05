@@ -48,6 +48,7 @@ pub enum ErrorKind {
     InvalidControlDirective,
     MissingFunctionParameter,
     MissingFunctionParameters,
+    InvalidVersionString,
 }
 
 #[derive(Serialize, Debug, Clone)]
