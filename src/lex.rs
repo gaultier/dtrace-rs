@@ -1154,7 +1154,7 @@ impl Lexer {
             Some(Token {
                 kind: TokenKind::LiteralNumber,
                 ..
-            }) => self.control_directive_line(tokens, input),
+            }) => self.control_directive_line(tokens, tokens[0].origin, input),
             Some(
                 tok @ Token {
                     kind: TokenKind::Identifier,
@@ -1163,8 +1163,10 @@ impl Lexer {
             ) => {
                 let src = str_from_source(input, &tok.origin);
                 match src {
-                    "line" => self.control_directive_line(tokens, input),
-                    "pragma" if tokens.len() > 1 => self.control_directive_pragma(tokens, input),
+                    "line" => self.control_directive_line(&tokens[1..], tokens[0].origin, input),
+                    "pragma" if tokens.len() > 1 => {
+                        self.control_directive_pragma(&tokens[1..], tokens[0].origin, input)
+                    }
                     // Ignore any #ident or #pragma ident lines.
                     "pragma" if tokens.len() == 1 => Ok(ControlDirective {
                         kind: ControlDirectiveKind::Ignored,
@@ -1175,7 +1177,7 @@ impl Lexer {
                         kind: ControlDirectiveKind::Ignored,
                         origin: Origin::new_unknown(),
                     }),
-                    "error" => self.control_directive_error(tokens, input),
+                    "error" => self.control_directive_error(&tokens[1..], input),
                     _ => Err(Error::new(
                         ErrorKind::InvalidControlDirective,
                         tok.origin,
@@ -1195,19 +1197,18 @@ impl Lexer {
     fn control_directive_line(
         &mut self,
         tokens: &[Token],
+        origin: Origin,
         input: &str,
     ) -> Result<ControlDirective, Error> {
-        assert!(!tokens.is_empty());
-
         let (line, file, trailing) = match tokens {
-            // `#5`
+            // `5`
             [
                 line @ Token {
                     kind: TokenKind::LiteralNumber,
                     ..
                 },
             ] => (line, None, None),
-            // `#5 "foo.d"`
+            // `5 "foo.d"`
             [
                 line @ Token {
                     kind: TokenKind::LiteralNumber,
@@ -1218,53 +1219,8 @@ impl Lexer {
                     ..
                 },
             ] => (line, Some(file), None),
-            // `#5 "foo.d" 0`
+            // `5 "foo.d" 0`
             [
-                line @ Token {
-                    kind: TokenKind::LiteralNumber,
-                    ..
-                },
-                file @ Token {
-                    kind: TokenKind::LiteralString,
-                    ..
-                },
-                trailing @ Token {
-                    kind: TokenKind::LiteralNumber,
-                    ..
-                },
-            ] => (line, Some(file), Some(trailing)),
-            // `#line 5`
-            [
-                Token {
-                    kind: TokenKind::Identifier,
-                    ..
-                },
-                line @ Token {
-                    kind: TokenKind::LiteralNumber,
-                    ..
-                },
-            ] => (line, None, None),
-            // `#line 5 "foo.d"`
-            [
-                Token {
-                    kind: TokenKind::Identifier,
-                    ..
-                },
-                line @ Token {
-                    kind: TokenKind::LiteralNumber,
-                    ..
-                },
-                file @ Token {
-                    kind: TokenKind::LiteralString,
-                    ..
-                },
-            ] => (line, Some(file), None),
-            // `#line 5 "foo.d" 0`
-            [
-                Token {
-                    kind: TokenKind::Identifier,
-                    ..
-                },
                 line @ Token {
                     kind: TokenKind::LiteralNumber,
                     ..
@@ -1281,7 +1237,7 @@ impl Lexer {
             other => {
                 return Err(Error::new(
                     ErrorKind::InvalidControlDirective,
-                    other[0].origin,
+                    origin,
                     String::new(),
                 ));
             }
@@ -1329,11 +1285,10 @@ impl Lexer {
     fn control_directive_pragma(
         &mut self,
         tokens: &[Token],
+        origin: Origin,
         input: &str,
     ) -> Result<ControlDirective, Error> {
-        assert!(!tokens.is_empty());
-
-        let (directive1, directive2) = match (tokens.get(1), tokens.get(2)) {
+        let (directive1, directive2) = match (tokens.get(0), tokens.get(1)) {
             (
                 Some(Token {
                     kind: TokenKind::Identifier,
@@ -1363,29 +1318,21 @@ impl Lexer {
             (Some("error"), _) => self.control_directive_error(&tokens[1..], input),
 
             // `#pragma line`.
-            (Some("D"), Some("line")) => self.control_directive_line(&tokens[2..], input),
-            (Some("line"), _) => self.control_directive_line(&tokens[1..], input),
+            (Some("D"), Some("line")) => self.control_directive_line(&tokens[2..], origin, input),
+            (Some("line"), _) => self.control_directive_line(&tokens[1..], origin, input),
             //
             // `#pragma depends_on`.
-            (Some("D"), Some("depends_on")) => {
-                self.pragma_depends_on(&tokens[3..], tokens[0].origin, input)
-            }
+            (Some("D"), Some("depends_on")) => self.pragma_depends_on(&tokens[2..], origin, input),
 
-            (Some("depends_on"), _) => {
-                self.pragma_depends_on(&tokens[2..], tokens[0].origin, input)
-            }
+            (Some("depends_on"), _) => self.pragma_depends_on(&tokens[1..], origin, input),
 
             // `#pragma attributes`.
-            (Some("D"), Some("attributes")) => {
-                self.pragma_attributes(&tokens[3..], tokens[0].origin, input)
-            }
-            (Some("attributes"), _) => {
-                self.pragma_attributes(&tokens[2..], tokens[0].origin, input)
-            }
+            (Some("D"), Some("attributes")) => self.pragma_attributes(&tokens[2..], origin, input),
+            (Some("attributes"), _) => self.pragma_attributes(&tokens[1..], origin, input),
 
             // `#pragma binding`.
-            (Some("D"), Some("binding")) => self.pragma_binding(&tokens[2..], input),
-            (Some("binding"), _) => self.pragma_binding(&tokens[1..], input),
+            (Some("D"), Some("binding")) => self.pragma_binding(&tokens[2..], origin, input),
+            (Some("binding"), _) => self.pragma_binding(&tokens[1..], origin, input),
 
             // `#pragma option`.
             (Some("D"), Some("option")) => self.pragma_option(&tokens[2..], input),
@@ -1405,8 +1352,6 @@ impl Lexer {
         tokens: &[Token],
         input: &str,
     ) -> Result<ControlDirective, Error> {
-        assert!(!tokens.is_empty());
-
         let src = match (tokens.get(1), tokens.last()) {
             (Some(start), Some(end)) => input[start.origin.offset as usize
                 ..end.origin.offset as usize + end.origin.len as usize]
@@ -1487,6 +1432,8 @@ impl Lexer {
         Ok(ControlDirective {
             kind: ControlDirectiveKind::PragmaAttributes {
                 attribute,
+                // TODO: `s2` may be `provider`, etc and should be handled differently in these
+                // cases.
                 name: s2.to_owned(),
             },
             origin,
@@ -1494,12 +1441,14 @@ impl Lexer {
     }
 
     #[warn(unused_results)]
-    fn pragma_binding(&mut self, tokens: &[Token], input: &str) -> Result<ControlDirective, Error> {
-        assert!(!tokens.is_empty());
-
+    fn pragma_binding(
+        &mut self,
+        tokens: &[Token],
+        origin: Origin,
+        input: &str,
+    ) -> Result<ControlDirective, Error> {
         match tokens {
             [
-                _,
                 Token {
                     kind: TokenKind::LiteralString,
                     origin: origin1,
@@ -1522,7 +1471,7 @@ impl Lexer {
             }
             _ => Err(Error::new(
                 ErrorKind::InvalidControlDirective,
-                tokens[0].origin,
+                origin,
                 String::new(),
             )),
         }
