@@ -2909,7 +2909,7 @@ impl<'a> Parser<'a> {
         Some(self.new_node(Node {
             kind: NodeKind::ParameterTypeList {
                 params: Some(params),
-                ellipsis: ellipsis,
+                ellipsis,
             },
             origin: self.origin(params),
         }))
