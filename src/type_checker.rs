@@ -223,9 +223,9 @@ pub fn check_node(
         NodeKind::Unary(_, expr) => {
             check_node(*expr, nodes, errs, node_to_type, name_to_def);
         }
-        NodeKind::Arguments(args) => {
-            for arg in args {
-                check_node(*arg, nodes, errs, node_to_type, name_to_def);
+        NodeKind::ArgumentsDeclaration(args) => {
+            if let Some(_args) = args {
+                todo!()
             }
         }
         NodeKind::ProbeDefinition(probe, pred, actions) => {
@@ -295,6 +295,11 @@ pub fn check_node(
         NodeKind::ParameterDeclarationSpecifiers(_node_ids) => todo!(),
         NodeKind::Character => todo!(),
         NodeKind::InlineDefinition(_node_id, _node_id1, _node_id2) => todo!(),
+        NodeKind::ArgumentsExpr(_node_ids) => todo!(),
+        NodeKind::ParameterTypeList {
+            params: _,
+            ellipsis: _,
+        } => todo!(),
     }
 }
 

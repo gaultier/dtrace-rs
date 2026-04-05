@@ -252,8 +252,13 @@ pub fn format<W: Write>(
             todo!()
         }
         NodeKind::Unary(_token_kind, _node_id) => todo!(),
-        NodeKind::Arguments(_node_ids) => todo!(),
+        NodeKind::ArgumentsDeclaration(_node_ids) => todo!(),
         NodeKind::InlineDefinition(_node_id, _node_id1, _node_id2) => todo!(),
+        NodeKind::ArgumentsExpr(_node_ids) => todo!(),
+        NodeKind::ParameterTypeList {
+            params: _,
+            ellipsis: _,
+        } => todo!(),
     }
     Ok(())
 }

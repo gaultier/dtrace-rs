@@ -46,6 +46,8 @@ pub enum ErrorKind {
     MissingParameterDeclarationSpecifiers,
     MissingDeclarationSpecifiers,
     InvalidControlDirective,
+    MissingFunctionParameter,
+    MissingFunctionParameters,
 }
 
 #[derive(Serialize, Debug, Clone)]

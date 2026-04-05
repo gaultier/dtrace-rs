@@ -33,7 +33,8 @@ pub(crate) enum NodeKind {
     Aggregation(String),
     Unary(TokenKind, NodeId),
     Assignment(NodeId, Token, NodeId),
-    Arguments(Vec<NodeId>),
+    ArgumentsExpr(Vec<NodeId>),
+    ArgumentsDeclaration(Option<NodeId>),
     CommaExpr(Vec<NodeId>),
     SizeofType(String),
     SizeofExpr(NodeId),
@@ -84,6 +85,10 @@ pub(crate) enum NodeKind {
     ParameterDeclarationSpecifiers(Vec<NodeId>),
     Character,
     InlineDefinition(NodeId, NodeId, NodeId),
+    ParameterTypeList {
+        params: Option<NodeId>,
+        ellipsis: Option<NodeId>,
+    },
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -888,7 +893,7 @@ impl<'a> Parser<'a> {
         }
 
         Some(self.new_node(Node {
-            kind: NodeKind::Arguments(args),
+            kind: NodeKind::ArgumentsExpr(args),
             origin: first_comma_origin,
         }))
     }
@@ -2010,9 +2015,9 @@ impl<'a> Parser<'a> {
                 Self::resolve_node(*lhs, nodes, errors, name_to_def, file_id_to_name);
                 Self::resolve_node(*rhs, nodes, errors, name_to_def, file_id_to_name);
             }
-            NodeKind::Arguments(args) => {
-                for arg in args {
-                    Self::resolve_node(*arg, nodes, errors, name_to_def, file_id_to_name);
+            NodeKind::ArgumentsDeclaration(args) => {
+                if let Some(args) = args {
+                    Self::resolve_node(*args, nodes, errors, name_to_def, file_id_to_name);
                 }
             }
             NodeKind::Block(stmts) => {
@@ -2088,6 +2093,11 @@ impl<'a> Parser<'a> {
             NodeKind::ParameterDeclarationSpecifiers(_node_ids) => {}
             NodeKind::Character => {}
             NodeKind::InlineDefinition(_node_id, _node_id1, _node_id2) => {}
+            NodeKind::ParameterTypeList {
+                params: _,
+                ellipsis: _,
+            } => {}
+            NodeKind::ArgumentsExpr(_node_ids) => {}
         }
     }
 
@@ -2809,12 +2819,20 @@ impl<'a> Parser<'a> {
         }))
     }
 
+    // function                → "(" function_parameters ")" ;
     fn parse_function(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
 
-        todo!()
+        let left_paren = self.match_kind(TokenKind::LeftParen)?;
+        let args = self.parse_function_parameters();
+        self.expect_token_one(TokenKind::RightParen, "matching parenthesis for function");
+
+        Some(self.new_node(Node {
+            kind: NodeKind::ArgumentsDeclaration(args),
+            origin: left_paren.origin,
+        }))
     }
 
     // array_parameters        → /* empty */ | constant_expression | parameter_type_list ;
@@ -2847,12 +2865,54 @@ impl<'a> Parser<'a> {
     }
 
     // parameter_type_list → parameter_list ( "," "..." )?
+    //                      | "..." ;
     fn parse_parameter_type_list(&mut self) -> Option<NodeId> {
-        if self.error_mode {
-            return None;
+        // The 'empty' case has already been handled with an early return in the caller so
+        // it's an error to have no parameters here.
+
+        if let Some(tok) = self.match_kind(TokenKind::DotDotDot) {
+            let param = self.new_node(Node {
+                kind: NodeKind::ParamEllipsis,
+                origin: tok.origin,
+            });
+            return Some(self.new_node(Node {
+                kind: NodeKind::ParameterTypeList {
+                    params: None,
+                    ellipsis: Some(param),
+                },
+                origin: self.origin(param),
+            }));
         }
 
-        todo!()
+        let params = self.parse_parameter_list().unwrap_or_else(|| {
+            self.add_error_with_explanation(
+                ErrorKind::MissingFunctionParameters,
+                self.current_or_last_origin_for_err(),
+                format!(
+                    "missing function parameters, found: {:?}",
+                    self.current_token_kind_for_err()
+                ),
+            );
+            self.new_node_unknown()
+        });
+
+        let ellipsis = if let Some(comma) = self.match_kind(TokenKind::Comma) {
+            self.expect_token_one(TokenKind::DotDotDot, "ellipsis parameter after comma");
+            Some(self.new_node(Node {
+                kind: NodeKind::ParamEllipsis,
+                origin: comma.origin,
+            }))
+        } else {
+            None
+        };
+
+        Some(self.new_node(Node {
+            kind: NodeKind::ParameterTypeList {
+                params: Some(params),
+                ellipsis: ellipsis,
+            },
+            origin: self.origin(params),
+        }))
     }
 
     // parameter_list          → parameter_declaration ( "," parameter_declaration )* ;
@@ -2861,7 +2921,28 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        todo!()
+        let param = self.parse_parameter_declaration()?;
+        let mut params = vec![param];
+
+        while let Some(comma) = self.match_kind(TokenKind::Comma) {
+            let param = self.parse_parameter_declaration().unwrap_or_else(|| {
+                self.add_error_with_explanation(
+                    ErrorKind::MissingFunctionParameter,
+                    comma.origin,
+                    format!(
+                        "expected function parameter after comma, found: {:?}",
+                        self.current_token_kind_for_err()
+                    ),
+                );
+                self.new_node_unknown()
+            });
+            params.push(param);
+        }
+
+        Some(self.new_node(Node {
+            kind: NodeKind::Parameters(params),
+            origin: self.origin(param),
+        }))
     }
 
     // parameter_declaration → parameter_declaration_specifiers
@@ -2922,6 +3003,25 @@ impl<'a> Parser<'a> {
             origin,
         }))
     }
+
+    // function_parameters     → /* empty */ | parameter_type_list ;
+    fn parse_function_parameters(&mut self) -> Option<NodeId> {
+        match self.peek().map(|t| t.kind) {
+            Some(TokenKind::RightParen | TokenKind::Eof) | None => {
+                return None;
+            }
+            _ => {}
+        }
+
+        if let Some(tok) = self.match_kind(TokenKind::DotDotDot) {
+            return Some(self.new_node(Node {
+                kind: NodeKind::ParamEllipsis,
+                origin: tok.origin,
+            }));
+        }
+
+        self.parse_parameter_type_list()
+    }
 }
 
 fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
@@ -2935,7 +3035,7 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
     );
     match &node.kind {
         NodeKind::Unknown => {}
-        NodeKind::Block(node_ids) | NodeKind::Arguments(node_ids) => {
+        NodeKind::Block(node_ids) => {
             for id in node_ids {
                 log(nodes, *id, indent + 2);
             }
@@ -3144,6 +3244,24 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
             log(nodes, *decl_specifiers, indent + 2);
             log(nodes, *declarator, indent + 2);
             log(nodes, *expr, indent + 2);
+        }
+        NodeKind::ArgumentsExpr(node_ids) => {
+            for node_id in node_ids {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
+        NodeKind::ParameterTypeList { params, ellipsis } => {
+            if let Some(params) = params {
+                log(nodes, *params, indent + 2);
+            }
+            if let Some(ellipsis) = ellipsis {
+                log(nodes, *ellipsis, indent + 2);
+            }
+        }
+        NodeKind::ArgumentsDeclaration(node_id) => {
+            if let Some(node_id) = node_id {
+                log(nodes, *node_id, indent + 2);
+            }
         }
     }
 }
