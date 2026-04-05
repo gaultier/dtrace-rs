@@ -44,7 +44,7 @@ impl Message {
             }
 
             if header_name.eq_ignore_ascii_case("Content-Type") {
-                size = header_
+                size = header_value.parse().map_err(|err| {})?;
             }
         }
         todo!()
