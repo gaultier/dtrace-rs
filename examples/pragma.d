@@ -25,8 +25,11 @@
 #pragma bar
 #pragma 
 
-#pragma binding "256.2.3" foo
+#pragma binding "255.2.3" foo
+#pragma binding "255.2" foo
 
+#pragma depends_on library darwin.d
+#pragma depends_on module mach_kernel
 
 BEGIN {
 }

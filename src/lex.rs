@@ -17,6 +17,14 @@ pub enum ControlDirectiveKind {
     Line(usize, Option<String>, Option<usize>),
     PragmaError(String),
     PragmaBinding(Version, String),
+    PragmaDependsOn(PragmaDependsOnKind, String),
+}
+
+#[derive(Debug)]
+pub enum PragmaDependsOnKind {
+    Provider,
+    Module,
+    Library,
 }
 
 #[derive(Debug)]
@@ -211,15 +219,29 @@ impl Lexer {
         self.error_mode = true;
     }
 
+    fn is_identifier_character_trailing(&self, c: char) -> bool {
+        match self.state {
+            LexerState::Default => c.is_alphanumeric() || c == '_',
+            LexerState::InsideControlDirective(_) => !(c.is_whitespace() || c == '"'),
+        }
+    }
+
+    fn is_identifier_character_leading(&self, c: char) -> bool {
+        match self.state {
+            LexerState::Default => c.is_alphanumeric() || c == '_' || c == '@',
+            LexerState::InsideControlDirective(_) => !(c.is_whitespace() || c == '"'),
+        }
+    }
+
     fn lex_keyword(&mut self, input: &str, it: &mut Peekable<Chars<'_>>) {
         let start_origin = self.origin;
         let first = it.next().unwrap();
-        assert!(first.is_ascii_alphabetic() || first == '@');
+        assert!(self.is_identifier_character_leading(first));
         self.origin.column += 1;
         self.origin.offset += 1;
 
         while let Some(c) = it.peek() {
-            if !(c.is_alphanumeric() || *c == '_') {
+            if !self.is_identifier_character_trailing(*c) {
                 break;
             }
 
@@ -1007,17 +1029,16 @@ impl Lexer {
                 '\'' => {
                     self.lex_literal_character(&mut it);
                 }
-                '@' => self.lex_keyword(input, &mut it),
-                _ if c.is_ascii_alphabetic() => self.lex_keyword(input, &mut it),
+                _ if c.is_ascii_digit() => self.lex_literal_number(&mut it),
+                _ if c.is_whitespace() => {
+                    self.advance(c, &mut it);
+                }
+                _ if self.is_identifier_character_leading(c) => self.lex_keyword(input, &mut it),
                 _ if is_character_probe_specifier_start(c)
                     && is_character_probe_specifier_rest(peek2(&it).unwrap_or_default()) =>
                 {
                     self.lex_probe_specifier(&mut it)
                 }
-                _ if c.is_whitespace() => {
-                    self.advance(c, &mut it);
-                }
-                _ if c.is_ascii_digit() => self.lex_literal_number(&mut it),
                 _ => {
                     self.tokens.push(Token {
                         kind: TokenKind::Unknown,
@@ -1040,6 +1061,7 @@ impl Lexer {
             kind: TokenKind::Eof,
             origin,
         });
+        dbg!(&self.tokens);
     }
 
     fn has_any_previous_tokens_on_same_line(&self) -> bool {
@@ -1260,6 +1282,14 @@ impl Lexer {
             // `#pragma line`.
             (Some("D"), Some("line")) => self.control_directive_line(&tokens[2..], input),
             (Some("line"), _) => self.control_directive_line(&tokens[1..], input),
+            //
+            // `#pragma depends_on`.
+            (Some("D"), Some("depends_on")) => {
+                self.pragma_depends_on(&tokens[3..], tokens[0].origin, input)
+            }
+            (Some("depends_on"), _) => {
+                self.pragma_depends_on(&tokens[2..], tokens[0].origin, input)
+            }
 
             // `#pragma attributes`.
             (Some("D"), Some("attributes")) => self.pragma_attributes(&tokens[2..], input),
@@ -1344,6 +1374,55 @@ impl Lexer {
 
     fn pragma_option(&self, _tokens: &[Token], _input: &str) {
         todo!()
+    }
+
+    fn pragma_depends_on(&mut self, tokens: &[Token], origin: Origin, input: &str) {
+        let (kind_str, name) = match tokens {
+            [
+                Token {
+                    kind: TokenKind::Identifier,
+                    origin: origin1,
+                },
+                Token {
+                    kind: TokenKind::Identifier,
+                    origin: origin2,
+                },
+            ] => {
+                let kind = str_from_source(input, origin1);
+                let name = str_from_source(input, origin2);
+                (kind, name)
+            }
+            _ => {
+                self.errors.push(Error::new(
+                    ErrorKind::InvalidControlDirective,
+                    origin,
+                    String::new(),
+                ));
+                return;
+            }
+        };
+
+        let kind = match kind_str {
+            "provider" => PragmaDependsOnKind::Provider,
+            "module" => PragmaDependsOnKind::Module,
+            "library" => PragmaDependsOnKind::Library,
+            _ => {
+                self.errors.push(Error::new(
+                    ErrorKind::InvalidControlDirective,
+                    origin,
+                    format!(
+                        "invalid depends_on class, expected provider|module|library, found: {}",
+                        kind_str
+                    ),
+                ));
+                return;
+            }
+        };
+
+        self.control_directives.push(ControlDirective {
+            kind: ControlDirectiveKind::PragmaDependsOn(kind, name.to_owned()),
+            origin,
+        });
     }
 }
 
