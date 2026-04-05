@@ -26,25 +26,41 @@ fn main() {
 
     let mut args = std::env::args().skip(1);
     let cmd = args.next().unwrap();
-    let file_name = args.next().unwrap();
-    let file_content = std::fs::read_to_string(&file_name).unwrap();
-    let mut file_id_to_name = HashMap::new();
-    file_id_to_name.insert(1, file_name.clone());
-
-    let compiled = compile(&file_content, 1, &file_id_to_name);
-
-    for err in &compiled.errors {
-        err.write(&mut std::io::stderr(), &file_content, &file_id_to_name)
-            .unwrap();
-        eprintln!()
-    }
-    if !compiled.errors.is_empty() {
-        std::process::exit(1)
-    };
 
     match cmd.as_str() {
-        "ast" => {}
+        "ast" => {
+            let file_name = args.next().unwrap();
+            let file_content = std::fs::read_to_string(&file_name).unwrap();
+            let mut file_id_to_name = HashMap::new();
+            file_id_to_name.insert(1, file_name.clone());
+
+            let compiled = compile(&file_content, 1, &file_id_to_name);
+
+            for err in &compiled.errors {
+                err.write(&mut std::io::stderr(), &file_content, &file_id_to_name)
+                    .unwrap();
+                eprintln!()
+            }
+            if !compiled.errors.is_empty() {
+                std::process::exit(1)
+            };
+        }
         "fmt" => {
+            let file_name = args.next().unwrap();
+            let file_content = std::fs::read_to_string(&file_name).unwrap();
+            let mut file_id_to_name = HashMap::new();
+            file_id_to_name.insert(1, file_name.clone());
+
+            let compiled = compile(&file_content, 1, &file_id_to_name);
+
+            for err in &compiled.errors {
+                err.write(&mut std::io::stderr(), &file_content, &file_id_to_name)
+                    .unwrap();
+                eprintln!()
+            }
+            if !compiled.errors.is_empty() {
+                std::process::exit(1)
+            };
             if let Some(root) = compiled.ast_root {
                 let mut stdout = std::io::stdout().lock();
                 compiler_rs_lib::fmt::format(
@@ -60,7 +76,11 @@ fn main() {
                 stdout.flush().unwrap();
             }
         }
-        "lsp" => todo!(),
+        "lsp" => {
+            let mut stdout = std::io::stdout().lock();
+            let mut stdin = std::io::stdin().lock();
+            compiler_rs_lib::lsp::run(&mut stdin, &mut stdout);
+        }
         other => {
             eprintln!("unknown command: {}", other);
             std::process::exit(1);

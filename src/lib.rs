@@ -2,6 +2,7 @@ pub mod ast;
 pub mod error;
 pub mod fmt;
 pub mod lex;
+pub mod lsp;
 mod origin;
 mod type_checker;
 
