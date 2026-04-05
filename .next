@@ -1,6 +1,5 @@
 - pragma option
 - pragma attribute
-- pragma depends_on
 - comments
 - name resolving
 - type checking

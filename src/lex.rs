@@ -13,11 +13,41 @@ enum LexerState {
 }
 
 #[derive(Debug)]
+pub struct Attribute {
+    pub name: Option<Stability>,
+    pub data: Option<Stability>,
+    pub class: Option<Class>,
+}
+
+#[derive(Debug)]
 pub enum ControlDirectiveKind {
     Line(usize, Option<String>, Option<usize>),
     PragmaError(String),
     PragmaBinding(Version, String),
     PragmaDependsOn(PragmaDependsOnKind, String),
+    PragmaAttributes { attribute: Attribute, name: String },
+    Ignored,
+}
+
+#[derive(Debug)]
+pub enum Stability {
+    Internal,
+    Private,
+    Obsolete,
+    External,
+    Unstable,
+    Evolving,
+    Stable,
+    Standard,
+}
+
+#[derive(Debug)]
+pub enum Class {
+    Cpu,
+    Platform,
+    Group,
+    Isa,
+    Common,
 }
 
 #[derive(Debug)]
@@ -153,6 +183,39 @@ pub enum TokenKind {
     GtEq,
     LtEq,
     GtGt,
+}
+
+impl TryFrom<&str> for Stability {
+    type Error = ErrorKind;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "Internal" => Ok(Stability::Internal),
+            "Private" => Ok(Stability::Private),
+            "Obsolete" => Ok(Stability::Obsolete),
+            "External" => Ok(Stability::External),
+            "Unstable" => Ok(Stability::Unstable),
+            "Evolving" => Ok(Stability::Evolving),
+            "Stable" => Ok(Stability::Stable),
+            "Standard" => Ok(Stability::Standard),
+            _ => Err(ErrorKind::InvalidStability),
+        }
+    }
+}
+
+impl TryFrom<&str> for Class {
+    type Error = ErrorKind;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "Cpu" => Ok(Class::Cpu),
+            "Platform" => Ok(Class::Platform),
+            "Group" => Ok(Class::Group),
+            "Isa" => Ok(Class::Isa),
+            "Common" => Ok(Class::Common),
+            _ => Err(ErrorKind::InvalidClass),
+        }
+    }
 }
 
 pub(crate) fn str_from_source<'a>(src: &'a str, origin: &Origin) -> &'a str {
@@ -474,7 +537,10 @@ impl Lexer {
                             .tokens
                             .extract_if(.., |tok| tok.origin.line == line)
                             .collect::<Vec<Token>>();
-                        self.control_directive(input, &tokens);
+                        match self.control_directive(input, &tokens) {
+                            Ok(directive) => self.control_directives.push(directive),
+                            Err(err) => self.errors.push(err),
+                        }
                         self.state = LexerState::Default;
                     }
                     self.advance(c, &mut it);
@@ -1071,17 +1137,24 @@ impl Lexer {
             .any(|tok| tok.origin.line == self.origin.line)
     }
 
-    fn control_directive(&mut self, input: &str, tokens: &[Token]) {
+    #[warn(unused_results)]
+    fn control_directive(
+        &mut self,
+        input: &str,
+        tokens: &[Token],
+    ) -> Result<ControlDirective, Error> {
         match tokens.first() {
             None => {
                 // According to K&R[A12.9], we silently ignore null directive lines.
+                Ok(ControlDirective {
+                    kind: ControlDirectiveKind::Ignored,
+                    origin: Origin::new_unknown(),
+                })
             }
             Some(Token {
                 kind: TokenKind::LiteralNumber,
                 ..
-            }) => {
-                self.control_directive_line(tokens, input);
-            }
+            }) => self.control_directive_line(tokens, input),
             Some(
                 tok @ Token {
                     kind: TokenKind::Identifier,
@@ -1093,29 +1166,37 @@ impl Lexer {
                     "line" => self.control_directive_line(tokens, input),
                     "pragma" if tokens.len() > 1 => self.control_directive_pragma(tokens, input),
                     // Ignore any #ident or #pragma ident lines.
-                    "pragma" if tokens.len() == 1 => {}
-                    "ident" => {}
+                    "pragma" if tokens.len() == 1 => Ok(ControlDirective {
+                        kind: ControlDirectiveKind::Ignored,
+                        origin: Origin::new_unknown(),
+                    }),
+
+                    "ident" => Ok(ControlDirective {
+                        kind: ControlDirectiveKind::Ignored,
+                        origin: Origin::new_unknown(),
+                    }),
                     "error" => self.control_directive_error(tokens, input),
-                    _ => {
-                        self.errors.push(Error::new(
-                            ErrorKind::InvalidControlDirective,
-                            tok.origin,
-                            String::new(),
-                        ));
-                    }
+                    _ => Err(Error::new(
+                        ErrorKind::InvalidControlDirective,
+                        tok.origin,
+                        String::new(),
+                    )),
                 }
             }
-            Some(other) => {
-                self.errors.push(Error::new(
-                    ErrorKind::InvalidControlDirective,
-                    other.origin,
-                    String::new(),
-                ));
-            }
+            Some(other) => Err(Error::new(
+                ErrorKind::InvalidControlDirective,
+                other.origin,
+                String::new(),
+            )),
         }
     }
 
-    fn control_directive_line(&mut self, tokens: &[Token], input: &str) {
+    #[warn(unused_results)]
+    fn control_directive_line(
+        &mut self,
+        tokens: &[Token],
+        input: &str,
+    ) -> Result<ControlDirective, Error> {
         assert!(!tokens.is_empty());
 
         let (line, file, trailing) = match tokens {
@@ -1198,12 +1279,11 @@ impl Lexer {
                 },
             ] => (line, Some(file), Some(trailing)),
             other => {
-                self.errors.push(Error::new(
+                return Err(Error::new(
                     ErrorKind::InvalidControlDirective,
                     other[0].origin,
                     String::new(),
                 ));
-                return;
             }
         };
 
@@ -1215,12 +1295,11 @@ impl Lexer {
         });
         let line_num: usize = match str::parse::<usize>(line_src) {
             Err(err) => {
-                self.errors.push(Error::new(
+                return Err(Error::new(
                     ErrorKind::InvalidLiteralNumber,
                     line.origin,
                     err.to_string(),
                 ));
-                return;
             }
             Ok(n) => n,
         };
@@ -1229,25 +1308,29 @@ impl Lexer {
             match str::parse::<usize>(str_from_source(input, &trailing.origin)) {
                 Ok(num) => Some(num),
                 Err(err) => {
-                    self.errors.push(Error::new(
+                    return Err(Error::new(
                         ErrorKind::InvalidLiteralNumber,
                         trailing.origin,
                         err.to_string(),
                     ));
-                    return;
                 }
             }
         } else {
             None
         };
 
-        self.control_directives.push(ControlDirective {
+        Ok(ControlDirective {
             origin: line.origin,
             kind: ControlDirectiveKind::Line(line_num, file_src, trailing_num),
-        });
+        })
     }
 
-    fn control_directive_pragma(&mut self, tokens: &[Token], input: &str) {
+    #[warn(unused_results)]
+    fn control_directive_pragma(
+        &mut self,
+        tokens: &[Token],
+        input: &str,
+    ) -> Result<ControlDirective, Error> {
         assert!(!tokens.is_empty());
 
         let (directive1, directive2) = match (tokens.get(1), tokens.get(2)) {
@@ -1287,13 +1370,18 @@ impl Lexer {
             (Some("D"), Some("depends_on")) => {
                 self.pragma_depends_on(&tokens[3..], tokens[0].origin, input)
             }
+
             (Some("depends_on"), _) => {
                 self.pragma_depends_on(&tokens[2..], tokens[0].origin, input)
             }
 
             // `#pragma attributes`.
-            (Some("D"), Some("attributes")) => self.pragma_attributes(&tokens[2..], input),
-            (Some("attributes"), _) => self.pragma_attributes(&tokens[1..], input),
+            (Some("D"), Some("attributes")) => {
+                self.pragma_attributes(&tokens[3..], tokens[0].origin, input)
+            }
+            (Some("attributes"), _) => {
+                self.pragma_attributes(&tokens[2..], tokens[0].origin, input)
+            }
 
             // `#pragma binding`.
             (Some("D"), Some("binding")) => self.pragma_binding(&tokens[2..], input),
@@ -1304,12 +1392,19 @@ impl Lexer {
             (Some("option"), _) => self.pragma_option(&tokens[1..], input),
 
             // `#pragma`, `#pragma ident`,  `#pragma D ident`, or `#pragma someunknownstuff`: Ignore.
-            (Some("D"), Some("ident")) | (Some("ident"), _) => {}
-            _ => {}
+            (Some("D"), Some("ident")) | (Some("ident"), _) | _ => Ok(ControlDirective {
+                kind: ControlDirectiveKind::Ignored,
+                origin: Origin::new_unknown(),
+            }),
         }
     }
 
-    fn control_directive_error(&mut self, tokens: &[Token], input: &str) {
+    #[warn(unused_results)]
+    fn control_directive_error(
+        &mut self,
+        tokens: &[Token],
+        input: &str,
+    ) -> Result<ControlDirective, Error> {
         assert!(!tokens.is_empty());
 
         let src = match (tokens.get(1), tokens.last()) {
@@ -1319,17 +1414,87 @@ impl Lexer {
             _ => String::new(),
         };
 
-        self.control_directives.push(ControlDirective {
+        Ok(ControlDirective {
             origin: tokens[0].origin,
             kind: ControlDirectiveKind::PragmaError(src),
-        });
+        })
     }
 
-    fn pragma_attributes(&self, _tokens: &[Token], _input: &str) {
-        todo!()
+    #[warn(unused_results)]
+    fn pragma_attributes(
+        &self,
+        tokens: &[Token],
+        origin: Origin,
+        input: &str,
+    ) -> Result<ControlDirective, Error> {
+        let (s1, s2) = match tokens {
+            [
+                Token {
+                    kind: TokenKind::Identifier,
+                    origin: origin1,
+                },
+                Token {
+                    kind: TokenKind::Identifier,
+                    origin: origin2,
+                },
+            ] => {
+                let s1 = str_from_source(input, origin1);
+                let s2 = str_from_source(input, origin2);
+                (s1, s2)
+            }
+            _ => {
+                return Err(Error::new(
+                    ErrorKind::InvalidControlDirective,
+                    origin,
+                    String::new(),
+                ));
+            }
+        };
+
+        let split: Vec<_> = s1.splitn(3, "/").collect();
+        let name = split
+            .get(0)
+            .map(|s| {
+                Stability::try_from(*s).map_err(|kind| Error {
+                    kind,
+                    origin,
+                    explanation: format!("invalid stability: {}", s),
+                })
+            })
+            .transpose()?;
+        let data = split
+            .get(1)
+            .map(|s| {
+                Stability::try_from(*s).map_err(|kind| Error {
+                    kind,
+                    origin,
+                    explanation: format!("invalid stability: {}", s),
+                })
+            })
+            .transpose()?;
+        let class: Option<Class> = split
+            .get(2)
+            .map(|s| {
+                Class::try_from(*s).map_err(|kind| Error {
+                    kind,
+                    origin,
+                    explanation: format!("invalid class: {}", s),
+                })
+            })
+            .transpose()?;
+        let attribute = Attribute { name, data, class };
+
+        Ok(ControlDirective {
+            kind: ControlDirectiveKind::PragmaAttributes {
+                attribute,
+                name: s2.to_owned(),
+            },
+            origin,
+        })
     }
 
-    fn pragma_binding(&mut self, tokens: &[Token], input: &str) {
+    #[warn(unused_results)]
+    fn pragma_binding(&mut self, tokens: &[Token], input: &str) -> Result<ControlDirective, Error> {
         assert!(!tokens.is_empty());
 
         match tokens {
@@ -1347,36 +1512,34 @@ impl Lexer {
                 let version_str = str_from_source(input, origin1);
                 // Strip double quotes.
                 let version_str = &version_str[1..version_str.len() - 1];
-                let version = match version_str2num(version_str, *origin1) {
-                    Ok(v) => v,
-                    Err(err) => {
-                        self.errors.push(err);
-                        return;
-                    }
-                };
+                let version = version_str2num(version_str, *origin1)?;
                 let identifier = str_from_source(input, origin2).to_owned();
 
-                self.control_directives.push(ControlDirective {
+                Ok(ControlDirective {
                     origin: *origin1,
                     kind: ControlDirectiveKind::PragmaBinding(version, identifier),
-                });
+                })
             }
-            _ => {
-                self.errors.push(Error::new(
-                    ErrorKind::InvalidControlDirective,
-                    tokens[0].origin,
-                    String::new(),
-                ));
-                return;
-            }
+            _ => Err(Error::new(
+                ErrorKind::InvalidControlDirective,
+                tokens[0].origin,
+                String::new(),
+            )),
         }
     }
 
-    fn pragma_option(&self, _tokens: &[Token], _input: &str) {
+    #[warn(unused_results)]
+    fn pragma_option(&self, _tokens: &[Token], _input: &str) -> Result<ControlDirective, Error> {
         todo!()
     }
 
-    fn pragma_depends_on(&mut self, tokens: &[Token], origin: Origin, input: &str) {
+    #[warn(unused_results)]
+    fn pragma_depends_on(
+        &mut self,
+        tokens: &[Token],
+        origin: Origin,
+        input: &str,
+    ) -> Result<ControlDirective, Error> {
         let (kind_str, name) = match tokens {
             [
                 Token {
@@ -1393,12 +1556,11 @@ impl Lexer {
                 (kind, name)
             }
             _ => {
-                self.errors.push(Error::new(
+                return Err(Error::new(
                     ErrorKind::InvalidControlDirective,
                     origin,
                     String::new(),
                 ));
-                return;
             }
         };
 
@@ -1407,7 +1569,7 @@ impl Lexer {
             "module" => PragmaDependsOnKind::Module,
             "library" => PragmaDependsOnKind::Library,
             _ => {
-                self.errors.push(Error::new(
+                return Err(Error::new(
                     ErrorKind::InvalidControlDirective,
                     origin,
                     format!(
@@ -1415,14 +1577,13 @@ impl Lexer {
                         kind_str
                     ),
                 ));
-                return;
             }
         };
 
-        self.control_directives.push(ControlDirective {
+        Ok(ControlDirective {
             kind: ControlDirectiveKind::PragmaDependsOn(kind, name.to_owned()),
             origin,
-        });
+        })
     }
 }
 

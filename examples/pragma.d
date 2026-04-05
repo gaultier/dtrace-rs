@@ -31,5 +31,7 @@
 #pragma depends_on library darwin.d
 #pragma depends_on module mach_kernel
 
+#pragma D attributes Stable/Stable/Common cwd
+
 BEGIN {
 }

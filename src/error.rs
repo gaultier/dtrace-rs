@@ -49,6 +49,8 @@ pub enum ErrorKind {
     MissingFunctionParameter,
     MissingFunctionParameters,
     InvalidVersionString,
+    InvalidStability,
+    InvalidClass,
 }
 
 #[derive(Serialize, Debug, Clone)]
