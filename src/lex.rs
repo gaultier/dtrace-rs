@@ -1234,7 +1234,7 @@ impl Lexer {
                     ..
                 },
             ] => (line, Some(file), Some(trailing)),
-            other => {
+            _other => {
                 return Err(Error::new(
                     ErrorKind::InvalidControlDirective,
                     origin,
@@ -1288,7 +1288,7 @@ impl Lexer {
         origin: Origin,
         input: &str,
     ) -> Result<ControlDirective, Error> {
-        let (directive1, directive2) = match (tokens.get(0), tokens.get(1)) {
+        let (directive1, directive2) = match (tokens.first(), tokens.get(1)) {
             (
                 Some(Token {
                     kind: TokenKind::Identifier,
@@ -1339,7 +1339,7 @@ impl Lexer {
             (Some("option"), _) => self.pragma_option(&tokens[1..], input),
 
             // `#pragma`, `#pragma ident`,  `#pragma D ident`, or `#pragma someunknownstuff`: Ignore.
-            (Some("D"), Some("ident")) | (Some("ident"), _) | _ => Ok(ControlDirective {
+            _ => Ok(ControlDirective {
                 kind: ControlDirectiveKind::Ignored,
                 origin: Origin::new_unknown(),
             }),
@@ -1398,7 +1398,7 @@ impl Lexer {
 
         let split: Vec<_> = s1.splitn(3, "/").collect();
         let name = split
-            .get(0)
+            .first()
             .map(|s| {
                 Stability::try_from(*s).map_err(|kind| Error {
                     kind,
@@ -1552,19 +1552,13 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
     let major = str::parse::<u8>(split[0]).map_err(|err| Error {
         kind: ErrorKind::InvalidVersionString,
         origin,
-        explanation: format!(
-            "invalid major version in version string: {}",
-            err.to_string()
-        ),
+        explanation: format!("invalid major version in version string: {}", err),
     })?;
 
     let minor = str::parse::<u16>(split[1]).map_err(|err| Error {
         kind: ErrorKind::InvalidVersionString,
         origin,
-        explanation: format!(
-            "invalid minor version in version string: {}",
-            err.to_string()
-        ),
+        explanation: format!("invalid minor version in version string: {}", err),
     })?;
     if minor > 0xfff {
         return Err(Error {
@@ -1578,10 +1572,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
         let num = str::parse::<u16>(patch).map_err(|err| Error {
             kind: ErrorKind::InvalidVersionString,
             origin,
-            explanation: format!(
-                "invalid patch version in version string: {}",
-                err.to_string()
-            ),
+            explanation: format!("invalid patch version in version string: {}", err),
         })?;
         if num > 0xfff {
             return Err(Error {
