@@ -42,21 +42,28 @@ fn main() {
         std::process::exit(1)
     };
 
-    if cmd == "ast" {
-    } else if cmd == "fmt"
-        && let Some(root) = compiled.ast_root
-    {
-        let mut stdout = std::io::stdout().lock();
-        compiler_rs_lib::fmt::format(
-            &mut stdout,
-            root,
-            &compiled.ast_nodes,
-            &file_content,
-            0,
-            true,
-            true,
-        )
-        .unwrap();
-        stdout.flush().unwrap();
+    match cmd.as_str() {
+        "ast" => {}
+        "fmt" => {
+            if let Some(root) = compiled.ast_root {
+                let mut stdout = std::io::stdout().lock();
+                compiler_rs_lib::fmt::format(
+                    &mut stdout,
+                    root,
+                    &compiled.ast_nodes,
+                    &file_content,
+                    0,
+                    true,
+                    true,
+                )
+                .unwrap();
+                stdout.flush().unwrap();
+            }
+        }
+        "lsp" => todo!(),
+        other => {
+            eprintln!("unknown command: {}", other);
+            std::process::exit(1);
+        }
     }
 }
