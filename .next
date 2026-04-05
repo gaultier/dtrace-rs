@@ -1,6 +1,6 @@
-- pragma option
-- pragma attribute
-- comments
+- comments:
+  + single-line
+  + multi-line
 - name resolving
 - type checking
 - fmt
