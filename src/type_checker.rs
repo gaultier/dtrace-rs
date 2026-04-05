@@ -300,6 +300,10 @@ pub fn check_node(
             params: _,
             ellipsis: _,
         } => todo!(),
+        NodeKind::ParameterDeclaration {
+            param_decl_specifiers: _,
+            declarator: _,
+        } => todo!(),
     }
 }
 

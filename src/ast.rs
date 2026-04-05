@@ -89,6 +89,10 @@ pub(crate) enum NodeKind {
         params: Option<NodeId>,
         ellipsis: Option<NodeId>,
     },
+    ParameterDeclaration {
+        param_decl_specifiers: NodeId,
+        declarator: Option<NodeId>,
+    },
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2098,6 +2102,10 @@ impl<'a> Parser<'a> {
                 ellipsis: _,
             } => {}
             NodeKind::ArgumentsExpr(_node_ids) => {}
+            NodeKind::ParameterDeclaration {
+                param_decl_specifiers: _,
+                declarator: _,
+            } => {}
         }
     }
 
@@ -2942,21 +2950,19 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let _param_decl_specifiers = self
-            .parse_parameter_declaration_specifiers()
-            .unwrap_or_else(|| {
-                self.add_error_with_explanation(
-                    ErrorKind::MissingParameterDeclarationSpecifiers,
-                    self.current_or_last_origin_for_err(),
-                    format!(
-                        "expected parameter declaration, found: {:?}",
-                        self.current_token_kind_for_err()
-                    ),
-                );
+        let param_decl_specifiers = self.parse_parameter_declaration_specifiers()?;
 
-                self.new_node_unknown()
-            });
-        todo!()
+        let declarator = self
+            .parse_declarator()
+            .or_else(|| self.parse_abstract_declarator());
+
+        Some(self.new_node(Node {
+            kind: NodeKind::ParameterDeclaration {
+                param_decl_specifiers,
+                declarator,
+            },
+            origin: self.origin(param_decl_specifiers),
+        }))
     }
 
     // parameter_declaration_specifiers → ( storage_class_specifier
@@ -3255,6 +3261,15 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         }
         NodeKind::ArgumentsDeclaration(node_id) => {
             if let Some(node_id) = node_id {
+                log(nodes, *node_id, indent + 2);
+            }
+        }
+        NodeKind::ParameterDeclaration {
+            param_decl_specifiers,
+            declarator,
+        } => {
+            log(nodes, *param_decl_specifiers, indent + 2);
+            if let Some(node_id) = declarator {
                 log(nodes, *node_id, indent + 2);
             }
         }
