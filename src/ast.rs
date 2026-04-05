@@ -2659,7 +2659,7 @@ impl<'a> Parser<'a> {
         let declarator = self.parse_declarator()?;
 
         let const_expr = if let Some(colon) = self.match_kind(TokenKind::Colon) {
-            let expr = self.parse_conditional_expr().unwrap_or_else(||{
+            let expr = self.parse_const_expr().unwrap_or_else(||{
                 self.add_error_with_explanation(ErrorKind::MissingConstantExpr, colon.origin, format!("expected a constant expression after colon in struct field declaration, found: {:?}", self.current_token_kind_for_err()));
                 self.new_node_unknown()
             });
@@ -2850,18 +2850,8 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if let Some(tok) = self.match_kind(TokenKind::DotDotDot) {
-            let param = self.new_node(Node {
-                kind: NodeKind::ParamEllipsis,
-                origin: tok.origin,
-            });
-            return Some(self.new_node(Node {
-                kind: NodeKind::Parameters(vec![param]),
-                origin: tok.origin,
-            }));
-        }
-
-        todo!()
+        self.parse_parameter_type_list()
+            .or_else(|| self.parse_const_expr())
     }
 
     // parameter_type_list → parameter_list ( "," "..." )?
@@ -3021,6 +3011,11 @@ impl<'a> Parser<'a> {
         }
 
         self.parse_parameter_type_list()
+    }
+
+    // constant_expression     → conditional_expression ;
+    fn parse_const_expr(&mut self) -> Option<NodeId> {
+        self.parse_conditional_expr()
     }
 }
 
