@@ -1128,7 +1128,6 @@ impl Lexer {
             kind: TokenKind::Eof,
             origin,
         });
-        dbg!(&self.tokens);
     }
 
     fn has_any_previous_tokens_on_same_line(&self) -> bool {

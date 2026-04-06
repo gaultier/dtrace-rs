@@ -20,15 +20,15 @@ impl Log for Logger {
 static LOGGER: Logger = Logger {};
 
 fn main() {
-    log::set_logger(&LOGGER)
-        .map(|()| log::set_max_level(LevelFilter::Trace))
-        .unwrap();
-
     let mut args = std::env::args().skip(1);
     let cmd = args.next().unwrap();
 
     match cmd.as_str() {
         "ast" => {
+            log::set_logger(&LOGGER)
+                .map(|()| log::set_max_level(LevelFilter::Trace))
+                .unwrap();
+
             let file_name = args.next().unwrap();
             let file_content = std::fs::read_to_string(&file_name).unwrap();
             let mut file_id_to_name = HashMap::new();
@@ -46,6 +46,10 @@ fn main() {
             };
         }
         "fmt" => {
+            log::set_logger(&LOGGER)
+                .map(|()| log::set_max_level(LevelFilter::Trace))
+                .unwrap();
+
             let file_name = args.next().unwrap();
             let file_content = std::fs::read_to_string(&file_name).unwrap();
             let mut file_id_to_name = HashMap::new();
@@ -77,6 +81,9 @@ fn main() {
             }
         }
         "lsp" => {
+            log::set_logger(&LOGGER)
+                .map(|()| log::set_max_level(LevelFilter::Error))
+                .unwrap();
             let mut stdout = std::io::stdout().lock();
             let mut stdin = std::io::stdin().lock();
             compiler_rs_lib::lsp::run(&mut stdin, &mut stdout);
