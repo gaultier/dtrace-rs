@@ -442,7 +442,7 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         op.origin,
                         if tok.kind == TokenKind::Slash {
-                        String::from("expected cast expression. Note: slash is ambiguous in some contexts because it is used for ending the predicate, and also for division")
+                        String::from("expected cast expression. Note: slash is ambiguous in some contexts because it is used for starting/ending a predicate, for division, and for comments")
                         } else {
                         String::from("expected cast expression")
                         }
