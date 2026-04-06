@@ -226,6 +226,57 @@ fn make_server_capabilities() -> ServerCapabilities {
     }
 }
 
+fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<Option<Message>> {
+    let docs = match state {
+        State::Initialized { docs, .. } => Ok(docs),
+        _ => Err(io::Error::new(io::ErrorKind::InvalidData, "invalid state")),
+    }?;
+    let params: HoverParams = serde_json::from_value(params).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid params: {}", err),
+        )
+    })?;
+    let (_, compiled) = docs
+        .get(&params.text_document_position_params.text_document.uri)
+        .ok_or(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "unknown document",
+        ))?;
+
+    let pos = params.text_document_position_params.position;
+    let symbol = compiled.ast_nodes.iter().find(|n| {
+        n.origin.line == pos.line + 1
+            && n.origin.column <= pos.character + 1
+            && ((pos.character + 1) < n.origin.column + n.origin.len)
+    });
+
+    let resp = if let Some(sym) = symbol {
+        let hover = Hover {
+            contents: HoverContents::Scalar(MarkedString::String(format!("{:?}", sym.kind))),
+            range: Some(Range {
+                start: Position {
+                    line: sym.origin.line,
+                    character: sym.origin.column,
+                },
+                end: Position {
+                    line: sym.origin.line,
+                    character: sym.origin.column + sym.origin.len,
+                },
+            }),
+        };
+        serde_json::to_value(&hover).unwrap()
+    } else {
+        serde_json::Value::Null
+    };
+
+    Ok(Some(Message::Response(Response {
+        id,
+        result: Some(resp),
+        error: None,
+    })))
+}
+
 fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
     match msg {
         Message::Request(Request { method: m, id, .. }) if m == "initialize" => {
@@ -263,68 +314,7 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
             method: m,
             id,
             params,
-        }) if m == "textDocument/hover" => {
-            let (docs, _) = match state {
-                State::Initialized {
-                    docs,
-                    file_id_to_name,
-                } => (docs, file_id_to_name),
-                _ => unreachable!(),
-            };
-            let params: HoverParams = serde_json::from_value(params).unwrap();
-            let (_, compiled) = if let Some(x) =
-                docs.get(&params.text_document_position_params.text_document.uri)
-            {
-                x
-            } else {
-                return Ok(Some(Message::Response(Response {
-                    id,
-                    result: None,
-                    error: Some(ResponseError {
-                        code: ErrorCode::InvalidRequest as i32,
-                        message: String::from("unknown document"),
-                        data: None,
-                    }),
-                })));
-            };
-
-            let pos = params.text_document_position_params.position;
-            dbg!(pos);
-            let symbol = compiled.ast_nodes.iter().find(|n| {
-                n.origin.line == pos.line + 1
-                    && n.origin.column <= pos.character + 1
-                    && ((pos.character + 1) < n.origin.column + n.origin.len)
-            });
-            dbg!(symbol);
-
-            let resp = if let Some(sym) = symbol {
-                let hover = Hover {
-                    contents: HoverContents::Scalar(MarkedString::String(format!(
-                        "{:?}",
-                        sym.kind
-                    ))),
-                    range: Some(Range {
-                        start: Position {
-                            line: sym.origin.line,
-                            character: sym.origin.column,
-                        },
-                        end: Position {
-                            line: sym.origin.line,
-                            character: sym.origin.column + sym.origin.len,
-                        },
-                    }),
-                };
-                serde_json::to_value(&hover).unwrap()
-            } else {
-                serde_json::Value::Null
-            };
-
-            Ok(Some(Message::Response(Response {
-                id,
-                result: Some(resp),
-                error: None,
-            })))
-        }
+        }) if m == "textDocument/hover" => hover(state, id, params),
         Message::Notification(Notification { method: m, params })
             if m == "textDocument/didOpen" =>
         {
