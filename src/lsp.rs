@@ -11,7 +11,7 @@ use lsp_types::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{CompileResult, compile};
+use crate::{CompileResult, compile, origin::Origin};
 
 enum State {
     Initial,
@@ -123,6 +123,27 @@ pub enum Message {
     Request(Request),
     Response(Response),
     Notification(Notification),
+}
+
+impl Into<Position> for Origin {
+    fn into(self) -> Position {
+        Position {
+            line: self.line - 1,
+            character: self.column - 1,
+        }
+    }
+}
+
+impl Into<Range> for Origin {
+    fn into(self) -> Range {
+        Range {
+            start: self.into(),
+            end: Position {
+                line: self.line - 1,
+                character: self.column - 1 + self.len,
+            },
+        }
+    }
 }
 
 impl Message {
@@ -304,47 +325,42 @@ fn did_open(state: &mut State, params: serde_json::Value) -> io::Result<Option<M
     // FIXME
     file_id_to_name.insert(1, s);
     let compiled = compile(&params.text_document.text, 1, file_id_to_name);
-
-    if compiled.errors.is_empty() {
-        docs.insert(
-            params.text_document.uri.clone(),
-            (params.text_document.text, compiled),
-        );
-        Ok(None)
-    } else {
-        let resp = PublishDiagnosticsParams {
-            uri: params.text_document.uri.clone(),
-            diagnostics: compiled
-                .errors
-                .iter()
-                .map(|e| Diagnostic {
-                    range: todo!(),
-                    severity: Some(DiagnosticSeverity::ERROR),
-                    code: todo!(),
-                    code_description: todo!(),
-                    source: todo!(),
-                    message: todo!(),
-                    related_information: todo!(),
-                    tags: todo!(),
-                    data: todo!(),
-                })
-                .collect(),
-            version: Some(params.text_document.version),
-        };
-        docs.insert(
-            params.text_document.uri.clone(),
-            (params.text_document.text, compiled),
-        );
-        Ok(Some(Message::Notification(Notification {
-            method: String::from("textDocument/publishDiagnostics"),
-            params: serde_json::to_value(resp).map_err(|err| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("failed to encode: {}", err),
-                )
-            })?,
-        })))
-    }
+    let resp = PublishDiagnosticsParams {
+        uri: params.text_document.uri.clone(),
+        diagnostics: compiled
+            .errors
+            .iter()
+            .map(|e| Diagnostic {
+                range: e.origin.into(),
+                severity: Some(DiagnosticSeverity::ERROR),
+                code: None,
+                code_description: None,
+                source: None,
+                message: if e.explanation == "" {
+                    format!("{:?}", e.kind)
+                } else {
+                    e.explanation.clone()
+                },
+                related_information: None,
+                tags: None,
+                data: None,
+            })
+            .collect(),
+        version: Some(params.text_document.version),
+    };
+    docs.insert(
+        params.text_document.uri.clone(),
+        (params.text_document.text, compiled),
+    );
+    Ok(Some(Message::Notification(Notification {
+        method: String::from("textDocument/publishDiagnostics"),
+        params: serde_json::to_value(resp).map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to encode: {}", err),
+            )
+        })?,
+    })))
 }
 
 fn did_change(state: &mut State, params: serde_json::Value) -> Result<Option<Message>, io::Error> {
@@ -366,9 +382,36 @@ fn did_change(state: &mut State, params: serde_json::Value) -> Result<Option<Mes
 
     let text = &params.content_changes[0].text;
     let compiled = compile(&text, 1, file_id_to_name);
-    docs.insert(params.text_document.uri, (text.clone(), compiled));
 
-    Ok(None)
+    let resp = PublishDiagnosticsParams {
+        uri: params.text_document.uri.clone(),
+        diagnostics: compiled
+            .errors
+            .iter()
+            .map(|e| Diagnostic {
+                range: e.origin.into(),
+                severity: Some(DiagnosticSeverity::ERROR),
+                code: None,
+                code_description: None,
+                source: None,
+                message: e.explanation.clone(),
+                related_information: None,
+                tags: None,
+                data: None,
+            })
+            .collect(),
+        version: Some(params.text_document.version),
+    };
+    docs.insert(params.text_document.uri.clone(), (text.clone(), compiled));
+    Ok(Some(Message::Notification(Notification {
+        method: String::from("textDocument/publishDiagnostics"),
+        params: serde_json::to_value(resp).map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to encode: {}", err),
+            )
+        })?,
+    })))
 }
 
 fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {

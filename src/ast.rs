@@ -1639,7 +1639,7 @@ impl<'a> Parser<'a> {
                     self.add_error_with_explanation(
                         ErrorKind::MissingStatement,
                         self.current_or_last_origin_for_err(),
-                        "reached EOF while parsing statement, did you forget a semicolon?"
+                        "reached EOF while parsing statement, did you forget a semicolon or closing curly brace?"
                             .to_owned(),
                     );
                     return Some(self.new_node(Node {
