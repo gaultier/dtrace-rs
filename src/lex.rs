@@ -1499,7 +1499,9 @@ impl Lexer {
                         Err(Error {
                             kind: ErrorKind::InvalidControlDirective,
                             origin: *origin,
-                            explanation: String::new(),
+                            explanation: String::from(
+                                "option should be of the form key=value, found additional equal sign",
+                            ),
                         })
                     } else {
                         Ok(ControlDirective {
@@ -1517,10 +1519,10 @@ impl Lexer {
                     })
                 }
             }
-            _ => Err(Error {
+            other => Err(Error {
                 kind: ErrorKind::InvalidControlDirective,
-                origin,
-                explanation: String::new(),
+                origin: origin.extends_to(other.last().map(|t| t.origin)),
+                explanation: String::from("option should be of the form key=value"),
             }),
         }
     }

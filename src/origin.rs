@@ -58,6 +58,22 @@ impl Origin {
         }
     }
 
+    pub(crate) fn extends_to(&self, to: Option<Origin>) -> Origin {
+        if let Some(to) = to {
+            dbg!(self.len);
+            dbg!(to.len);
+            dbg!(to.offset + to.len - self.offset);
+            assert!(to.offset >= self.offset);
+
+            Origin {
+                len: to.offset + to.len - self.offset,
+                ..*self
+            }
+        } else {
+            *self
+        }
+    }
+
     pub(crate) fn new(line: u32, column: u32, offset: u32, len: u32, file_id: FileId) -> Self {
         Self {
             line,
