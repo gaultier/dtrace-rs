@@ -60,9 +60,6 @@ impl Origin {
 
     pub(crate) fn extends_to(&self, to: Option<Origin>) -> Origin {
         if let Some(to) = to {
-            dbg!(self.len);
-            dbg!(to.len);
-            dbg!(to.offset + to.len - self.offset);
             assert!(to.offset >= self.offset);
 
             Origin {
@@ -71,6 +68,23 @@ impl Origin {
             }
         } else {
             *self
+        }
+    }
+
+    pub(crate) fn with_len(&self, len: usize) -> Origin {
+        Origin {
+            len: len.try_into().unwrap(),
+            ..*self
+        }
+    }
+
+    pub(crate) fn skip(&self, skip: usize) -> Origin {
+        let skip: u32 = skip.try_into().unwrap();
+        Origin {
+            offset: self.offset + skip,
+            len: self.len - skip,
+            column: self.column + skip,
+            ..*self
         }
     }
 

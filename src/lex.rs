@@ -223,6 +223,19 @@ pub(crate) fn str_from_source<'a>(src: &'a str, origin: &Origin) -> &'a str {
     &src[origin.offset as usize..origin.offset as usize + origin.len as usize]
 }
 
+pub(crate) fn quoted_string_from_source<'a>(src: &'a str, origin: &Origin) -> (&'a str, Origin) {
+    let s = &src[origin.offset as usize..origin.offset as usize + origin.len as usize];
+    (
+        &s[1..s.len() - 1],
+        Origin {
+            column: origin.column + 1,
+            offset: origin.offset + 1,
+            len: origin.len - 1,
+            ..*origin
+        },
+    )
+}
+
 #[derive(Serialize, Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Token {
     pub kind: TokenKind,
@@ -1403,7 +1416,7 @@ impl Lexer {
                 Stability::try_from(*s).map_err(|kind| Error {
                     kind,
                     origin,
-                    explanation: format!("invalid stability: {}", s),
+                    explanation: String::from("invalid stability"),
                 })
             })
             .transpose()?;
@@ -1413,7 +1426,7 @@ impl Lexer {
                 Stability::try_from(*s).map_err(|kind| Error {
                     kind,
                     origin,
-                    explanation: format!("invalid stability: {}", s),
+                    explanation: String::from("invalid stability"),
                 })
             })
             .transpose()?;
@@ -1423,7 +1436,7 @@ impl Lexer {
                 Class::try_from(*s).map_err(|kind| Error {
                     kind,
                     origin,
-                    explanation: format!("invalid class: {}", s),
+                    explanation: String::from("invalid class"),
                 })
             })
             .transpose()?;
@@ -1458,10 +1471,8 @@ impl Lexer {
                     origin: origin2,
                 },
             ] => {
-                let version_str = str_from_source(input, origin1);
-                // Strip double quotes.
-                let version_str = &version_str[1..version_str.len() - 1];
-                let version = version_str2num(version_str, *origin1)?;
+                let (version_str, origin) = quoted_string_from_source(input, origin1);
+                let version = version_str2num(version_str, origin)?;
                 let identifier = str_from_source(input, origin2).to_owned();
 
                 Ok(ControlDirective {
@@ -1566,10 +1577,7 @@ impl Lexer {
                 return Err(Error::new(
                     ErrorKind::InvalidControlDirective,
                     origin,
-                    format!(
-                        "invalid depends_on class, expected provider|module|library, found: {}",
-                        kind_str
-                    ),
+                    String::from("invalid depends_on class, expected provider|module|library"),
                 ));
             }
         };
@@ -1582,48 +1590,66 @@ impl Lexer {
 }
 
 fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> {
-    let split: Vec<_> = version_str.splitn(3, ".").collect();
+    let split: Vec<_> = version_str.splitn(4, ".").collect();
     if !(split.len() == 2 || split.len() == 3) {
         return Err(Error {
             kind: ErrorKind::InvalidVersionString,
             origin,
             explanation: format!(
-                "expected version string as \"major.minor\" or \"major.minor.patch\", found: {}",
-                version_str
+                "expected version string as \"major.minor\" or \"major.minor.patch\" but found {} parts",
+                split.len()
             ),
         });
     }
 
-    let major = str::parse::<u8>(split[0]).map_err(|err| Error {
+    let major_str = split[0];
+    let major = str::parse::<u8>(major_str).map_err(|err| Error {
         kind: ErrorKind::InvalidVersionString,
-        origin,
-        explanation: format!("invalid major version in version string: {}", err),
+        origin: origin.with_len(major_str.len()),
+        explanation: format!(
+            "invalid major version in version string, expected a number up to 255: {}",
+            err
+        ),
     })?;
 
-    let minor = str::parse::<u16>(split[1]).map_err(|err| Error {
+    let minor_str = split[1];
+    let origin = origin.skip(major_str.len() + 1);
+    let minor = str::parse::<u16>(minor_str).map_err(|err| Error {
         kind: ErrorKind::InvalidVersionString,
-        origin,
-        explanation: format!("invalid minor version in version string: {}", err),
+        origin: origin.with_len(minor_str.len()),
+        explanation: format!(
+            "invalid minor version in version string, expected a number: {}",
+            err
+        ),
     })?;
+    eprintln!("[D001] {:?}", origin.with_len(minor_str.len()));
     if minor > 0xfff {
         return Err(Error {
             kind: ErrorKind::InvalidVersionString,
-            origin,
-            explanation: format!("minor version too high in version string: {}", minor),
+            origin: origin.with_len(minor_str.len()),
+            explanation: String::from(
+                "minor version too high in version string, expected a number up to 4095",
+            ),
         });
     }
 
-    let patch = if let Some(patch) = split.get(2) {
-        let num = str::parse::<u16>(patch).map_err(|err| Error {
+    let origin = origin.skip(minor_str.len() + 1);
+    let patch = if let Some(patch_str) = split.get(2) {
+        let num = str::parse::<u16>(patch_str).map_err(|err| Error {
             kind: ErrorKind::InvalidVersionString,
-            origin,
-            explanation: format!("invalid patch version in version string: {}", err),
+            origin: origin.with_len(patch_str.len()),
+            explanation: format!(
+                "invalid patch version in version string, expected a number: {}",
+                err
+            ),
         })?;
         if num > 0xfff {
             return Err(Error {
                 kind: ErrorKind::InvalidVersionString,
-                origin,
-                explanation: format!("patch version too high in version string: {}", minor),
+                origin: origin.with_len(patch_str.len()),
+                explanation: String::from(
+                    "patch version too high in version string, expected a number up to 4095",
+                ),
             });
         }
         Some(num)
