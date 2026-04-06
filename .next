@@ -1,4 +1,6 @@
-- shebang
+- lex: state based lexer
+- lex: shebang
+- lex: macro arguments
 - ast: translator definition
 - ast: provider definition
 - name resolving

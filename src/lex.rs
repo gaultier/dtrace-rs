@@ -15,8 +15,9 @@ const DEPENDS_ON_POSSIBLE_VALUES: &str = "provider, module, library";
 
 #[derive(PartialEq, Eq, Debug)]
 enum LexerState {
-    Default,
+    ProgramOuterScope,
     InsideControlDirective(u32 /* line */),
+    InsideClauseAndExpr,
 }
 
 #[derive(Debug, Serialize)]
@@ -300,7 +301,7 @@ impl Lexer {
             error_mode: false,
             errors: Vec::new(),
             tokens: Vec::new(),
-            state: LexerState::Default,
+            state: LexerState::ProgramOuterScope,
             control_directives: Vec::new(),
             comments: Vec::new(),
         }
@@ -319,14 +320,18 @@ impl Lexer {
 
     fn is_identifier_character_trailing(&self, c: char) -> bool {
         match self.state {
-            LexerState::Default => c.is_alphanumeric() || c == '_',
+            LexerState::ProgramOuterScope | LexerState::InsideClauseAndExpr => {
+                c.is_alphanumeric() || c == '_'
+            }
             LexerState::InsideControlDirective(_) => !(c.is_whitespace() || c == '"'),
         }
     }
 
     fn is_identifier_character_leading(&self, c: char) -> bool {
         match self.state {
-            LexerState::Default => c.is_alphanumeric() || c == '_' || c == '@',
+            LexerState::ProgramOuterScope | LexerState::InsideClauseAndExpr => {
+                c.is_alphanumeric() || c == '_' || c == '@'
+            }
             LexerState::InsideControlDirective(_) => !(c.is_whitespace() || c == '"'),
         }
     }
@@ -577,7 +582,7 @@ impl Lexer {
                             Ok(directive) => self.control_directives.push(directive),
                             Err(err) => self.errors.push(err),
                         }
-                        self.state = LexerState::Default;
+                        self.state = LexerState::ProgramOuterScope;
                     }
                     self.advance(c, &mut it);
                 }
@@ -1005,6 +1010,16 @@ impl Lexer {
                         origin,
                     });
                     self.advance(c, &mut it);
+
+                    match self.state {
+                        LexerState::ProgramOuterScope => {
+                            self.state = LexerState::InsideClauseAndExpr;
+                        }
+                        LexerState::InsideControlDirective(_) => {}
+                        LexerState::InsideClauseAndExpr => {
+                            self.state = LexerState::ProgramOuterScope;
+                        }
+                    }
                 }
                 '%' if peek2(&it) == Some('=') => {
                     let origin = Origin {
@@ -1049,6 +1064,13 @@ impl Lexer {
                         origin,
                     });
                     self.advance(c, &mut it);
+
+                    match self.state {
+                        LexerState::ProgramOuterScope => {
+                            self.state = LexerState::InsideClauseAndExpr;
+                        }
+                        _ => {}
+                    }
                 }
                 '}' => {
                     let origin = Origin {
@@ -1060,6 +1082,13 @@ impl Lexer {
                         origin,
                     });
                     self.advance(c, &mut it);
+
+                    match self.state {
+                        LexerState::InsideClauseAndExpr => {
+                            self.state = LexerState::ProgramOuterScope;
+                        }
+                        _ => {}
+                    }
                 }
                 '(' => {
                     let origin = Origin {
@@ -1137,7 +1166,11 @@ impl Lexer {
                 _ if c.is_whitespace() => {
                     self.advance(c, &mut it);
                 }
-                _ if is_character_probe_specifier_start(c) => self.lex_probe_specifier(&mut it),
+                _ if is_character_probe_specifier_start(c)
+                    && self.state == LexerState::ProgramOuterScope =>
+                {
+                    self.lex_probe_specifier(&mut it)
+                }
                 _ if self.is_identifier_character_leading(c) => self.lex_keyword(input, &mut it),
                 _ => {
                     self.tokens.push(Token {
