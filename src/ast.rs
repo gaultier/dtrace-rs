@@ -1469,7 +1469,7 @@ impl<'a> Parser<'a> {
         }
 
         let tok = self.peek();
-        let origin = tok.map(|t| t.origin).unwrap_or(Origin::new_unknown());
+        let origin = tok.map(|t| t.origin).unwrap_or_default();
         self.eat_token().unwrap();
         let src = lex::str_from_source(self.input, &origin);
         let num: u64 = str::parse(src)

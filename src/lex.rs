@@ -1179,7 +1179,7 @@ impl Lexer {
                 kind: TokenKind::Identifier,
                 origin,
             }) => {
-                let src = str_from_source(input, &origin);
+                let src = str_from_source(input, origin);
                 match src {
                     "line" => self.control_directive_line(&tokens[1..], *origin, input),
                     "pragma" if tokens.len() > 1 => {
@@ -1417,7 +1417,7 @@ impl Lexer {
         let origin_identifier_first = tokens[0].origin;
         let split: Vec<_> = s1.splitn(4, "/").collect();
         let (name_str, data_str, class_str, trailing) =
-            (split.get(0), split.get(1), split.get(2), split.get(3));
+            (split.first(), split.get(1), split.get(2), split.get(3));
         if let Some(trailing) = trailing {
             return Err(Error {
                 kind: ErrorKind::InvalidControlDirective,

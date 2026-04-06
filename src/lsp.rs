@@ -125,22 +125,22 @@ pub enum Message {
     Notification(Notification),
 }
 
-impl Into<Position> for Origin {
-    fn into(self) -> Position {
+impl From<Origin> for Position {
+    fn from(val: Origin) -> Self {
         Position {
-            line: self.line - 1,
-            character: self.column - 1,
+            line: val.line - 1,
+            character: val.column - 1,
         }
     }
 }
 
-impl Into<Range> for Origin {
-    fn into(self) -> Range {
+impl From<Origin> for Range {
+    fn from(val: Origin) -> Self {
         Range {
-            start: self.into(),
+            start: val.into(),
             end: Position {
-                line: self.line - 1,
-                character: self.column - 1 + self.len,
+                line: val.line - 1,
+                character: val.column - 1 + val.len,
             },
         }
     }
@@ -341,7 +341,7 @@ fn did_open(state: &mut State, params: serde_json::Value) -> io::Result<Option<M
                 code: None,
                 code_description: None,
                 source: None,
-                message: if e.explanation == "" {
+                message: if e.explanation.is_empty() {
                     format!("{:?}", e.kind)
                 } else {
                     e.explanation.clone()
@@ -386,7 +386,7 @@ fn did_change(state: &mut State, params: serde_json::Value) -> Result<Option<Mes
     })?;
 
     let text = &params.content_changes[0].text;
-    let compiled = compile(&text, 1, file_id_to_name);
+    let compiled = compile(text, 1, file_id_to_name);
 
     let resp = PublishDiagnosticsParams {
         uri: params.text_document.uri.clone(),
