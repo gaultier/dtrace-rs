@@ -3,6 +3,7 @@
 #pragma D binding "" foo
 #pragma D binding "1" foo
 #pragma D binding "1.2.3.4" foo
+#pragma D depends_on library bar
 
 inline int* a = 1;
 

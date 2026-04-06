@@ -267,25 +267,30 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
         ))?;
 
     let pos = params.text_document_position_params.position;
-    let symbol = compiled.ast_nodes.iter().find(|n| {
-        n.origin.line == pos.line + 1
-            && n.origin.column <= pos.character + 1
-            && ((pos.character + 1) < n.origin.column + n.origin.len)
-    });
-
-    let resp = if let Some(sym) = symbol {
+    let found = compiled
+        .ast_nodes
+        .iter()
+        .find(|n| {
+            n.origin.line == pos.line + 1
+                && n.origin.column <= pos.character + 1
+                && ((pos.character + 1) < n.origin.column + n.origin.len)
+        })
+        .map(|n| (n.origin, format!("{:?}", n.kind)))
+        .or_else(|| {
+            compiled
+                .control_directives
+                .iter()
+                .find(|ctrl| {
+                    ctrl.origin.line == pos.line + 1
+                        && ctrl.origin.column <= pos.character + 1
+                        && ((pos.character + 1) < ctrl.origin.column + ctrl.origin.len)
+                })
+                .map(|ctrl| (ctrl.origin, format!("{:?}", ctrl.kind)))
+        });
+    let resp = if let Some((origin, marked_string)) = found {
         let hover = Hover {
-            contents: HoverContents::Scalar(MarkedString::String(format!("{:?}", sym.kind))),
-            range: Some(Range {
-                start: Position {
-                    line: sym.origin.line - 1,
-                    character: sym.origin.column - 1,
-                },
-                end: Position {
-                    line: sym.origin.line - 1,
-                    character: sym.origin.column - 1 + sym.origin.len,
-                },
-            }),
+            contents: HoverContents::Scalar(MarkedString::String(marked_string)),
+            range: Some(origin.into()),
         };
         serde_json::to_value(&hover).map_err(|err| {
             io::Error::new(

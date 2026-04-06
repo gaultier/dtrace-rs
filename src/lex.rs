@@ -11,6 +11,8 @@ const STABILITY_POSSIBLE_VALUES: &str =
 
 const CLASS_POSSIBLE_VALUES: &str = "Cpu, Platform, Group, Isa, Common";
 
+const DEPENDS_ON_POSSIBLE_VALUES: &str = "provider, module, library";
+
 #[derive(PartialEq, Eq, Debug)]
 enum LexerState {
     Default,
@@ -1593,8 +1595,8 @@ impl Lexer {
             _ => {
                 return Err(Error::new(
                     ErrorKind::InvalidControlDirective,
-                    origin,
-                    String::new(),
+                    origin.extend_to(tokens.last().map(|t| t.origin)),
+                    String::from("expected pragma depends_on of the form: identifier identifier"),
                 ));
             }
         };
@@ -1606,15 +1608,18 @@ impl Lexer {
             _ => {
                 return Err(Error::new(
                     ErrorKind::InvalidControlDirective,
-                    origin,
-                    String::from("invalid depends_on class, expected provider|module|library"),
+                    tokens[0].origin,
+                    format!(
+                        "invalid depends_on class, possible values: {}",
+                        DEPENDS_ON_POSSIBLE_VALUES
+                    ),
                 ));
             }
         };
 
         Ok(ControlDirective {
             kind: ControlDirectiveKind::PragmaDependsOn(kind, name.to_owned()),
-            origin,
+            origin: origin.extend_to(tokens.last().map(|t| t.origin)),
         })
     }
 }
