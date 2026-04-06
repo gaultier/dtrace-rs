@@ -141,7 +141,6 @@ pub struct Parser<'a> {
     tokens_consumed: usize,
     pub errors: Vec<Error>,
     input: &'a str,
-    file_id_to_name: &'a HashMap<FileId, String>,
     pub(crate) nodes: Vec<Node>,
     pub(crate) node_to_type: HashMap<NodeId, Type>,
     pub(crate) name_to_def: NameToDef,
@@ -203,18 +202,13 @@ impl NameToDef {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(
-        input: &'a str,
-        lexer: &Lexer,
-        file_id_to_name: &'a HashMap<FileId, String>,
-    ) -> Self {
+    pub fn new(input: &'a str, lexer: &Lexer) -> Self {
         Self {
             error_mode: false,
             tokens: lexer.tokens.clone(),
             tokens_consumed: 0,
             errors: lexer.errors.clone(),
             input,
-            file_id_to_name,
             nodes: Vec::new(),
             node_to_type: HashMap::new(),
             name_to_def: NameToDef::new(),
@@ -1779,27 +1773,26 @@ impl<'a> Parser<'a> {
         nodes: &[Node],
         errors: &mut Vec<Error>,
         name_to_def: &mut NameToDef,
-        file_id_to_name: &'a HashMap<FileId, String>,
     ) {
         let node = &nodes[node_id];
 
         match &node.kind {
             NodeKind::ProbeDefinition(probe, pred, actions) => {
-                Self::resolve_node(*probe, nodes, errors, name_to_def, file_id_to_name);
+                Self::resolve_node(*probe, nodes, errors, name_to_def);
                 if let Some(pred) = pred {
-                    Self::resolve_node(*pred, nodes, errors, name_to_def, file_id_to_name);
+                    Self::resolve_node(*pred, nodes, errors, name_to_def);
                 }
                 if let Some(actions) = actions {
-                    Self::resolve_node(*actions, nodes, errors, name_to_def, file_id_to_name);
+                    Self::resolve_node(*actions, nodes, errors, name_to_def);
                 }
             }
             NodeKind::Number(_) | NodeKind::ProbeSpecifier(_) => {}
             NodeKind::Unary(_, expr) => {
-                Self::resolve_node(*expr, nodes, errors, name_to_def, file_id_to_name);
+                Self::resolve_node(*expr, nodes, errors, name_to_def);
             }
             NodeKind::Assignment(lhs, _, rhs) => {
-                Self::resolve_node(*lhs, nodes, errors, name_to_def, file_id_to_name);
-                Self::resolve_node(*rhs, nodes, errors, name_to_def, file_id_to_name);
+                Self::resolve_node(*lhs, nodes, errors, name_to_def);
+                Self::resolve_node(*rhs, nodes, errors, name_to_def);
             }
             NodeKind::Identifier(name) => {
                 let def_id = if let Some((def_id, _)) = name_to_def.get_scoped(name) {
@@ -1823,19 +1816,19 @@ impl<'a> Parser<'a> {
                 }
             }
             NodeKind::BinaryOp(lhs, _, rhs) => {
-                Self::resolve_node(*lhs, nodes, errors, name_to_def, file_id_to_name);
-                Self::resolve_node(*rhs, nodes, errors, name_to_def, file_id_to_name);
+                Self::resolve_node(*lhs, nodes, errors, name_to_def);
+                Self::resolve_node(*rhs, nodes, errors, name_to_def);
             }
             NodeKind::ArgumentsDeclaration(args) => {
                 if let Some(args) = args {
-                    Self::resolve_node(*args, nodes, errors, name_to_def, file_id_to_name);
+                    Self::resolve_node(*args, nodes, errors, name_to_def);
                 }
             }
             NodeKind::Block(stmts) => {
                 name_to_def.enter();
 
                 for op in stmts {
-                    Self::resolve_node(*op, nodes, errors, name_to_def, file_id_to_name);
+                    Self::resolve_node(*op, nodes, errors, name_to_def);
                 }
 
                 name_to_def.leave();
@@ -1845,15 +1838,15 @@ impl<'a> Parser<'a> {
                 then_block,
                 else_block,
             } => {
-                Self::resolve_node(*cond, nodes, errors, name_to_def, file_id_to_name);
-                Self::resolve_node(*then_block, nodes, errors, name_to_def, file_id_to_name);
+                Self::resolve_node(*cond, nodes, errors, name_to_def);
+                Self::resolve_node(*then_block, nodes, errors, name_to_def);
                 if let Some(else_block) = else_block {
-                    Self::resolve_node(*else_block, nodes, errors, name_to_def, file_id_to_name);
+                    Self::resolve_node(*else_block, nodes, errors, name_to_def);
                 }
             }
             NodeKind::TranslationUnit(decls) => {
                 for decl in decls {
-                    Self::resolve_node(*decl, nodes, errors, name_to_def, file_id_to_name);
+                    Self::resolve_node(*decl, nodes, errors, name_to_def);
                 }
             }
             NodeKind::Unknown => {}
@@ -1926,7 +1919,6 @@ impl<'a> Parser<'a> {
             &self.nodes,
             &mut self.errors,
             &mut self.name_to_def,
-            self.file_id_to_name,
         );
     }
 
@@ -3061,10 +3053,7 @@ mod tests {
 
         assert!(lexer.errors.is_empty());
 
-        let mut file_id_to_name = HashMap::new();
-        file_id_to_name.insert(1, String::from("test.go"));
-
-        let mut parser = Parser::new(input, &lexer, &file_id_to_name);
+        let mut parser = Parser::new(input, &lexer);
         let root_id = parser.parse_expr().unwrap();
         let root = &parser.nodes[root_id];
 
@@ -3083,10 +3072,7 @@ mod tests {
 
         assert!(lexer.errors.is_empty());
 
-        let mut file_id_to_name = HashMap::new();
-        file_id_to_name.insert(1, String::from("test.go"));
-
-        let mut parser = Parser::new(input, &lexer, &file_id_to_name);
+        let mut parser = Parser::new(input, &lexer);
         let root_id = parser.parse_expr().unwrap();
         let root = &parser.nodes[root_id];
 

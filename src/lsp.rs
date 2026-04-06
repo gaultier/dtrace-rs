@@ -17,7 +17,6 @@ enum State {
     Initial,
     Initialized {
         docs: HashMap<Uri, (String, CompileResult)>,
-        file_id_to_name: HashMap<u32, String>,
     },
     ShuttingDown,
 }
@@ -310,11 +309,8 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
 }
 
 fn did_open(state: &mut State, params: serde_json::Value) -> io::Result<Option<Message>> {
-    let (docs, file_id_to_name) = match state {
-        State::Initialized {
-            docs,
-            file_id_to_name,
-        } => (docs, file_id_to_name),
+    let docs = match state {
+        State::Initialized { docs } => docs,
         _ => {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid state"));
         }
@@ -328,8 +324,7 @@ fn did_open(state: &mut State, params: serde_json::Value) -> io::Result<Option<M
 
     let s = params.text_document.uri.as_str().to_owned();
     // FIXME
-    file_id_to_name.insert(1, s);
-    let compiled = compile(&params.text_document.text, 1, file_id_to_name);
+    let compiled = compile(&params.text_document.text, 1);
     let resp = PublishDiagnosticsParams {
         uri: params.text_document.uri.clone(),
         diagnostics: compiled
@@ -369,11 +364,8 @@ fn did_open(state: &mut State, params: serde_json::Value) -> io::Result<Option<M
 }
 
 fn did_change(state: &mut State, params: serde_json::Value) -> Result<Option<Message>, io::Error> {
-    let (docs, file_id_to_name) = match state {
-        State::Initialized {
-            docs,
-            file_id_to_name,
-        } => (docs, file_id_to_name),
+    let docs = match state {
+        State::Initialized { docs } => docs,
         _ => {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid state"));
         }
@@ -386,7 +378,7 @@ fn did_change(state: &mut State, params: serde_json::Value) -> Result<Option<Mes
     })?;
 
     let text = &params.content_changes[0].text;
-    let compiled = compile(text, 1, file_id_to_name);
+    let compiled = compile(text, 1);
 
     let resp = PublishDiagnosticsParams {
         uri: params.text_document.uri.clone(),
@@ -439,7 +431,6 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
 
             *state = State::Initialized {
                 docs: HashMap::new(),
-                file_id_to_name: HashMap::new(),
             };
 
             Ok(Some(resp))

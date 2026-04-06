@@ -167,23 +167,11 @@ pub struct CompileResult {
 }
 
 #[warn(unused_results)]
-pub fn compile(
-    input: &str,
-    file_id: FileId,
-    file_id_to_name: &HashMap<FileId, String>,
-) -> CompileResult {
+pub fn compile(input: &str, file_id: FileId) -> CompileResult {
     let mut lexer = Lexer::new(file_id);
     lexer.lex(input);
 
-    for c in &lexer.control_directives {
-        trace!(
-            "control directive: {}:{:?}",
-            c.origin.display(file_id_to_name),
-            c.kind
-        );
-    }
-
-    let mut parser = Parser::new(input, &lexer, file_id_to_name);
+    let mut parser = Parser::new(input, &lexer);
     let root = parser.parse();
 
     if !parser.errors.is_empty() {
