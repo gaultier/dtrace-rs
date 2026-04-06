@@ -8,7 +8,7 @@
     #pragma option foo=bar
 #pragma option foo bar
 
-inline int* a = 1;
+inline int* a = 123;
 
 BEGIN / 1 + 2/ {
   "foo "

@@ -945,103 +945,7 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    //fn parse_block(&mut self) -> Option<NodeId> {
-    //    let left_curly = self.match_kind(TokenKind::LeftCurly)?;
-    //
-    //    let mut stmts = Vec::new();
-    //
-    //    for _ in 0..self.remaining_tokens_count() {
-    //        match self.peek_token().map(|t| t.kind) {
-    //            None | Some(TokenKind::Eof) | Some(TokenKind::RightCurly) => break,
-    //            _ => {}
-    //        }
-    //
-    //        let stmt = self.parse_statement()?;
-    //        stmts.push(stmt);
-    //    }
-    //    self.expect_token_one(TokenKind::RightCurly, "block")?;
-    //
-    //    Some(self.new_node(Node {
-    //        kind: NodeKind::Block(stmts),
-    //        origin: left_curly.origin,
-    //    }))
-    //}
-
-    //fn parse_statement_if(&mut self) -> Option<NodeId> {
-    //    if self.error_mode {
-    //        return None;
-    //    }
-    //
-    //    let keyword_if = self.match_kind(TokenKind::KeywordIf)?;
-    //    let cond = self.parse_expr()?;
-    //
-    //    let then_block = if let Some(b) = self.parse_block() {
-    //        b
-    //    } else {
-    //        let found = self.current_token_kind_for_err();
-    //        self.add_error_with_explanation(
-    //            ErrorKind::MissingExpectedToken(TokenKind::LeftCurly),
-    //            keyword_if.origin,
-    //            format!("expected block following if(cond), found: {:?}", found),
-    //        );
-    //
-    //        return None;
-    //    };
-    //
-    //    let else_block = if self.match_kind(TokenKind::KeywordElse).is_some() {
-    //        let block = self.parse_block().or_else(|| {
-    //            let found = self.current_token_kind_for_err();
-    //            self.add_error_with_explanation(
-    //                ErrorKind::MissingExpectedToken(TokenKind::LeftCurly),
-    //                keyword_if.origin,
-    //                format!("expected block following else, found: {:?}", found),
-    //            );
-    //
-    //            None
-    //        })?;
-    //
-    //        Some(block)
-    //    } else {
-    //        None
-    //    };
-    //
-    //    Some(self.new_node(Node {
-    //        kind: NodeKind::If {
-    //            cond,
-    //            then_block,
-    //            else_block,
-    //        },
-    //        origin: keyword_if.origin,
-    //    }))
-    //}
-
-    //fn parse_statement_var_decl(&mut self) -> Option<NodeId> {
-    //    let identifier = self.expect_token_one(TokenKind::Identifier, "var declaration")?;
-    //    let eq = self.expect_token_one(TokenKind::Eq, "var declaration")?;
-    //    let expr = if let Some(expr) = self.parse_expr() {
-    //        expr
-    //    } else {
-    //        let found = self.current_token_kind_for_err();
-    //        self.add_error_with_explanation(
-    //            ErrorKind::MissingExpr,
-    //            eq.origin,
-    //            format!(
-    //                "expected expression in variable declaration following '=' but found: {:?}",
-    //                found
-    //            ),
-    //        );
-    //        return None;
-    //    };
-    //
-    //    let identifier_str = Self::str_from_source(self.input, &identifier.origin);
-    //
-    //    Some(self.new_node(Node {
-    //        kind: NodeKind::VarDecl(identifier_str.to_owned(), expr),
-    //        origin: identifier.origin,
-    //    }))
-    //}
-
-    //assignment_expression   → conditional_expression
+    // assignment_expression   → conditional_expression
     //                        | unary_expression assignment_operator
     //                          assignment_expression ;
     fn parse_assignment_expr(&mut self) -> Option<NodeId> {
@@ -1086,7 +990,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    //conditional_expression  → logical_or_expression
+    // conditional_expression  → logical_or_expression
     //                        | logical_or_expression "?" expression
     //                          ":" conditional_expression ;
     fn parse_conditional_expr(&mut self) -> Option<NodeId> {
