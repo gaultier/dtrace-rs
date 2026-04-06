@@ -189,6 +189,7 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
                 error: None,
             })))
         }
+        Message::Request(Request { method: m, id, .. }) if m == "initialized" => Ok(None),
         Message::Request(_) => Ok(None), // TODO but ignore for now.
         Message::Response(_response) => todo!(),
         Message::Notification(_notification) => Ok(None), // TODO but ignore for now.
