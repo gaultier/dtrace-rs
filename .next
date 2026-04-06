@@ -5,6 +5,5 @@
 - type checking
 - fmt
 - lsp:
-  + stdout json rpc comms
-  + document didOpen, didChange, didClose [MUST]
   + semantic tokens (for syntax highlighting)
+  + completion
