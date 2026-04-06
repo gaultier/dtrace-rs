@@ -1,6 +1,13 @@
 use std::io::{self, BufRead, Write};
 
+use lsp_types::{HoverProviderCapability, PositionEncodingKind, ServerCapabilities};
 use serde::{Deserialize, Serialize};
+
+enum State {
+    Initial,
+    Initialized,
+    ShuttingDown,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Request {
@@ -42,54 +49,6 @@ enum IdRepr {
     String(String),
 }
 
-#[derive(Clone, Copy, Debug)]
-#[non_exhaustive]
-pub enum ErrorCode {
-    // Defined by JSON RPC:
-    ParseError = -32700,
-    InvalidRequest = -32600,
-    MethodNotFound = -32601,
-    InvalidParams = -32602,
-    InternalError = -32603,
-    ServerErrorStart = -32099,
-    ServerErrorEnd = -32000,
-
-    /// Error code indicating that a server received a notification or
-    /// request before the server has received the `initialize` request.
-    ServerNotInitialized = -32002,
-    UnknownErrorCode = -32001,
-
-    // Defined by the protocol:
-    /// The client has canceled a request and a server has detected
-    /// the cancel.
-    RequestCanceled = -32800,
-
-    /// The server detected that the content of a document got
-    /// modified outside normal conditions. A server should
-    /// NOT send this error code if it detects a content change
-    /// in it unprocessed messages. The result even computed
-    /// on an older state might still be useful for the client.
-    ///
-    /// If a client decides that a result is not of any use anymore
-    /// the client should cancel the request.
-    ContentModified = -32801,
-
-    /// The server cancelled the request. This error code should
-    /// only be used for requests that explicitly support being
-    /// server cancellable.
-    ///
-    /// @since 3.17.0
-    ServerCancelled = -32802,
-
-    /// A request failed but it was syntactically correct, e.g the
-    /// method name was known and the parameters were valid. The error
-    /// message should contain human readable information about why
-    /// the request failed.
-    ///
-    /// @since 3.17.0
-    RequestFailed = -32803,
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Notification {
     pub method: String,
@@ -106,13 +65,18 @@ pub enum Message {
 }
 
 impl Message {
-    fn write(writer: &mut impl Write, msg: &str) -> std::io::Result<()> {
+    fn write_payload(writer: &mut impl Write, msg: &str) -> std::io::Result<()> {
         write!(writer, "Content-Length: {}\r\n", msg.len())?;
         writer.write_all(msg.as_bytes())?;
         writer.flush()
     }
 
-    fn read(reader: &mut dyn BufRead) -> std::io::Result<String> {
+    fn write(&self, writer: &mut impl Write) -> std::io::Result<()> {
+        let j = serde_json::to_string(self)?;
+        Message::write_payload(writer, &j)
+    }
+
+    fn read_payload(reader: &mut dyn BufRead) -> std::io::Result<String> {
         let mut buf = String::with_capacity(8192);
         let mut size: Option<usize> = None;
 
@@ -176,9 +140,54 @@ impl Message {
     }
 }
 
+fn make_server_capabilities() -> ServerCapabilities {
+    ServerCapabilities {
+        position_encoding: Some(PositionEncodingKind::UTF8),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
+        ..Default::default()
+    }
+}
+
+fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
+    match msg {
+        Message::Request(Request { method: m, id, .. }) if m == "initialize" => {
+            let server_capabilities = make_server_capabilities();
+            let initialize_data = serde_json::json!({
+                "capabilities": server_capabilities,
+                "serverInfo": {
+                    "name": "lsp-server-dtrace",
+                    "version": "0.1"
+                }
+            });
+
+            let resp = Message::Response(Response {
+                id,
+                result: Some(initialize_data),
+                error: None,
+            });
+
+            *state = State::Initialized;
+
+            Ok(Some(resp))
+        }
+        Message::Request(Request { method: m, id, .. }) if m == "shutdown" => {
+            *state = State::ShuttingDown;
+            Ok(Some(Message::Response(Response {
+                id,
+                result: None,
+                error: None,
+            })))
+        }
+        Message::Request(_) => Ok(None), // TODO but ignore for now.
+        Message::Response(_response) => todo!(),
+        Message::Notification(_notification) => Ok(None), // TODO but ignore for now.
+    }
+}
+
 pub fn run(reader: &mut dyn BufRead, writer: &mut impl Write) {
+    let mut state = State::Initial;
     loop {
-        let payload = match Message::read(reader) {
+        let payload = match Message::read_payload(reader) {
             Ok(s) => s,
             Err(err) => {
                 eprintln!("failed to read message: {:?}", err);
@@ -193,6 +202,19 @@ pub fn run(reader: &mut dyn BufRead, writer: &mut impl Write) {
             }
         };
 
-        eprintln!("msg={:?}", msg);
+        match handle(msg, &mut state) {
+            Ok(Some(resp)) => {
+                resp.write(writer).unwrap();
+            }
+            Ok(None) => {}
+            Err(err) => {
+                eprintln!("handle error={}", err);
+            }
+        }
+
+        match state {
+            State::ShuttingDown => return,
+            _ => {}
+        }
     }
 }
