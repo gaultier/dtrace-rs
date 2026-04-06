@@ -4,9 +4,9 @@ use std::{
 };
 
 use lsp_types::{
-    DidOpenTextDocumentParams, HoverParams, HoverProviderCapability, PositionEncodingKind,
-    ServerCapabilities, TextDocumentItem, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, Uri,
+    DidOpenTextDocumentParams, Hover, HoverContents, HoverParams, HoverProviderCapability,
+    MarkedString, Position, PositionEncodingKind, Range, ServerCapabilities, TextDocumentItem,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions, Uri,
 };
 use serde::{Deserialize, Serialize};
 
@@ -264,7 +264,7 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
             id,
             params,
         }) if m == "textDocument/hover" => {
-            let (docs, file_id_to_name) = match state {
+            let (docs, _) = match state {
                 State::Initialized {
                     docs,
                     file_id_to_name,
@@ -272,7 +272,7 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
                 _ => unreachable!(),
             };
             let params: HoverParams = serde_json::from_value(params).unwrap();
-            let (doc, compiled) = if let Some(x) =
+            let (_, compiled) = if let Some(x) =
                 docs.get(&params.text_document_position_params.text_document.uri)
             {
                 x
@@ -288,15 +288,40 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
                 })));
             };
 
-            let symbol = compiled
-                .ast_nodes
-                .iter()
-                .find(|n| n.origin.line == params.text_document_position_params.position.line);
+            let pos = params.text_document_position_params.position;
+            dbg!(pos);
+            let symbol = compiled.ast_nodes.iter().find(|n| {
+                n.origin.line == pos.line + 1
+                    && n.origin.column <= pos.character + 1
+                    && ((pos.character + 1) < n.origin.column + n.origin.len)
+            });
             dbg!(symbol);
+
+            let resp = if let Some(sym) = symbol {
+                let hover = Hover {
+                    contents: HoverContents::Scalar(MarkedString::String(format!(
+                        "{:?}",
+                        sym.kind
+                    ))),
+                    range: Some(Range {
+                        start: Position {
+                            line: sym.origin.line,
+                            character: sym.origin.column,
+                        },
+                        end: Position {
+                            line: sym.origin.line,
+                            character: sym.origin.column + sym.origin.len,
+                        },
+                    }),
+                };
+                serde_json::to_value(&hover).unwrap()
+            } else {
+                serde_json::Value::Null
+            };
 
             Ok(Some(Message::Response(Response {
                 id,
-                result: Some(serde_json::Value::Null),
+                result: Some(resp),
                 error: None,
             })))
         }
