@@ -78,6 +78,18 @@ pub struct Version {
     pub patch: Option<u16>,
 }
 
+#[derive(Debug, Serialize)]
+pub enum CommentKind {
+    SingleLine,
+    MultiLine,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Comment {
+    pub origin: Origin,
+    pub kind: CommentKind,
+}
+
 #[derive(Debug)]
 pub struct Lexer {
     origin: Origin,
@@ -86,6 +98,7 @@ pub struct Lexer {
     pub tokens: Vec<Token>,
     state: LexerState,
     pub control_directives: Vec<ControlDirective>,
+    pub comments: Vec<Comment>,
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone)]
@@ -289,6 +302,7 @@ impl Lexer {
             tokens: Vec::new(),
             state: LexerState::Default,
             control_directives: Vec::new(),
+            comments: Vec::new(),
         }
     }
 
@@ -978,6 +992,7 @@ impl Lexer {
                         });
                     }
                 }
+                '/' if peek2(&it) == Some('/') => self.single_line_comment(&mut it),
                 '/' => {
                     let origin = Origin {
                         len: 1,
@@ -1619,6 +1634,30 @@ impl Lexer {
             kind: ControlDirectiveKind::PragmaDependsOn(kind, name.to_owned()),
             origin: origin.extend_to(tokens.last().map(|t| t.origin)),
         })
+    }
+
+    fn single_line_comment(&mut self, it: &mut Peekable<Chars<'_>>) {
+        let start_origin = self.origin;
+
+        let first = it.next().unwrap();
+        assert_eq!(first, '/');
+
+        while let Some(c) = it.peek() {
+            if *c == '\n' {
+                break;
+            }
+
+            self.advance(*c, it);
+        }
+
+        let origin = Origin {
+            len: self.origin.offset - start_origin.offset,
+            ..start_origin
+        };
+        self.comments.push(Comment {
+            kind: CommentKind::SingleLine,
+            origin,
+        });
     }
 }
 

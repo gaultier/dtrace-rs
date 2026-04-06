@@ -6,13 +6,12 @@ pub mod lsp;
 mod origin;
 mod type_checker;
 
-
 use serde::Serialize;
 
 use crate::{
     ast::{Node, NodeId, Parser},
     error::Error,
-    lex::{ControlDirective, Lexer, Token},
+    lex::{Comment, ControlDirective, Lexer, Token},
     origin::FileId,
 };
 
@@ -160,6 +159,7 @@ pub struct CompileResult {
     pub errors: Vec<Error>,
     pub lex_tokens: Vec<Token>,
     pub control_directives: Vec<ControlDirective>,
+    pub comments: Vec<Comment>,
     pub ast_nodes: Vec<Node>,
     pub ast_root: Option<NodeId>,
 }
@@ -175,6 +175,7 @@ pub fn compile(input: &str, file_id: FileId) -> CompileResult {
     if !parser.errors.is_empty() {
         return CompileResult {
             lex_tokens: parser.tokens,
+            comments: lexer.comments,
             control_directives: lexer.control_directives,
             ast_nodes: parser.nodes,
             errors: parser.errors,
@@ -186,6 +187,7 @@ pub fn compile(input: &str, file_id: FileId) -> CompileResult {
 
     CompileResult {
         lex_tokens: lexer.tokens,
+        comments: lexer.comments,
         ast_nodes: parser.nodes,
         errors: lexer.errors,
         ast_root: root,

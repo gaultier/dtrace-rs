@@ -274,7 +274,7 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
                 && n.origin.column <= pos.character + 1
                 && ((pos.character + 1) < n.origin.column + n.origin.len)
         })
-        .map(|n| (n.origin, format!("{:?}", n.kind)))
+        .map(|n| (n.origin, format!("ast node: {:?}", n.kind)))
         .or_else(|| {
             compiled
                 .control_directives
@@ -284,7 +284,18 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
                         && ctrl.origin.column <= pos.character + 1
                         && ((pos.character + 1) < ctrl.origin.column + ctrl.origin.len)
                 })
-                .map(|ctrl| (ctrl.origin, format!("{:?}", ctrl.kind)))
+                .map(|ctrl| (ctrl.origin, format!("control directive: {:?}", ctrl.kind)))
+        })
+        .or_else(|| {
+            compiled
+                .comments
+                .iter()
+                .find(|c| {
+                    c.origin.line == pos.line + 1
+                        && c.origin.column <= pos.character + 1
+                        && ((pos.character + 1) < c.origin.column + c.origin.len)
+                })
+                .map(|c| (c.origin, format!("comment: {:?}", c.kind)))
         });
     let resp = if let Some((origin, marked_string)) = found {
         let hover = Hover {

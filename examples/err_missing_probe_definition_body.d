@@ -10,4 +10,6 @@
 
 inline int* a = 123;
 
-BEGIN 
+BEGIN /1/{
+  // foo
+}
