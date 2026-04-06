@@ -10,9 +10,14 @@ use lsp_types::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::{CompileResult, compile};
+
 enum State {
     Initial,
-    Initialized(HashMap<Uri, TextDocumentItem>),
+    Initialized {
+        docs: HashMap<Uri, (TextDocumentItem, CompileResult)>,
+        file_id_to_name: HashMap<u32, String>,
+    },
     ShuttingDown,
 }
 
@@ -191,7 +196,10 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
                 error: None,
             });
 
-            *state = State::Initialized(HashMap::new());
+            *state = State::Initialized {
+                docs: HashMap::new(),
+                file_id_to_name: HashMap::new(),
+            };
 
             Ok(Some(resp))
         }
@@ -203,15 +211,36 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
                 error: None,
             })))
         }
+        Message::Request(Request { method: m, id, .. }) if m == "textDocument/hover" => {
+            // TODO
+            Ok(Some(Message::Response(Response {
+                id,
+                result: Some(serde_json::Value::Null),
+                error: None,
+            })))
+        }
         Message::Notification(Notification { method: m, params })
             if m == "textDocument/didOpen" =>
         {
-            let docs = match state {
-                State::Initialized(docs) => docs,
+            let (docs, file_id_to_name) = match state {
+                State::Initialized {
+                    docs,
+                    file_id_to_name,
+                } => (docs, file_id_to_name),
                 _ => unreachable!(),
             };
             let params: DidOpenTextDocumentParams = serde_json::from_value(params).unwrap();
-            docs.insert(params.text_document.uri.clone(), params.text_document);
+            let s = params.text_document.uri.as_str().to_owned();
+            file_id_to_name.insert(1, s);
+            let compiled = compile(&params.text_document.text, 1, &file_id_to_name);
+            eprintln!(
+                "compiled: {}",
+                serde_json::to_string(&compiled).unwrap_or_default()
+            );
+            docs.insert(
+                params.text_document.uri.clone(),
+                (params.text_document, compiled),
+            );
 
             Ok(None)
         }

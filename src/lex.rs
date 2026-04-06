@@ -12,14 +12,14 @@ enum LexerState {
     InsideControlDirective(u32 /* line */),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Attribute {
     pub name: Option<Stability>,
     pub data: Option<Stability>,
     pub class: Option<Class>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum ControlDirectiveKind {
     Line(usize, Option<String>, Option<usize>),
     PragmaError(String),
@@ -30,7 +30,7 @@ pub enum ControlDirectiveKind {
     Option(String, Option<String>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum Stability {
     Internal,
     Private,
@@ -42,7 +42,7 @@ pub enum Stability {
     Standard,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum Class {
     Cpu,
     Platform,
@@ -51,20 +51,20 @@ pub enum Class {
     Common,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum PragmaDependsOnKind {
     Provider,
     Module,
     Library,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct ControlDirective {
     pub origin: Origin,
     pub kind: ControlDirectiveKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Version {
     pub major: u8,
     pub minor: u16,

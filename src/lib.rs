@@ -9,6 +9,7 @@ mod type_checker;
 use std::collections::HashMap;
 
 use log::trace;
+use serde::Serialize;
 
 use crate::{
     ast::{Node, NodeId, Parser},
@@ -156,7 +157,7 @@ mod wasm32 {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Serialize)]
 pub struct CompileResult {
     pub errors: Vec<Error>,
     pub lex_tokens: Vec<Token>,
