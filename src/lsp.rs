@@ -66,7 +66,7 @@ pub enum Message {
 
 impl Message {
     fn write_payload(writer: &mut impl Write, msg: &str) -> std::io::Result<()> {
-        write!(writer, "Content-Length: {}\r\n", msg.len())?;
+        write!(writer, "Content-Length: {}\r\n\r\n", msg.len())?;
         writer.write_all(msg.as_bytes())?;
         writer.flush()
     }
