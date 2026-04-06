@@ -432,6 +432,7 @@ impl Lexer {
             len,
             ..start_origin
         };
+        dbg!(origin);
 
         self.tokens.push(Token {
             kind: TokenKind::ProbeSpecifier,
@@ -1136,12 +1137,8 @@ impl Lexer {
                 _ if c.is_whitespace() => {
                     self.advance(c, &mut it);
                 }
+                _ if is_character_probe_specifier_start(c) => self.lex_probe_specifier(&mut it),
                 _ if self.is_identifier_character_leading(c) => self.lex_keyword(input, &mut it),
-                _ if is_character_probe_specifier_start(c)
-                    && is_character_probe_specifier_rest(peek2(&it).unwrap_or_default()) =>
-                {
-                    self.lex_probe_specifier(&mut it)
-                }
                 _ => {
                     self.tokens.push(Token {
                         kind: TokenKind::Unknown,

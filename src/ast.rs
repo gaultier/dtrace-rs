@@ -1546,10 +1546,6 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn current_token_kind_for_err(&self) -> TokenKind {
-        self.peek().map(|t| t.kind).unwrap_or(TokenKind::Eof)
-    }
-
     fn parse_probe_specifiers(&mut self) -> Option<NodeId> {
         self.parse_probe_specifier_list()
     }
