@@ -4,10 +4,10 @@ use std::{
 };
 
 use lsp_types::{
-    DidChangeTextDocumentParams, DidOpenTextDocumentParams, Hover, HoverContents, HoverParams,
-    HoverProviderCapability, MarkedString, Position, PositionEncodingKind, Range,
-    ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
-    Uri,
+    Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidOpenTextDocumentParams, Hover,
+    HoverContents, HoverParams, HoverProviderCapability, MarkedString, Position,
+    PositionEncodingKind, PublishDiagnosticsParams, Range, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions, Uri,
 };
 use serde::{Deserialize, Serialize};
 
@@ -304,12 +304,47 @@ fn did_open(state: &mut State, params: serde_json::Value) -> io::Result<Option<M
     // FIXME
     file_id_to_name.insert(1, s);
     let compiled = compile(&params.text_document.text, 1, file_id_to_name);
-    docs.insert(
-        params.text_document.uri.clone(),
-        (params.text_document.text, compiled),
-    );
 
-    Ok(None)
+    if compiled.errors.is_empty() {
+        docs.insert(
+            params.text_document.uri.clone(),
+            (params.text_document.text, compiled),
+        );
+        Ok(None)
+    } else {
+        let resp = PublishDiagnosticsParams {
+            uri: params.text_document.uri.clone(),
+            diagnostics: compiled
+                .errors
+                .iter()
+                .map(|e| Diagnostic {
+                    range: todo!(),
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    code: todo!(),
+                    code_description: todo!(),
+                    source: todo!(),
+                    message: todo!(),
+                    related_information: todo!(),
+                    tags: todo!(),
+                    data: todo!(),
+                })
+                .collect(),
+            version: Some(params.text_document.version),
+        };
+        docs.insert(
+            params.text_document.uri.clone(),
+            (params.text_document.text, compiled),
+        );
+        Ok(Some(Message::Notification(Notification {
+            method: String::from("textDocument/publishDiagnostics"),
+            params: serde_json::to_value(resp).map_err(|err| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("failed to encode: {}", err),
+                )
+            })?,
+        })))
+    }
 }
 
 fn did_change(state: &mut State, params: serde_json::Value) -> Result<Option<Message>, io::Error> {
