@@ -4,9 +4,9 @@ use std::{
 };
 
 use lsp_types::{
-    DidOpenTextDocumentParams, HoverProviderCapability, PositionEncodingKind, ServerCapabilities,
-    TextDocumentItem, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
-    Uri,
+    DidOpenTextDocumentParams, HoverParams, HoverProviderCapability, PositionEncodingKind,
+    ServerCapabilities, TextDocumentItem, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, Uri,
 };
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +40,54 @@ pub struct Response {
     pub result: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub error: Option<ResponseError>,
+}
+
+#[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
+pub enum ErrorCode {
+    // Defined by JSON RPC:
+    ParseError = -32700,
+    InvalidRequest = -32600,
+    MethodNotFound = -32601,
+    InvalidParams = -32602,
+    InternalError = -32603,
+    ServerErrorStart = -32099,
+    ServerErrorEnd = -32000,
+
+    /// Error code indicating that a server received a notification or
+    /// request before the server has received the `initialize` request.
+    ServerNotInitialized = -32002,
+    UnknownErrorCode = -32001,
+
+    // Defined by the protocol:
+    /// The client has canceled a request and a server has detected
+    /// the cancel.
+    RequestCanceled = -32800,
+
+    /// The server detected that the content of a document got
+    /// modified outside normal conditions. A server should
+    /// NOT send this error code if it detects a content change
+    /// in it unprocessed messages. The result even computed
+    /// on an older state might still be useful for the client.
+    ///
+    /// If a client decides that a result is not of any use anymore
+    /// the client should cancel the request.
+    ContentModified = -32801,
+
+    /// The server cancelled the request. This error code should
+    /// only be used for requests that explicitly support being
+    /// server cancellable.
+    ///
+    /// @since 3.17.0
+    ServerCancelled = -32802,
+
+    /// A request failed but it was syntactically correct, e.g the
+    /// method name was known and the parameters were valid. The error
+    /// message should contain human readable information about why
+    /// the request failed.
+    ///
+    /// @since 3.17.0
+    RequestFailed = -32803,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -211,8 +259,41 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
                 error: None,
             })))
         }
-        Message::Request(Request { method: m, id, .. }) if m == "textDocument/hover" => {
-            // TODO
+        Message::Request(Request {
+            method: m,
+            id,
+            params,
+        }) if m == "textDocument/hover" => {
+            let (docs, file_id_to_name) = match state {
+                State::Initialized {
+                    docs,
+                    file_id_to_name,
+                } => (docs, file_id_to_name),
+                _ => unreachable!(),
+            };
+            let params: HoverParams = serde_json::from_value(params).unwrap();
+            let (doc, compiled) = if let Some(x) =
+                docs.get(&params.text_document_position_params.text_document.uri)
+            {
+                x
+            } else {
+                return Ok(Some(Message::Response(Response {
+                    id,
+                    result: None,
+                    error: Some(ResponseError {
+                        code: ErrorCode::InvalidRequest as i32,
+                        message: String::from("unknown document"),
+                        data: None,
+                    }),
+                })));
+            };
+
+            let symbol = compiled
+                .ast_nodes
+                .iter()
+                .find(|n| n.origin.line == params.text_document_position_params.position.line);
+            dbg!(symbol);
+
             Ok(Some(Message::Response(Response {
                 id,
                 result: Some(serde_json::Value::Null),
