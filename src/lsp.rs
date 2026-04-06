@@ -212,9 +212,6 @@ pub fn run(reader: &mut dyn BufRead, writer: &mut impl Write) {
             }
         }
 
-        match state {
-            State::ShuttingDown => return,
-            _ => {}
-        }
+        if let State::ShuttingDown = state { return }
     }
 }
