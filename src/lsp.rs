@@ -1,11 +1,18 @@
-use std::io::{self, BufRead, Write};
+use std::{
+    collections::HashMap,
+    io::{self, BufRead, Write},
+};
 
-use lsp_types::{HoverProviderCapability, PositionEncodingKind, ServerCapabilities};
+use lsp_types::{
+    DidOpenTextDocumentParams, HoverProviderCapability, PositionEncodingKind, ServerCapabilities,
+    TextDocumentItem, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    Uri,
+};
 use serde::{Deserialize, Serialize};
 
 enum State {
     Initial,
-    Initialized,
+    Initialized(HashMap<Uri, TextDocumentItem>),
     ShuttingDown,
 }
 
@@ -155,6 +162,13 @@ fn make_server_capabilities() -> ServerCapabilities {
     ServerCapabilities {
         position_encoding: Some(PositionEncodingKind::UTF8),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
+        text_document_sync: Some(TextDocumentSyncCapability::Options(
+            TextDocumentSyncOptions {
+                open_close: Some(true),
+                change: Some(TextDocumentSyncKind::FULL),
+                ..Default::default()
+            },
+        )),
         ..Default::default()
     }
 }
@@ -177,7 +191,7 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
                 error: None,
             });
 
-            *state = State::Initialized;
+            *state = State::Initialized(HashMap::new());
 
             Ok(Some(resp))
         }
@@ -185,14 +199,30 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
             *state = State::ShuttingDown;
             Ok(Some(Message::Response(Response {
                 id,
-                result: None,
+                result: Some(serde_json::Value::Null),
                 error: None,
             })))
         }
-        Message::Request(Request { method: m, id, .. }) if m == "initialized" => Ok(None),
-        Message::Request(_) => Ok(None), // TODO but ignore for now.
-        Message::Response(_response) => todo!(),
-        Message::Notification(_notification) => Ok(None), // TODO but ignore for now.
+        Message::Notification(Notification { method: m, params })
+            if m == "textDocument/didOpen" =>
+        {
+            let docs = match state {
+                State::Initialized(docs) => docs,
+                _ => unreachable!(),
+            };
+            let params: DidOpenTextDocumentParams = serde_json::from_value(params).unwrap();
+            docs.insert(params.text_document.uri.clone(), params.text_document);
+
+            Ok(None)
+        }
+        Message::Notification(Notification { method: m, .. }) if m == "exit" => match state {
+            State::ShuttingDown => std::process::exit(0),
+            _ => std::process::exit(1),
+        },
+        Message::Request(Request { method: m, .. }) if m == "initialized" => Ok(None),
+        Message::Request(_) => Ok(None),
+        Message::Response(_response) => Ok(None),
+        Message::Notification(_notification) => Ok(None),
     }
 }
 
@@ -222,10 +252,6 @@ pub fn run(reader: &mut dyn BufRead, writer: &mut impl Write) {
             Err(err) => {
                 eprintln!("handle error={}", err);
             }
-        }
-
-        if let State::ShuttingDown = state {
-            return;
         }
     }
 }
