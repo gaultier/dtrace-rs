@@ -338,7 +338,7 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
             let params: DidOpenTextDocumentParams = serde_json::from_value(params).unwrap();
             let s = params.text_document.uri.as_str().to_owned();
             file_id_to_name.insert(1, s);
-            let compiled = compile(&params.text_document.text, 1, &file_id_to_name);
+            let compiled = compile(&params.text_document.text, 1, file_id_to_name);
             eprintln!(
                 "compiled: {}",
                 serde_json::to_string(&compiled).unwrap_or_default()
