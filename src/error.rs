@@ -51,6 +51,7 @@ pub enum ErrorKind {
     InvalidVersionString,
     InvalidStability,
     InvalidClass,
+    NestedComment,
 }
 
 #[derive(Serialize, Debug, Clone)]

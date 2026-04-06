@@ -12,4 +12,5 @@ inline int* a = 123;
 
 BEGIN /1/{
   // foo
+  // foo // bar
 }

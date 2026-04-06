@@ -1637,23 +1637,58 @@ impl Lexer {
     }
 
     fn single_line_comment(&mut self, it: &mut Peekable<Chars<'_>>) {
-        let start_origin = self.origin;
+        let origin = self.origin;
 
-        let first = it.next().unwrap();
-        assert_eq!(first, '/');
+        let first = it.peek().unwrap();
+        assert_eq!(*first, '/');
+        self.advance(*first, it);
+
+        let second = it.peek().unwrap();
+        assert_eq!(*second, '/');
+        self.advance(*second, it);
 
         while let Some(c) = it.peek() {
-            if *c == '\n' {
-                break;
-            }
+            let c = *c;
+            let origin = Origin {
+                column: self.origin.column,
+                offset: self.origin.offset,
+                len: 2,
+                ..origin
+            };
 
-            self.advance(*c, it);
+            match c {
+                '\n' => {
+                    break;
+                }
+                '/' if peek2(it) == Some('/') || peek2(it) == Some('*') => {
+                    dbg!(self.origin);
+                    dbg!(origin);
+                    self.errors.push(Error {
+                        kind: ErrorKind::NestedComment,
+                        origin,
+                        explanation: String::from("nested comment"),
+                    });
+                    self.advance(c, it);
+                }
+                '*' if peek2(it) == Some('/') => {
+                    self.errors.push(Error {
+                        kind: ErrorKind::NestedComment,
+                        origin,
+                        explanation: String::from("nested comment"),
+                    });
+                    self.advance(c, it);
+                }
+                _ => {
+                    self.advance(c, it);
+                }
+            }
         }
 
         let origin = Origin {
-            len: self.origin.offset - start_origin.offset,
-            ..start_origin
+            len: self.origin.offset - origin.offset,
+            ..origin
         };
+
         self.comments.push(Comment {
             kind: CommentKind::SingleLine,
             origin,
