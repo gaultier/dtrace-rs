@@ -72,7 +72,18 @@ impl Message {
     }
 
     fn write(&self, writer: &mut impl Write) -> std::io::Result<()> {
-        let j = serde_json::to_string(self)?;
+        #[derive(Serialize)]
+        struct JsonRpc<'a> {
+            jsonrpc: &'static str,
+            #[serde(flatten)]
+            msg: &'a Message,
+        }
+        let json_rpc = JsonRpc {
+            jsonrpc: "2.0",
+            msg: self,
+        };
+
+        let j = serde_json::to_string(&json_rpc)?;
         Message::write_payload(writer, &j)
     }
 
@@ -155,7 +166,7 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
             let initialize_data = serde_json::json!({
                 "capabilities": server_capabilities,
                 "serverInfo": {
-                    "name": "lsp-server-dtrace",
+                    "name": "dtrace",
                     "version": "0.1"
                 }
             });
@@ -212,6 +223,8 @@ pub fn run(reader: &mut dyn BufRead, writer: &mut impl Write) {
             }
         }
 
-        if let State::ShuttingDown = state { return }
+        if let State::ShuttingDown = state {
+            return;
+        }
     }
 }
