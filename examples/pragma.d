@@ -35,7 +35,7 @@
 
 #pragma D option quiet
 #pragma D option strsize=1024
-#pragma D option dynvarsize=512
+#pragma D option dynvarsize=512K
 
 BEGIN {
 }
