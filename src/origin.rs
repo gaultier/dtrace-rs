@@ -58,7 +58,7 @@ impl Origin {
         }
     }
 
-    pub(crate) fn extends_to(&self, to: Option<Origin>) -> Origin {
+    pub(crate) fn extend_to(&self, to: Option<Origin>) -> Origin {
         if let Some(to) = to {
             assert!(to.offset >= self.offset);
 

@@ -1408,8 +1408,8 @@ impl Lexer {
             _ => {
                 return Err(Error::new(
                     ErrorKind::InvalidControlDirective,
-                    origin,
-                    String::from("pragma attributes should be of the form: identifier identifier"),
+                    origin.extend_to(tokens.last().map(|t| t.origin)),
+                    String::from("expected pragma attributes of the form: identifier identifier"),
                 ));
             }
         };
@@ -1512,8 +1512,8 @@ impl Lexer {
             }
             _ => Err(Error::new(
                 ErrorKind::InvalidControlDirective,
-                origin,
-                String::new(),
+                origin.extend_to(tokens.last().map(|t| t.origin)),
+                String::from("expected pragma binding of the form: \"version\" identifier"),
             )),
         }
     }
@@ -1541,7 +1541,7 @@ impl Lexer {
                             kind: ErrorKind::InvalidControlDirective,
                             origin: *origin,
                             explanation: String::from(
-                                "option should be of the form key=value, found additional equal sign",
+                                "expected option of the form key=value, found additional equal sign",
                             ),
                         })
                     } else {
@@ -1562,8 +1562,8 @@ impl Lexer {
             }
             other => Err(Error {
                 kind: ErrorKind::InvalidControlDirective,
-                origin: origin.extends_to(other.last().map(|t| t.origin)),
-                explanation: String::from("pragma option should be of the form key=value"),
+                origin: origin.extend_to(other.last().map(|t| t.origin)),
+                explanation: String::from("expected pragma option of the form key=value"),
             }),
         }
     }
@@ -1621,18 +1621,29 @@ impl Lexer {
 
 fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> {
     let split: Vec<_> = version_str.splitn(4, ".").collect();
-    if !(split.len() == 2 || split.len() == 3) {
+    if split.len() < 2 {
         return Err(Error {
             kind: ErrorKind::InvalidVersionString,
             origin,
-            explanation: format!(
-                "expected version string as \"major.minor\" or \"major.minor.patch\" but found {} parts",
-                split.len()
+            explanation: String::from(
+                "expected version string as \"major.minor\" or \"major.minor.patch\"",
+            ),
+        });
+    }
+    let (major_str, minor_str, patch_str, trailing) =
+        (split[0], split[1], split.get(2), split.get(3));
+    if let Some(trailing) = trailing {
+        return Err(Error {
+            kind: ErrorKind::InvalidControlDirective,
+            origin: origin
+                .skip(version_str.len() - trailing.len())
+                .with_len(trailing.len()),
+            explanation: String::from(
+                "expected up to 3 parts in version string but found an extraneous part",
             ),
         });
     }
 
-    let major_str = split[0];
     let major = str::parse::<u8>(major_str).map_err(|err| Error {
         kind: ErrorKind::InvalidVersionString,
         origin: origin.with_len(major_str.len()),
@@ -1642,7 +1653,6 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
         ),
     })?;
 
-    let minor_str = split[1];
     let origin = origin.skip(major_str.len() + 1);
     let minor = str::parse::<u16>(minor_str).map_err(|err| Error {
         kind: ErrorKind::InvalidVersionString,
@@ -1663,7 +1673,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
     }
 
     let origin = origin.skip(minor_str.len() + 1);
-    let patch = if let Some(patch_str) = split.get(2) {
+    let patch = if let Some(patch_str) = patch_str {
         let num = str::parse::<u16>(patch_str).map_err(|err| Error {
             kind: ErrorKind::InvalidVersionString,
             origin: origin.with_len(patch_str.len()),
