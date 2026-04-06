@@ -6,6 +6,11 @@ use crate::{
     origin::{FileId, Origin},
 };
 
+const STABILITY_POSSIBLE_VALUES: &str =
+    "Internal, Private, Obsolete, External, Unstable, Evolving, Stable, Standard";
+
+const CLASS_POSSIBLE_VALUES: &str = "Cpu, Platform, Group, Isa, Common";
+
 #[derive(PartialEq, Eq, Debug)]
 enum LexerState {
     Default,
@@ -1404,39 +1409,64 @@ impl Lexer {
                 return Err(Error::new(
                     ErrorKind::InvalidControlDirective,
                     origin,
-                    String::new(),
+                    String::from("pragma attributes should be of the form: identifier identifier"),
                 ));
             }
         };
 
-        let split: Vec<_> = s1.splitn(3, "/").collect();
-        let name = split
-            .first()
+        let origin = tokens[0].origin;
+        let split: Vec<_> = s1.splitn(4, "/").collect();
+        let (name_str, data_str, class_str, trailing) =
+            (split.get(0), split.get(1), split.get(2), split.get(3));
+        if let Some(trailing) = trailing {
+            return Err(Error {
+                kind: ErrorKind::InvalidControlDirective,
+                origin: origin
+                    .skip(s1.len() - trailing.len())
+                    .with_len(trailing.len()),
+                explanation: String::from(
+                    "expected up to 3 parts in attribute but found an extraneous part",
+                ),
+            });
+        }
+        let name = name_str
             .map(|s| {
                 Stability::try_from(*s).map_err(|kind| Error {
                     kind,
-                    origin,
-                    explanation: String::from("invalid stability"),
+                    origin: origin.with_len(s.len()),
+                    explanation: format!(
+                        "invalid stability, possible values are: {}",
+                        STABILITY_POSSIBLE_VALUES,
+                    ),
                 })
             })
             .transpose()?;
-        let data = split
-            .get(1)
+
+        let skip = name_str.map(|s| s.len() + 1).unwrap_or_default();
+        let data = data_str
             .map(|s| {
                 Stability::try_from(*s).map_err(|kind| Error {
                     kind,
-                    origin,
-                    explanation: String::from("invalid stability"),
+                    origin: origin.skip(skip).with_len(s.len()),
+                    explanation: format!(
+                        "invalid stability, possible values are: {}",
+                        STABILITY_POSSIBLE_VALUES,
+                    ),
                 })
             })
             .transpose()?;
-        let class: Option<Class> = split
-            .get(2)
+
+        let skip = name_str.map(|s| s.len() + 1).unwrap_or_default()
+            + data_str.map(|s| s.len() + 1).unwrap_or_default();
+        let class: Option<Class> = class_str
             .map(|s| {
                 Class::try_from(*s).map_err(|kind| Error {
                     kind,
-                    origin,
-                    explanation: String::from("invalid class"),
+                    origin: origin.skip(skip).with_len(s.len()),
+                    explanation: format!(
+                        "invalid class, possible values are: {}",
+                        CLASS_POSSIBLE_VALUES
+                    ),
                 })
             })
             .transpose()?;
@@ -1533,7 +1563,7 @@ impl Lexer {
             other => Err(Error {
                 kind: ErrorKind::InvalidControlDirective,
                 origin: origin.extends_to(other.last().map(|t| t.origin)),
-                explanation: String::from("option should be of the form key=value"),
+                explanation: String::from("pragma option should be of the form key=value"),
             }),
         }
     }
@@ -1622,7 +1652,6 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
             err
         ),
     })?;
-    eprintln!("[D001] {:?}", origin.with_len(minor_str.len()));
     if minor > 0xfff {
         return Err(Error {
             kind: ErrorKind::InvalidVersionString,
