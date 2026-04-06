@@ -4,9 +4,10 @@ use std::{
 };
 
 use lsp_types::{
-    DidOpenTextDocumentParams, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    MarkedString, Position, PositionEncodingKind, Range, ServerCapabilities, TextDocumentItem,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions, Uri,
+    DidChangeTextDocumentParams, DidOpenTextDocumentParams, Hover, HoverContents, HoverParams,
+    HoverProviderCapability, MarkedString, Position, PositionEncodingKind, Range,
+    ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+    Uri,
 };
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +16,7 @@ use crate::{CompileResult, compile};
 enum State {
     Initial,
     Initialized {
-        docs: HashMap<Uri, (TextDocumentItem, CompileResult)>,
+        docs: HashMap<Uri, (String, CompileResult)>,
         file_id_to_name: HashMap<u32, String>,
     },
     ShuttingDown,
@@ -256,12 +257,12 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
             contents: HoverContents::Scalar(MarkedString::String(format!("{:?}", sym.kind))),
             range: Some(Range {
                 start: Position {
-                    line: sym.origin.line,
-                    character: sym.origin.column,
+                    line: sym.origin.line - 1,
+                    character: sym.origin.column - 1,
                 },
                 end: Position {
-                    line: sym.origin.line,
-                    character: sym.origin.column + sym.origin.len,
+                    line: sym.origin.line - 1,
+                    character: sym.origin.column - 1 + sym.origin.len,
                 },
             }),
         };
@@ -335,8 +336,29 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
             );
             docs.insert(
                 params.text_document.uri.clone(),
-                (params.text_document, compiled),
+                (params.text_document.text, compiled),
             );
+
+            Ok(None)
+        }
+        Message::Notification(Notification { method: m, params })
+            if m == "textDocument/didChange" =>
+        {
+            let (docs, file_id_to_name) = match state {
+                State::Initialized {
+                    docs,
+                    file_id_to_name,
+                } => (docs, file_id_to_name),
+                _ => unreachable!(),
+            };
+            let params: DidChangeTextDocumentParams = serde_json::from_value(params).unwrap();
+            let text = &params.content_changes[0].text;
+            let compiled = compile(&text, 1, file_id_to_name);
+            eprintln!(
+                "compiled: {}",
+                serde_json::to_string(&compiled).unwrap_or_default()
+            );
+            docs.insert(params.text_document.uri, (text.clone(), compiled));
 
             Ok(None)
         }
