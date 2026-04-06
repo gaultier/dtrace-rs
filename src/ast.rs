@@ -293,7 +293,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    //primary_expression      → IDENT
+    // primary_expression      → IDENT
     //                        | AGG
     //                        | INT
     //                        | STRING
@@ -384,7 +384,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    //additive_expression     → multiplicative_expression
+    // additive_expression     → multiplicative_expression
     //                        | additive_expression "+" multiplicative_expression
     //                        | additive_expression "-" multiplicative_expression ;
     fn parse_additive_expr(&mut self) -> Option<NodeId> {
@@ -423,7 +423,7 @@ impl<'a> Parser<'a> {
         Some(lhs)
     }
 
-    //multiplicative_expression
+    // multiplicative_expression
     //                        → cast_expression
     //                        | multiplicative_expression "*" cast_expression
     //                        | multiplicative_expression "/" cast_expression
@@ -471,7 +471,7 @@ impl<'a> Parser<'a> {
         Some(lhs)
     }
 
-    //cast_expression         → unary_expression
+    // cast_expression         → unary_expression
     //                        | "(" type_name ")" cast_expression ;
     fn parse_cast_expr(&mut self) -> Option<NodeId> {
         if self.error_mode {
@@ -507,7 +507,7 @@ impl<'a> Parser<'a> {
         self.parse_unary_expr()
     }
 
-    //expression              → assignment_expression ( "," assignment_expression )* ;
+    // expression              → assignment_expression ( "," assignment_expression )* ;
     fn parse_expr(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
@@ -683,7 +683,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    //postfix_expression      → primary_expression
+    // postfix_expression      → primary_expression
     //                        | postfix_expression "[" argument_expression_list "]"
     //                        | postfix_expression "(" argument_expression_list? ")"
     //                        | postfix_expression "."  ( IDENT | TNAME | keyword_as_ident )
@@ -1027,7 +1027,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    //logical_or_expression   → logical_xor_expression
+    // logical_or_expression   → logical_xor_expression
     //                        | logical_or_expression "||" logical_xor_expression ;
     fn parse_logical_or_expr(&mut self) -> Option<NodeId> {
         if self.error_mode {
@@ -1059,7 +1059,7 @@ impl<'a> Parser<'a> {
         Some(lhs)
     }
 
-    //logical_xor_expression  → logical_and_expression
+    // logical_xor_expression  → logical_and_expression
     //                        | logical_xor_expression "^^" logical_and_expression ;
     fn parse_logical_xor_expr(&mut self) -> Option<NodeId> {
         if self.error_mode {
@@ -1091,7 +1091,7 @@ impl<'a> Parser<'a> {
         Some(lhs)
     }
 
-    //logical_and_expression  → inclusive_or_expression
+    // logical_and_expression  → inclusive_or_expression
     //                        | logical_and_expression "&&" inclusive_or_expression ;
     fn parse_logical_and_expr(&mut self) -> Option<NodeId> {
         if self.error_mode {
@@ -1123,7 +1123,7 @@ impl<'a> Parser<'a> {
         Some(lhs)
     }
 
-    //inclusive_or_expression → exclusive_or_expression
+    // inclusive_or_expression → exclusive_or_expression
     //                        | inclusive_or_expression "|" exclusive_or_expression ;
     fn parse_inclusive_or_expr(&mut self) -> Option<NodeId> {
         if self.error_mode {
@@ -1155,7 +1155,7 @@ impl<'a> Parser<'a> {
         Some(lhs)
     }
 
-    //exclusive_or_expression → and_expression
+    // exclusive_or_expression → and_expression
     //                        | exclusive_or_expression "^" and_expression ;
     fn parse_exclusive_or_expr(&mut self) -> Option<NodeId> {
         if self.error_mode {
@@ -1187,7 +1187,7 @@ impl<'a> Parser<'a> {
         Some(lhs)
     }
 
-    //and_expression          → equality_expression
+    // and_expression          → equality_expression
     //                        | and_expression "&" equality_expression ;
     fn parse_and_expr(&mut self) -> Option<NodeId> {
         if self.error_mode {
@@ -1219,7 +1219,7 @@ impl<'a> Parser<'a> {
         Some(lhs)
     }
 
-    //equality_expression     → relational_expression
+    // equality_expression     → relational_expression
     //                        | equality_expression "==" relational_expression
     //                        | equality_expression "!=" relational_expression ;
     fn parse_equality_expr(&mut self) -> Option<NodeId> {
@@ -1258,7 +1258,7 @@ impl<'a> Parser<'a> {
         Some(lhs)
     }
 
-    //relational_expression   → shift_expression
+    // relational_expression   → shift_expression
     //                        | relational_expression "<"  shift_expression
     //                        | relational_expression ">"  shift_expression
     //                        | relational_expression "<=" shift_expression
@@ -1299,7 +1299,7 @@ impl<'a> Parser<'a> {
         Some(lhs)
     }
 
-    //shift_expression        → additive_expression
+    // shift_expression        → additive_expression
     //                        | shift_expression "<<" additive_expression
     //                        | shift_expression ">>" additive_expression ;
     fn parse_shift_expr(&mut self) -> Option<NodeId> {
@@ -1332,7 +1332,7 @@ impl<'a> Parser<'a> {
         Some(lhs)
     }
 
-    //statement               → ";"
+    // statement               → ";"
     //                        | expression ";"
     //                        | "if" "(" expression ")" statement_or_block
     //                        | "if" "(" expression ")" statement_or_block
@@ -1490,7 +1490,7 @@ impl<'a> Parser<'a> {
         Some(node_id)
     }
 
-    //probe_specifier         → PSPEC | INT ;
+    // probe_specifier         → PSPEC | INT ;
     fn parse_probe_specifier(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
@@ -1641,7 +1641,7 @@ impl<'a> Parser<'a> {
         self.parse_probe_specifier_list()
     }
 
-    //probe_definition        → probe_specifiers
+    // probe_definition        → probe_specifiers
     //                          | probe_specifiers "{" statement_list "}"
     //                          | probe_specifiers "/" expression "/" "{" statement_list "}" ;
     fn parse_probe_definition(&mut self) -> Option<NodeId> {

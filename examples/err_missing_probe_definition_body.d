@@ -11,5 +11,5 @@
 inline int* a = 123;
 
 BEGIN / 1 + 2/ {
-  "foo "
+  1 ? 2 : 3
 }
