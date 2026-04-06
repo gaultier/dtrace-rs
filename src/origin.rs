@@ -43,6 +43,12 @@ impl<'a> Display for OriginFormatter<'a> {
     }
 }
 
+impl Default for Origin {
+    fn default() -> Self {
+        Origin::new_unknown()
+    }
+}
+
 impl Origin {
     pub(crate) fn display<'a>(
         &self,

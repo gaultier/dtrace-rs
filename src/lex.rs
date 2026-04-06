@@ -1173,41 +1173,39 @@ impl Lexer {
             }
             Some(Token {
                 kind: TokenKind::LiteralNumber,
-                ..
-            }) => self.control_directive_line(tokens, tokens[0].origin, input),
-            Some(
-                tok @ Token {
-                    kind: TokenKind::Identifier,
-                    ..
-                },
-            ) => {
-                let src = str_from_source(input, &tok.origin);
+                origin,
+            }) => self.control_directive_line(tokens, *origin, input),
+            Some(Token {
+                kind: TokenKind::Identifier,
+                origin,
+            }) => {
+                let src = str_from_source(input, &origin);
                 match src {
-                    "line" => self.control_directive_line(&tokens[1..], tokens[0].origin, input),
+                    "line" => self.control_directive_line(&tokens[1..], *origin, input),
                     "pragma" if tokens.len() > 1 => {
-                        self.control_directive_pragma(&tokens[1..], tokens[0].origin, input)
+                        self.control_directive_pragma(&tokens[1..], *origin, input)
                     }
                     // Ignore any #ident or #pragma ident lines.
                     "pragma" if tokens.len() == 1 => Ok(ControlDirective {
                         kind: ControlDirectiveKind::Ignored,
-                        origin: Origin::new_unknown(),
+                        origin: origin.extend_to(tokens.last().map(|t| t.origin)),
                     }),
 
                     "ident" => Ok(ControlDirective {
                         kind: ControlDirectiveKind::Ignored,
-                        origin: Origin::new_unknown(),
+                        origin: origin.extend_to(tokens.last().map(|t| t.origin)),
                     }),
                     "error" => self.control_directive_error(&tokens[1..], input),
                     _ => Err(Error::new(
                         ErrorKind::InvalidControlDirective,
-                        tok.origin,
+                        origin.extend_to(tokens.last().map(|t| t.origin)),
                         String::new(),
                     )),
                 }
             }
             Some(other) => Err(Error::new(
                 ErrorKind::InvalidControlDirective,
-                other.origin,
+                other.origin.extend_to(tokens.last().map(|t| t.origin)),
                 String::new(),
             )),
         }
@@ -1361,7 +1359,7 @@ impl Lexer {
             // `#pragma`, `#pragma ident`,  `#pragma D ident`, or `#pragma someunknownstuff`: Ignore.
             _ => Ok(ControlDirective {
                 kind: ControlDirectiveKind::Ignored,
-                origin: Origin::new_unknown(),
+                origin: origin.extend_to(tokens.last().map(|last| last.origin)),
             }),
         }
     }
