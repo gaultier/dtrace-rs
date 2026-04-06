@@ -34,7 +34,7 @@ pub enum ControlDirectiveKind {
     PragmaDependsOn(PragmaDependsOnKind, String),
     PragmaAttributes { attribute: Attribute, name: String },
     Ignored,
-    Option(String, Option<String>),
+    PragmaOption(String, Option<String>),
 }
 
 #[derive(Debug, Serialize)]
@@ -1503,8 +1503,8 @@ impl Lexer {
                     origin: origin2,
                 },
             ] => {
-                let (version_str, origin) = quoted_string_from_source(input, origin1);
-                let version = version_str2num(version_str, origin)?;
+                let (version_str, version_origin) = quoted_string_from_source(input, origin1);
+                let version = version_str2num(version_str, version_origin)?;
                 let identifier = str_from_source(input, origin2).to_owned();
 
                 Ok(ControlDirective {
@@ -1531,24 +1531,24 @@ impl Lexer {
             [
                 Token {
                     kind: TokenKind::Identifier,
-                    origin,
+                    origin: origin1,
                 },
             ] => {
                 // TODO: Validate option key against a list of known values?
 
-                let s = str_from_source(input, origin);
+                let s = str_from_source(input, origin1);
                 if let Some((key, value)) = s.split_once('=') {
                     if value.contains('=') {
                         Err(Error {
                             kind: ErrorKind::InvalidControlDirective,
-                            origin: *origin,
+                            origin: *origin1,
                             explanation: String::from(
                                 "expected option of the form key=value, found additional equal sign",
                             ),
                         })
                     } else {
                         Ok(ControlDirective {
-                            kind: ControlDirectiveKind::Option(
+                            kind: ControlDirectiveKind::PragmaOption(
                                 key.to_owned(),
                                 Some(value.to_owned()),
                             ),
@@ -1557,7 +1557,7 @@ impl Lexer {
                     }
                 } else {
                     Ok(ControlDirective {
-                        kind: ControlDirectiveKind::Option(s.to_owned(), None),
+                        kind: ControlDirectiveKind::PragmaOption(s.to_owned(), None),
                         origin: origin.extend_to(tokens.last().map(|t| t.origin)),
                     })
                 }
