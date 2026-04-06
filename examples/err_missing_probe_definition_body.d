@@ -13,4 +13,6 @@ inline int* a = 123;
 BEGIN /1/{
   // foo
   // foo // bar
+
+ 132 /* some comment */ + 456
 }

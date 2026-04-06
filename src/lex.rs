@@ -993,6 +993,7 @@ impl Lexer {
                     }
                 }
                 '/' if peek2(&it) == Some('/') => self.single_line_comment(&mut it),
+                '/' if peek2(&it) == Some('*') => self.multi_line_comment(&mut it),
                 '/' => {
                     let origin = Origin {
                         len: 1,
@@ -1661,8 +1662,6 @@ impl Lexer {
                     break;
                 }
                 '/' if peek2(it) == Some('/') || peek2(it) == Some('*') => {
-                    dbg!(self.origin);
-                    dbg!(origin);
                     self.errors.push(Error {
                         kind: ErrorKind::NestedComment,
                         origin,
@@ -1691,6 +1690,57 @@ impl Lexer {
 
         self.comments.push(Comment {
             kind: CommentKind::SingleLine,
+            origin,
+        });
+    }
+
+    fn multi_line_comment(&mut self, it: &mut Peekable<Chars<'_>>) {
+        let origin = self.origin;
+
+        let first = it.peek().unwrap();
+        assert_eq!(*first, '/');
+        self.advance(*first, it);
+
+        let second = it.peek().unwrap();
+        assert_eq!(*second, '*');
+        self.advance(*second, it);
+
+        while let Some(c) = it.peek() {
+            let c = *c;
+            let origin = Origin {
+                column: self.origin.column,
+                offset: self.origin.offset,
+                len: 2,
+                ..origin
+            };
+
+            match c {
+                '/' if peek2(it) == Some('*') => {
+                    self.errors.push(Error {
+                        kind: ErrorKind::NestedComment,
+                        origin,
+                        explanation: String::from("nested comment"),
+                    });
+                    self.advance(c, it);
+                }
+                '*' if peek2(it) == Some('/') => {
+                    self.advance(c, it);
+                    self.advance(c, it);
+                    break;
+                }
+                _ => {
+                    self.advance(c, it);
+                }
+            }
+        }
+
+        let origin = Origin {
+            len: self.origin.offset - origin.offset,
+            ..origin
+        };
+
+        self.comments.push(Comment {
+            kind: CommentKind::MultiLine,
             origin,
         });
     }
