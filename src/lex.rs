@@ -1296,7 +1296,7 @@ impl Lexer {
         };
 
         Ok(ControlDirective {
-            origin: line.origin,
+            origin: origin.extend_to(tokens.last().map(|t| t.origin)),
             kind: ControlDirectiveKind::Line(line_num, file_src, trailing_num),
         })
     }
@@ -1380,7 +1380,7 @@ impl Lexer {
         };
 
         Ok(ControlDirective {
-            origin: tokens[0].origin,
+            origin: tokens[0].origin.extend_to(tokens.last().map(|t| t.origin)),
             kind: ControlDirectiveKind::PragmaError(src),
         })
     }
@@ -1416,14 +1416,14 @@ impl Lexer {
             }
         };
 
-        let origin = tokens[0].origin;
+        let origin_identifier_first = tokens[0].origin;
         let split: Vec<_> = s1.splitn(4, "/").collect();
         let (name_str, data_str, class_str, trailing) =
             (split.get(0), split.get(1), split.get(2), split.get(3));
         if let Some(trailing) = trailing {
             return Err(Error {
                 kind: ErrorKind::InvalidControlDirective,
-                origin: origin
+                origin: origin_identifier_first
                     .skip(s1.len() - trailing.len())
                     .with_len(trailing.len()),
                 explanation: String::from(
@@ -1435,7 +1435,7 @@ impl Lexer {
             .map(|s| {
                 Stability::try_from(*s).map_err(|kind| Error {
                     kind,
-                    origin: origin.with_len(s.len()),
+                    origin: origin_identifier_first.with_len(s.len()),
                     explanation: format!(
                         "invalid stability, possible values are: {}",
                         STABILITY_POSSIBLE_VALUES,
@@ -1449,7 +1449,7 @@ impl Lexer {
             .map(|s| {
                 Stability::try_from(*s).map_err(|kind| Error {
                     kind,
-                    origin: origin.skip(skip).with_len(s.len()),
+                    origin: origin_identifier_first.skip(skip).with_len(s.len()),
                     explanation: format!(
                         "invalid stability, possible values are: {}",
                         STABILITY_POSSIBLE_VALUES,
@@ -1464,7 +1464,7 @@ impl Lexer {
             .map(|s| {
                 Class::try_from(*s).map_err(|kind| Error {
                     kind,
-                    origin: origin.skip(skip).with_len(s.len()),
+                    origin: origin_identifier_first.skip(skip).with_len(s.len()),
                     explanation: format!(
                         "invalid class, possible values are: {}",
                         CLASS_POSSIBLE_VALUES
@@ -1481,7 +1481,7 @@ impl Lexer {
                 // cases.
                 name: s2.to_owned(),
             },
-            origin,
+            origin: origin.extend_to(tokens.last().map(|t| t.origin)),
         })
     }
 
@@ -1508,7 +1508,7 @@ impl Lexer {
                 let identifier = str_from_source(input, origin2).to_owned();
 
                 Ok(ControlDirective {
-                    origin: *origin1,
+                    origin: origin.extend_to(tokens.last().map(|t| t.origin)),
                     kind: ControlDirectiveKind::PragmaBinding(version, identifier),
                 })
             }
@@ -1552,13 +1552,13 @@ impl Lexer {
                                 key.to_owned(),
                                 Some(value.to_owned()),
                             ),
-                            origin: *origin,
+                            origin: origin.extend_to(tokens.last().map(|t| t.origin)),
                         })
                     }
                 } else {
                     Ok(ControlDirective {
                         kind: ControlDirectiveKind::Option(s.to_owned(), None),
-                        origin: *origin,
+                        origin: origin.extend_to(tokens.last().map(|t| t.origin)),
                     })
                 }
             }
