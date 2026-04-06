@@ -266,7 +266,12 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
                 },
             }),
         };
-        serde_json::to_value(&hover).unwrap()
+        serde_json::to_value(&hover).map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("invalid params: {}", err),
+            )
+        })?
     } else {
         serde_json::Value::Null
     };
@@ -276,6 +281,59 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
         result: Some(resp),
         error: None,
     })))
+}
+
+fn did_open(state: &mut State, params: serde_json::Value) -> io::Result<Option<Message>> {
+    let (docs, file_id_to_name) = match state {
+        State::Initialized {
+            docs,
+            file_id_to_name,
+        } => (docs, file_id_to_name),
+        _ => {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid state"));
+        }
+    };
+    let params: DidOpenTextDocumentParams = serde_json::from_value(params).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid params: {}", err),
+        )
+    })?;
+
+    let s = params.text_document.uri.as_str().to_owned();
+    // FIXME
+    file_id_to_name.insert(1, s);
+    let compiled = compile(&params.text_document.text, 1, file_id_to_name);
+    docs.insert(
+        params.text_document.uri.clone(),
+        (params.text_document.text, compiled),
+    );
+
+    Ok(None)
+}
+
+fn did_change(state: &mut State, params: serde_json::Value) -> Result<Option<Message>, io::Error> {
+    let (docs, file_id_to_name) = match state {
+        State::Initialized {
+            docs,
+            file_id_to_name,
+        } => (docs, file_id_to_name),
+        _ => {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid state"));
+        }
+    };
+    let params: DidChangeTextDocumentParams = serde_json::from_value(params).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid params: {}", err),
+        )
+    })?;
+
+    let text = &params.content_changes[0].text;
+    let compiled = compile(&text, 1, file_id_to_name);
+    docs.insert(params.text_document.uri, (text.clone(), compiled));
+
+    Ok(None)
 }
 
 fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
@@ -319,40 +377,12 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
         Message::Notification(Notification { method: m, params })
             if m == "textDocument/didOpen" =>
         {
-            let (docs, file_id_to_name) = match state {
-                State::Initialized {
-                    docs,
-                    file_id_to_name,
-                } => (docs, file_id_to_name),
-                _ => unreachable!(),
-            };
-            let params: DidOpenTextDocumentParams = serde_json::from_value(params).unwrap();
-            let s = params.text_document.uri.as_str().to_owned();
-            file_id_to_name.insert(1, s);
-            let compiled = compile(&params.text_document.text, 1, file_id_to_name);
-            docs.insert(
-                params.text_document.uri.clone(),
-                (params.text_document.text, compiled),
-            );
-
-            Ok(None)
+            did_open(state, params)
         }
         Message::Notification(Notification { method: m, params })
             if m == "textDocument/didChange" =>
         {
-            let (docs, file_id_to_name) = match state {
-                State::Initialized {
-                    docs,
-                    file_id_to_name,
-                } => (docs, file_id_to_name),
-                _ => unreachable!(),
-            };
-            let params: DidChangeTextDocumentParams = serde_json::from_value(params).unwrap();
-            let text = &params.content_changes[0].text;
-            let compiled = compile(&text, 1, file_id_to_name);
-            docs.insert(params.text_document.uri, (text.clone(), compiled));
-
-            Ok(None)
+            did_change(state, params)
         }
         Message::Notification(Notification { method: m, .. }) if m == "exit" => match state {
             State::ShuttingDown => std::process::exit(0),
