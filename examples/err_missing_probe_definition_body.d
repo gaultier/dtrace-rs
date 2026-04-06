@@ -8,7 +8,7 @@
     #pragma option foo=bar
 #pragma option foo bar
 
-inline int* a = 123;
+inline int* a /* bar */ = 123;
 
 BEGIN /1/{
   // foo

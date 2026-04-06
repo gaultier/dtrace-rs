@@ -1,6 +1,3 @@
-- comments:
-  + single-line
-  + multi-line
 - ast: translator definition
 - ast: provider definition
 - name resolving
