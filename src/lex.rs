@@ -1650,12 +1650,6 @@ impl Lexer {
 
         while let Some(c) = it.peek() {
             let c = *c;
-            let origin = Origin {
-                column: self.origin.column,
-                offset: self.origin.offset,
-                len: 2,
-                ..origin
-            };
 
             match c {
                 '\n' => {
@@ -1664,7 +1658,7 @@ impl Lexer {
                 '/' if peek2(it) == Some('/') || peek2(it) == Some('*') => {
                     self.errors.push(Error {
                         kind: ErrorKind::NestedComment,
-                        origin,
+                        origin: self.origin.with_len(2),
                         explanation: String::from("nested comment"),
                     });
                     self.advance(c, it);
@@ -1672,7 +1666,7 @@ impl Lexer {
                 '*' if peek2(it) == Some('/') => {
                     self.errors.push(Error {
                         kind: ErrorKind::NestedComment,
-                        origin,
+                        origin: self.origin.with_len(2),
                         explanation: String::from("nested comment"),
                     });
                     self.advance(c, it);
@@ -1707,18 +1701,12 @@ impl Lexer {
 
         while let Some(c) = it.peek() {
             let c = *c;
-            let origin = Origin {
-                column: self.origin.column,
-                offset: self.origin.offset,
-                len: 2,
-                ..origin
-            };
 
             match c {
                 '/' if peek2(it) == Some('*') => {
                     self.errors.push(Error {
                         kind: ErrorKind::NestedComment,
-                        origin,
+                        origin: self.origin.with_len(2),
                         explanation: String::from("nested comment"),
                     });
                     self.advance(c, it);
@@ -1741,6 +1729,9 @@ impl Lexer {
 
         self.comments.push(Comment {
             kind: CommentKind::MultiLine,
+            // FIXME: Known issue: this is the only token spanning multiple lines and `origin` only
+            // supports single-line tokens. So the `line` field means `line_start`, *not*
+            // `line_end` which might be bigger.
             origin,
         });
     }
