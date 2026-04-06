@@ -34,7 +34,7 @@ fn main() {
             let mut file_id_to_name = HashMap::new();
             file_id_to_name.insert(1, file_name.clone());
 
-            let compiled = compile(&file_content, 1, &file_id_to_name);
+            let compiled = compile(&file_content, 1);
 
             for err in &compiled.errors {
                 err.write(&mut std::io::stderr(), &file_content, &file_id_to_name)
@@ -55,7 +55,7 @@ fn main() {
             let mut file_id_to_name = HashMap::new();
             file_id_to_name.insert(1, file_name.clone());
 
-            let compiled = compile(&file_content, 1, &file_id_to_name);
+            let compiled = compile(&file_content, 1);
 
             for err in &compiled.errors {
                 err.write(&mut std::io::stderr(), &file_content, &file_id_to_name)

@@ -434,14 +434,18 @@ impl<'a> Parser<'a> {
                     break;
                 }
             };
-            self.eat_token();
+            let tok = *self.eat_token().unwrap();
 
             let rhs = match self.parse_cast_expr() {
                 None => {
                     self.add_error_with_explanation(
                         ErrorKind::MissingExpr,
                         op.origin,
-                        String::from("expected cast expression"),
+                        if tok.kind == TokenKind::Slash {
+                        String::from("expected cast expression. Note: slash is ambiguous in some contexts because it is used for ending the predicate, and also for division")
+                        } else {
+                        String::from("expected cast expression")
+                        }
                     );
                     self.new_node_unknown()
                 }
