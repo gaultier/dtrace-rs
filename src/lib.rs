@@ -6,9 +6,7 @@ pub mod lsp;
 mod origin;
 mod type_checker;
 
-use std::collections::HashMap;
 
-use log::trace;
 use serde::Serialize;
 
 use crate::{

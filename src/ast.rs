@@ -8,7 +8,7 @@ use std::{
 use crate::{
     error::{Error, ErrorKind},
     lex::{self, Lexer, Token, TokenKind},
-    origin::{FileId, Origin},
+    origin::Origin,
     type_checker::Type,
 };
 use log::trace;

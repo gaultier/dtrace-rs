@@ -322,7 +322,6 @@ fn did_open(state: &mut State, params: serde_json::Value) -> io::Result<Option<M
         )
     })?;
 
-    let s = params.text_document.uri.as_str().to_owned();
     // FIXME
     let compiled = compile(&params.text_document.text, 1);
     let resp = PublishDiagnosticsParams {
