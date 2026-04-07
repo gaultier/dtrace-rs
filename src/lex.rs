@@ -205,6 +205,7 @@ pub enum TokenKind {
     GtEq,
     LtEq,
     GtGt,
+    PredicateDelimiter,
 }
 
 impl TryFrom<&str> for Stability {
@@ -571,26 +572,25 @@ impl Lexer {
                 it.next();
                 continue;
             }
-            match c {
-                '\n' => {
-                    if let LexerState::InsideControlDirective(line) = self.state {
-                        let tokens: Vec<Token> = self
-                            .tokens
-                            .extract_if(.., |tok| tok.origin.line == line)
-                            .collect::<Vec<Token>>();
-                        match self.control_directive(input, &tokens) {
-                            Ok(directive) => self.control_directives.push(directive),
-                            Err(err) => self.errors.push(err),
-                        }
-                        self.state = LexerState::ProgramOuterScope;
+            match (&self.state, c) {
+                (LexerState::InsideControlDirective(line), '\n') => {
+                    let tokens: Vec<Token> = self
+                        .tokens
+                        .extract_if(.., |tok| tok.origin.line == *line)
+                        .collect::<Vec<Token>>();
+                    match self.control_directive(input, &tokens) {
+                        Ok(directive) => self.control_directives.push(directive),
+                        Err(err) => self.errors.push(err),
                     }
+                    self.state = LexerState::ProgramOuterScope;
                     self.advance(c, &mut it);
                 }
-                '#' if !self.has_any_previous_tokens_on_same_line() => {
+                (_, '\n') => self.advance(c, &mut it),
+                (_, '#') if !self.has_any_previous_tokens_on_same_line() => {
                     self.state = LexerState::InsideControlDirective(self.origin.line);
                     self.advance(c, &mut it);
                 }
-                '-' if peek2(&it) == Some('-') => {
+                (_, '-') if peek2(&it) == Some('-') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -602,7 +602,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '-' if peek2(&it) == Some('=') => {
+                (_, '-') if peek2(&it) == Some('=') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -614,7 +614,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '-' if peek2(&it) == Some('>') => {
+                (_, '-') if peek2(&it) == Some('>') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -626,7 +626,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '-' => {
+                (_, '-') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -637,7 +637,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '+' if peek2(&it) == Some('+') => {
+                (_, '+') if peek2(&it) == Some('+') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -649,7 +649,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '+' if peek2(&it) == Some('=') => {
+                (_, '+') if peek2(&it) == Some('=') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -661,7 +661,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '+' => {
+                (_, '+') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -672,7 +672,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '.' if peek3(&it) == (Some('.'), Some('.')) => {
+                (_, '.') if peek3(&it) == (Some('.'), Some('.')) => {
                     let origin = Origin {
                         len: 3,
                         ..self.origin
@@ -685,7 +685,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '.' => {
+                (_, '.') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -696,7 +696,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '*' if peek2(&it) == Some('=') => {
+                (_, '*') if peek2(&it) == Some('=') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -708,7 +708,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '*' => {
+                (_, '*') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -719,7 +719,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '>' if peek3(&it) == (Some('>'), Some('=')) => {
+                (_, '>') if peek3(&it) == (Some('>'), Some('=')) => {
                     let origin = Origin {
                         len: 3,
                         ..self.origin
@@ -732,7 +732,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '>' if peek2(&it) == Some('>') => {
+                (_, '>') if peek2(&it) == Some('>') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -744,7 +744,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '>' if peek2(&it) == Some('=') => {
+                (_, '>') if peek2(&it) == Some('=') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -756,7 +756,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '>' => {
+                (_, '>') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -767,7 +767,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '<' if peek3(&it) == (Some('<'), Some('=')) => {
+                (_, '<') if peek3(&it) == (Some('<'), Some('=')) => {
                     let origin = Origin {
                         len: 3,
                         ..self.origin
@@ -780,7 +780,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '<' if peek2(&it) == Some('<') => {
+                (_, '<') if peek2(&it) == Some('<') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -792,7 +792,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '<' if peek2(&it) == Some('=') => {
+                (_, '<') if peek2(&it) == Some('=') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -804,7 +804,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '<' => {
+                (_, '<') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -815,7 +815,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '^' if peek2(&it) == Some('=') => {
+                (_, '^') if peek2(&it) == Some('=') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -827,7 +827,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '^' if peek2(&it) == Some('^') => {
+                (_, '^') if peek2(&it) == Some('^') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -839,7 +839,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '^' => {
+                (_, '^') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -850,7 +850,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '&' if peek2(&it) == Some('=') => {
+                (_, '&') if peek2(&it) == Some('=') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -862,7 +862,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '&' if peek2(&it) == Some('&') => {
+                (_, '&') if peek2(&it) == Some('&') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -874,7 +874,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '&' => {
+                (_, '&') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -885,7 +885,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '?' => {
+                (_, '?') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -896,7 +896,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '|' if peek2(&it) == Some('=') => {
+                (_, '|') if peek2(&it) == Some('=') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -908,7 +908,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '|' if peek2(&it) == Some('|') => {
+                (_, '|') if peek2(&it) == Some('|') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -920,7 +920,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '|' => {
+                (_, '|') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -931,7 +931,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                ':' => {
+                (_, ':') => {
                     if let Some(next) = it.peek()
                         && *next == '='
                     {
@@ -957,7 +957,7 @@ impl Lexer {
                         self.advance(c, &mut it);
                     }
                 }
-                '!' if peek2(&it) == Some('=') => {
+                (_, '!') if peek2(&it) == Some('=') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -969,7 +969,7 @@ impl Lexer {
                     self.advance(c, &mut it);
                     self.advance(c, &mut it);
                 }
-                '!' => {
+                (_, '!') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -980,7 +980,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '=' => {
+                (_, '=') => {
                     let origin = self.origin;
                     self.advance(c, &mut it);
                     if let Some(next) = it.peek()
@@ -998,30 +998,40 @@ impl Lexer {
                         });
                     }
                 }
-                '/' if peek2(&it) == Some('/') => self.single_line_comment(&mut it),
-                '/' if peek2(&it) == Some('*') => self.multi_line_comment(&mut it),
-                '/' => {
-                    let origin = Origin {
-                        len: 1,
-                        ..self.origin
+                (_, '/') if peek2(&it) == Some('/') => self.single_line_comment(&mut it),
+                (_, '/') if peek2(&it) == Some('*') => self.multi_line_comment(&mut it),
+                (LexerState::ProgramOuterScope, '/') => {
+                    /*
+                     * The use of "/" as the predicate delimiter and as the
+                     * integer division symbol requires special lookahead
+                     * to avoid a shift/reduce conflict in the D grammar.
+                     * We look ahead to the next non-whitespace character.
+                     * If we encounter EOF, ";", "{", or "/", then this "/"
+                     * closes the predicate and we return DT_TOK_EPRED.
+                     * If we encounter anything else, it's DT_TOK_DIV.
+                     */
+                    let mut tmp = it.clone();
+                    let second = tmp.find(|c| !c.is_ascii_whitespace());
+
+                    let kind = match second {
+                        None | Some(';' | '{' | '/') => TokenKind::PredicateDelimiter,
+                        _ => TokenKind::Slash,
                     };
+
                     self.tokens.push(Token {
-                        kind: TokenKind::Slash,
-                        origin,
+                        kind,
+                        origin: self.origin.with_len(1),
                     });
                     self.advance(c, &mut it);
-
-                    match self.state {
-                        LexerState::ProgramOuterScope => {
-                            self.state = LexerState::InsideClauseAndExpr;
-                        }
-                        LexerState::InsideControlDirective(_) => {}
-                        LexerState::InsideClauseAndExpr => {
-                            self.state = LexerState::ProgramOuterScope;
-                        }
-                    }
                 }
-                '%' if peek2(&it) == Some('=') => {
+                (LexerState::InsideClauseAndExpr, '/') => {
+                    self.tokens.push(Token {
+                        kind: TokenKind::Slash,
+                        origin: self.origin.with_len(1),
+                    });
+                    self.advance(c, &mut it);
+                }
+                (_, '%') if peek2(&it) == Some('=') => {
                     let origin = Origin {
                         len: 2,
                         ..self.origin
@@ -1032,7 +1042,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '%' => {
+                (_, '%') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -1043,7 +1053,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '~' => {
+                (_, '~') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -1054,7 +1064,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '{' => {
+                (_, '{') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -1072,7 +1082,7 @@ impl Lexer {
                         _ => {}
                     }
                 }
-                '}' => {
+                (_, '}') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -1090,7 +1100,7 @@ impl Lexer {
                         _ => {}
                     }
                 }
-                '(' => {
+                (_, '(') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -1101,7 +1111,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                ')' => {
+                (_, ')') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -1112,7 +1122,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                ',' => {
+                (_, ',') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -1123,7 +1133,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '[' => {
+                (_, '[') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -1134,7 +1144,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                ']' => {
+                (_, ']') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -1145,7 +1155,7 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                ';' => {
+                (_, ';') => {
                     let origin = Origin {
                         len: 1,
                         ..self.origin
@@ -1156,10 +1166,10 @@ impl Lexer {
                     });
                     self.advance(c, &mut it);
                 }
-                '"' => {
+                (_, '"') => {
                     self.lex_literal_string(&mut it);
                 }
-                '\'' => {
+                (_, '\'') => {
                     self.lex_literal_character(&mut it);
                 }
                 _ if c.is_ascii_digit() => self.lex_literal_number(&mut it),
