@@ -957,6 +957,7 @@ impl Lexer {
                         self.advance(c, &mut it);
                     }
                 }
+                (_, '#') if peek2(&it) == Some('!') => todo!(),
                 (_, '!') if peek2(&it) == Some('=') => {
                     let origin = Origin {
                         len: 2,
@@ -1172,16 +1173,18 @@ impl Lexer {
                 (_, '\'') => {
                     self.lex_literal_character(&mut it);
                 }
+                (LexerState::ProgramOuterScope, '$') => todo!(),
                 _ if c.is_ascii_digit() => self.lex_literal_number(&mut it),
                 _ if c.is_whitespace() => {
                     self.advance(c, &mut it);
                 }
-                _ if is_character_probe_specifier_start(c)
-                    && self.state == LexerState::ProgramOuterScope =>
-                {
+                (LexerState::ProgramOuterScope, _) if self.is_identifier_character_leading(c) => {
+                    self.lex_keyword(input, &mut it)
+                }
+                (LexerState::InsideClauseAndExpr, _) if is_character_probe_specifier_start(c) => {
+                    // TODO: Handle ambiguity of '*'.
                     self.lex_probe_specifier(&mut it)
                 }
-                _ if self.is_identifier_character_leading(c) => self.lex_keyword(input, &mut it),
                 _ => {
                     self.tokens.push(Token {
                         kind: TokenKind::Unknown,
