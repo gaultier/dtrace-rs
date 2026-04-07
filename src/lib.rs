@@ -168,6 +168,7 @@ pub struct CompileResult {
 pub fn compile(input: &str, file_id: FileId) -> CompileResult {
     let mut lexer = Lexer::new(file_id);
     lexer.lex(input);
+    dbg!(&lexer.tokens);
 
     let mut parser = Parser::new(input, &lexer);
     let root = parser.parse();

@@ -434,18 +434,14 @@ impl<'a> Parser<'a> {
                     break;
                 }
             };
-            let tok = *self.eat_token().unwrap();
+            self.eat_token().unwrap();
 
             let rhs = match self.parse_cast_expr() {
                 None => {
                     self.add_error_with_explanation(
                         ErrorKind::MissingExpr,
                         op.origin,
-                        if tok.kind == TokenKind::Slash {
-                        String::from("expected cast expression. Note: slash is ambiguous in some contexts because it is used for starting/ending a predicate, for division, and for comments")
-                        } else {
-                        String::from("expected cast expression")
-                        }
+                        String::from("expected cast expression"),
                     );
                     self.new_node_unknown()
                 }
@@ -1562,9 +1558,12 @@ impl<'a> Parser<'a> {
 
         // In file mode, a predication or action MUST follow.
 
-        let predicate = if let Some(_slash) = self.match_kind(TokenKind::Slash) {
+        let predicate = if let Some(_slash) = self.match_kind(TokenKind::PredicateDelimiter) {
             let expr = self.parse_expr();
-            self.expect_token_one(TokenKind::Slash, "matching slash after predicate");
+            self.expect_token_one(
+                TokenKind::PredicateDelimiter,
+                "matching slash after predicate",
+            );
             expr
         } else {
             None
