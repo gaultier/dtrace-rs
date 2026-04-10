@@ -169,12 +169,12 @@ pub fn compile(input: &str, file_id: FileId) -> CompileResult {
     let mut parser = Parser::new(lexer);
     let root = parser.parse();
 
-    if !parser.errors.is_empty() {
+    if !parser.lexer.errors.is_empty() {
         return CompileResult {
             comments: parser.lexer.comments,
             control_directives: parser.lexer.control_directives,
             ast_nodes: parser.nodes,
-            errors: parser.errors,
+            errors: parser.lexer.errors,
             ast_root: root,
         };
     }
@@ -185,7 +185,7 @@ pub fn compile(input: &str, file_id: FileId) -> CompileResult {
         comments: parser.lexer.comments,
         control_directives: parser.lexer.control_directives,
         ast_nodes: parser.nodes,
-        errors: parser.errors,
+        errors: parser.lexer.errors,
         ast_root: root,
     }
 }
