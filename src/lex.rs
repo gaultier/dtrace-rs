@@ -530,11 +530,19 @@ impl Lexer {
             }
         } else {
             while let Some(c) = it.peek() {
-                if !c.is_ascii_digit() {
-                    break;
+                match c {
+                    '0'..'9' => {
+                        self.advance(it, 1);
+                    }
+                    '.' => {
+                        self.add_error(ErrorKind::UnsupportedLiteralFloatNumber);
+                        self.advance(it, 1);
+                        break;
+                    }
+                    _ => {
+                        break;
+                    }
                 }
-
-                self.advance(it, 1);
             }
             let len = self.origin.offset - start_origin.offset;
             if first == '0' && len > 1 {
@@ -730,6 +738,19 @@ impl Lexer {
                 self.advance(&mut it, 3);
                 token
             }
+            (_, '.') if peek2(&it).map(|c| c.is_ascii_digit()).unwrap_or_default() => {
+                let origin = Origin {
+                    len: 2,
+                    ..self.origin
+                };
+                self.add_error(ErrorKind::UnsupportedLiteralFloatNumber);
+                self.advance(&mut it, 2);
+                Token {
+                    kind: TokenKind::LiteralNumber,
+                    origin,
+                }
+            }
+
             (_, '.') => {
                 let origin = Origin {
                     len: 1,

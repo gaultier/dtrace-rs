@@ -52,6 +52,7 @@ pub enum ErrorKind {
     InvalidStability,
     InvalidClass,
     NestedComment,
+    UnsupportedLiteralFloatNumber,
 }
 
 #[derive(Serialize, Debug, Clone)]
