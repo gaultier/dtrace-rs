@@ -13,7 +13,7 @@ const CLASS_POSSIBLE_VALUES: &str = "Cpu, Platform, Group, Isa, Common";
 
 const DEPENDS_ON_POSSIBLE_VALUES: &str = "provider, module, library";
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
 enum LexerState {
     ProgramOuterScope,
     InsideControlDirective(u32 /* line */),
@@ -352,53 +352,54 @@ impl Lexer {
         };
 
         let lit = &input[origin.offset as usize..origin.offset as usize + len as usize];
-        let kind = match lit {
-            "auto" => TokenKind::KeywordAuto,
-            "break" => TokenKind::KeywordBreak,
-            "case" => TokenKind::KeywordCase,
-            "char" => TokenKind::KeywordChar,
-            "const" => TokenKind::KeywordConst,
-            "continue" => TokenKind::KeywordContinue,
-            "counter" => TokenKind::KeywordCounter,
-            "default" => TokenKind::KeywordDefault,
-            "do" => TokenKind::KeywordDo,
-            "double" => TokenKind::KeywordDouble,
-            "else" => TokenKind::KeywordElse,
-            "enum" => TokenKind::KeywordEnum,
-            "extern" => TokenKind::KeywordExtern,
-            "float" => TokenKind::KeywordFloat,
-            "for" => TokenKind::KeywordFor,
-            "goto" => TokenKind::KeywordGoto,
-            "if" => TokenKind::KeywordIf,
-            "import" => TokenKind::KeywordImport,
-            "inline" => TokenKind::KeywordInline,
-            "int" => TokenKind::KeywordInt,
-            "long" => TokenKind::KeywordLong,
-            "offsetof" => TokenKind::KeywordOffsetOf,
-            "probe" => TokenKind::KeywordProbe,
-            "provider" => TokenKind::KeywordProvider,
-            "register" => TokenKind::KeywordRegister,
-            "restrict" => TokenKind::KeywordRestrict,
-            "return" => TokenKind::KeywordReturn,
-            "self" => TokenKind::KeywordSelf,
-            "short" => TokenKind::KeywordShort,
-            "signed" => TokenKind::KeywordSigned,
-            "sizeof" => TokenKind::KeywordSizeof,
-            "static" => TokenKind::KeywordStatic,
-            "string" => TokenKind::KeywordString,
-            "stringof" => TokenKind::KeywordStringof,
-            "struct" => TokenKind::KeywordStruct,
-            "switch" => TokenKind::KeywordSwitch,
-            "this" => TokenKind::KeywordThis,
-            "translator" => TokenKind::KeywordTranslator,
-            "typedef" => TokenKind::KeywordTypedef,
-            "union" => TokenKind::KeywordUnion,
-            "unsigned" => TokenKind::KeywordUnsigned,
-            "userland" => TokenKind::KeywordUserland,
-            "void" => TokenKind::KeywordVoid,
-            "volatile" => TokenKind::KeywordVolatile,
-            "while" => TokenKind::KeywordWhile,
-            "xlate" => TokenKind::KeywordXlate,
+        let kind = match (self.state, lit) {
+            (_, "auto") => TokenKind::KeywordAuto,
+            (LexerState::ProgramOuterScope, "break") => TokenKind::KeywordBreak,
+            (LexerState::ProgramOuterScope, "case") => TokenKind::KeywordCase,
+            (LexerState::ProgramOuterScope, "char") => TokenKind::KeywordChar,
+            (LexerState::InsideClauseAndExpr, "char") => TokenKind::KeywordChar,
+            (_, "const") => TokenKind::KeywordConst,
+            (LexerState::ProgramOuterScope, "continue") => TokenKind::KeywordContinue,
+            (_, "counter") => TokenKind::KeywordCounter,
+            (LexerState::ProgramOuterScope, "default") => TokenKind::KeywordDefault,
+            (LexerState::ProgramOuterScope, "do") => TokenKind::KeywordDo,
+            (_, "double") => TokenKind::KeywordDouble,
+            (LexerState::ProgramOuterScope, "else") => TokenKind::KeywordElse,
+            (_, "enum") => TokenKind::KeywordEnum,
+            (_, "extern") => TokenKind::KeywordExtern,
+            (_, "float") => TokenKind::KeywordFloat,
+            (LexerState::ProgramOuterScope, "for") => TokenKind::KeywordFor,
+            (LexerState::ProgramOuterScope, "goto") => TokenKind::KeywordGoto,
+            (LexerState::ProgramOuterScope, "if") => TokenKind::KeywordIf,
+            (_, "import") => TokenKind::KeywordImport,
+            (_, "inline") => TokenKind::KeywordInline,
+            (_, "int") => TokenKind::KeywordInt,
+            (_, "long") => TokenKind::KeywordLong,
+            (LexerState::ProgramOuterScope, "offsetof") => TokenKind::KeywordOffsetOf,
+            (LexerState::ProgramOuterScope, "probe") => TokenKind::KeywordProbe,
+            (_, "provider") => TokenKind::KeywordProvider,
+            (_, "register") => TokenKind::KeywordRegister,
+            (_, "restrict") => TokenKind::KeywordRestrict,
+            (LexerState::ProgramOuterScope, "return") => TokenKind::KeywordReturn,
+            (_, "self") => TokenKind::KeywordSelf,
+            (_, "short") => TokenKind::KeywordShort,
+            (_, "signed") => TokenKind::KeywordSigned,
+            (LexerState::ProgramOuterScope, "sizeof") => TokenKind::KeywordSizeof,
+            (_, "static") => TokenKind::KeywordStatic,
+            (_, "string") => TokenKind::KeywordString,
+            (LexerState::ProgramOuterScope, "stringof") => TokenKind::KeywordStringof,
+            (_, "struct") => TokenKind::KeywordStruct,
+            (LexerState::ProgramOuterScope, "switch") => TokenKind::KeywordSwitch,
+            (LexerState::ProgramOuterScope, "this") => TokenKind::KeywordThis,
+            (LexerState::ProgramOuterScope, "translator") => TokenKind::KeywordTranslator,
+            (LexerState::ProgramOuterScope, "typedef") => TokenKind::KeywordTypedef,
+            (LexerState::ProgramOuterScope, "union") => TokenKind::KeywordUnion,
+            (LexerState::ProgramOuterScope, "unsigned") => TokenKind::KeywordUnsigned,
+            (LexerState::ProgramOuterScope, "userland") => TokenKind::KeywordUserland,
+            (LexerState::ProgramOuterScope, "void") => TokenKind::KeywordVoid,
+            (LexerState::ProgramOuterScope, "volatile") => TokenKind::KeywordVolatile,
+            (LexerState::ProgramOuterScope, "while") => TokenKind::KeywordWhile,
+            (LexerState::ProgramOuterScope, "xlate") => TokenKind::KeywordXlate,
             _ => TokenKind::Identifier,
         };
 
@@ -1225,6 +1226,7 @@ impl Lexer {
             (LexerState::ProgramOuterScope, _) if self.is_identifier_character_leading(c) => {
                 self.lex_keyword(input, &mut it)
             }
+            (LexerState::ProgramOuterScope, '@') => self.lex_aggregation(input, &mut it),
             (LexerState::InsideClauseAndExpr, _) if is_character_probe_specifier_start(c) => {
                 // TODO: Handle ambiguity of '*'.
                 self.lex_probe_specifier(&mut it)
@@ -1806,6 +1808,23 @@ impl Lexer {
             // `line_end` which might be bigger.
             origin,
         });
+    }
+
+    fn lex_aggregation(&self, input: &str, it: &mut Peekable<Chars<'_>>) -> Token {
+        let start_origin = self.origin;
+        let first = it.next().unwrap();
+        assert_eq!(first, '@');
+        self.origin.column += 1;
+        self.origin.offset += 1;
+
+        while let Some(c) = it.peek() {
+            if !self.is_identifier_character_trailing(*c) {
+                break;
+            }
+
+            self.advance(*c, it, 1);
+        }
+        assert_eq
     }
 }
 
