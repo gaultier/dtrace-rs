@@ -13,7 +13,7 @@ const CLASS_POSSIBLE_VALUES: &str = "Cpu, Platform, Group, Isa, Common";
 const DEPENDS_ON_POSSIBLE_VALUES: &str = "provider, module, library";
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
-enum LexerState {
+pub(crate) enum LexerState {
     // S2.
     ProgramOuterScope,
     InsideControlDirective(u32 /* line */),
