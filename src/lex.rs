@@ -1083,6 +1083,8 @@ impl Lexer {
                 self.lex(input)
             }
             (LexerState::ProgramOuterScope, '/') => {
+                let origin = self.origin;
+                self.advance(&mut it, 1);
                 /*
                  * The use of "/" as the predicate delimiter and as the
                  * integer division symbol requires special lookahead
@@ -1092,19 +1094,25 @@ impl Lexer {
                  * closes the predicate and we return DT_TOK_EPRED.
                  * If we encounter anything else, it's DT_TOK_DIV.
                  */
-                let mut tmp = it.clone();
-                let second = tmp.find(|c| !c.is_ascii_whitespace());
+                while let Some(c) = it.peek() {
+                    if c.is_ascii_whitespace() {
+                        self.advance(&mut it, 1);
+                    } else {
+                        break;
+                    }
+                }
 
-                let kind = match second {
+                let kind = match it.peek() {
                     None | Some(';' | '{' | '/') => TokenKind::PredicateDelimiter,
                     _ => TokenKind::Slash,
                 };
 
+                let len = self.origin.offset - origin.offset;
                 let token = Token {
                     kind,
-                    origin: self.origin.with_len(1),
+                    origin: Origin { len, ..self.origin },
                 };
-                self.advance(&mut it, 1);
+                self.advance(&mut it, len as usize);
                 token
             }
             (LexerState::InsideClauseAndExpr, '/') => {
