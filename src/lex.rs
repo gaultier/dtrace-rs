@@ -508,11 +508,47 @@ impl Lexer {
         let first = self.advance(it, 1).unwrap();
         assert!(first.is_ascii_digit());
 
-        while let Some(c) = it.peek() {
-            if !c.is_ascii_digit() {
-                break;
+        if let Some(second) = it.peek()
+            && first == '0'
+            && (*second == 'x' || *second == 'X')
+        {
+            self.advance(it, 1);
+            let mut count = 0;
+            while let Some(c) = it.peek() {
+                match c {
+                    '0'..'9' | 'a'..'f' | 'A'..'Z' => {
+                        self.advance(it, 1);
+                        count += 1;
+                    }
+                    _ => {
+                        break;
+                    }
+                }
             }
+            if count == 0 {
+                self.add_error(ErrorKind::InvalidLiteralNumber);
+            }
+        } else {
+            while let Some(c) = it.peek() {
+                if !c.is_ascii_digit() {
+                    break;
+                }
 
+                self.advance(it, 1);
+            }
+            let len = self.origin.offset - start_origin.offset;
+            if first == '0' && len > 1 {
+                self.add_error(ErrorKind::InvalidLiteralNumber);
+            }
+        }
+
+        if let Some('u' | 'U') = it.peek() {
+            self.advance(it, 1);
+        }
+        if let Some('l' | 'L') = it.peek() {
+            self.advance(it, 1);
+        }
+        if let Some('l' | 'L') = it.peek() {
             self.advance(it, 1);
         }
 
@@ -522,18 +558,10 @@ impl Lexer {
             ..start_origin
         };
 
-        if first == '0' && len > 1 {
-            self.add_error(ErrorKind::InvalidLiteralNumber);
-            return Token {
-                kind: TokenKind::Unknown,
-                origin,
-            };
-        }
-
-        Token {
-            kind: TokenKind::LiteralNumber,
+        return Token {
+            kind: TokenKind::Unknown,
             origin,
-        }
+        };
     }
 
     fn advance(&mut self, it: &mut Peekable<Chars>, count: usize) -> Option<char> {
