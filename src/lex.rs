@@ -96,7 +96,7 @@ pub struct Comment {
 #[derive(Debug)]
 pub struct Lexer<'a> {
     origin: Origin,
-    error_mode: bool,
+    pub(crate) error_mode: bool,
     pub errors: Vec<Error>,
     state: LexerState,
     pub(crate) input: &'a str,
@@ -1188,7 +1188,6 @@ impl<'a> Lexer<'a> {
                     self.advance(&mut it, 2);
                     token
                 } else {
-                    
                     Token {
                         kind: TokenKind::Eq,
                         origin: Origin { len: 1, ..origin },
@@ -1229,7 +1228,7 @@ impl<'a> Lexer<'a> {
                 };
 
                 let len = self.origin.offset - origin.offset;
-                
+
                 Token {
                     kind,
                     origin: Origin { len, ..self.origin },
