@@ -1112,7 +1112,6 @@ impl Lexer {
                     kind,
                     origin: Origin { len, ..self.origin },
                 };
-                self.advance(&mut it, len as usize);
                 token
             }
             (LexerState::InsideClauseAndExpr, '/') => {
