@@ -1366,9 +1366,8 @@ impl<'a> Parser<'a> {
         //}
     }
 
-    fn remaining_tokens_count(&self) -> usize {
-        //self.tokens.len() - self.tokens_consumed
-        todo!()
+    fn remaining_chars_count(&self) -> usize {
+        self.lexer.chars.len() - self.lexer.chars_idx
     }
 
     fn expect_token_one(&mut self, token_kind: TokenKind, context: &str) -> Option<Token> {
@@ -1447,7 +1446,7 @@ impl<'a> Parser<'a> {
             return None;
         }
         let mut stmts = Vec::new();
-        for _ in 0..self.remaining_tokens_count() {
+        for _ in 0..self.remaining_chars_count() {
             match self.peek().kind {
                 TokenKind::RightCurly => {
                     let origin = self.peek().origin;
@@ -1684,7 +1683,7 @@ impl<'a> Parser<'a> {
         // Heuristic.
         let mut decls = vec![decl];
 
-        for _i in 0..self.remaining_tokens_count() {
+        for _i in 0..self.remaining_chars_count() {
             if self.is_at_end() {
                 break;
             }
