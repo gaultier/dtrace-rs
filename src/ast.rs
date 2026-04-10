@@ -220,12 +220,35 @@ impl<'a> Parser<'a> {
         NodeId(self.nodes.len() - 1)
     }
 
-    fn peek(&self) -> Option<&Token> {
-        todo!()
+    fn peek(&self) -> Token {
+        let mut cpy = Lexer {
+            origin: self.lexer.origin,
+            state: self.lexer.state,
+            error_mode: self.lexer.error_mode,
+            input: self.lexer.input,
+            control_directives: Vec::new(),
+            comments: Vec::new(),
+            errors: Vec::new(),
+            chars: self.lexer.chars.clone(),
+            chars_idx: self.lexer.chars_idx,
+        };
+        cpy.lex()
     }
 
-    fn peek_peek(&self) -> Option<&Token> {
-        todo!()
+    fn peek_peek(&self) -> Token {
+        let mut cpy = Lexer {
+            origin: self.lexer.origin,
+            state: self.lexer.state,
+            error_mode: self.lexer.error_mode,
+            input: self.lexer.input,
+            control_directives: Vec::new(),
+            comments: Vec::new(),
+            errors: Vec::new(),
+            chars: self.lexer.chars.clone(),
+            chars_idx: self.lexer.chars_idx,
+        };
+        let _ = cpy.lex();
+        cpy.lex()
     }
 
     fn eat_token(&mut self) -> Option<&Token> {
@@ -234,18 +257,20 @@ impl<'a> Parser<'a> {
 
     // Used to avoid an avalanche of errors for the same line.
     fn skip_to_next_line(&mut self) {
-        let current_line = self.peek().map(|t| t.origin.line).unwrap_or(1);
+        // TODO: Could just in the lexer skip to the next '\n' char.
+        let current_line = self.lexer.origin.line;
 
         loop {
             match self.peek() {
-                None => return,
-                Some(t) if t.kind == TokenKind::Eof || t.origin.line > current_line => {
-                    //self.tokens_consumed += 1;
-                    todo!()
-                    //return;
+                Token {
+                    kind: TokenKind::Eof,
+                    ..
+                } => return,
+                Token { origin, .. } if origin.line > current_line => {
+                    return;
                 }
                 _ => {
-                    //self.tokens_consumed += 1;
+                    self.lexer.advance(1);
                     todo!()
                 }
             };
@@ -267,15 +292,11 @@ impl<'a> Parser<'a> {
     }
 
     fn match_kind(&mut self, kind: TokenKind) -> Option<Token> {
-        match self.peek() {
-            Some(t) if t.kind == kind => {
-                //let res = Some(*t);
-                //self.tokens_consumed += 1;
-                todo!();
-                //res
-            }
-            _ => None,
+        let t = self.peek();
+        if t.kind == kind {
+            return Some(self.lexer.lex());
         }
+        None
     }
 
     // primary_expression      → IDENT
@@ -290,13 +311,12 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        match self.peek() {
-            Some(
-                tok @ Token {
-                    kind: TokenKind::Identifier,
-                    ..
-                },
-            ) => {
+        let tok = self.peek();
+        match tok {
+            Token {
+                kind: TokenKind::Identifier,
+                ..
+            } => {
                 let origin = tok.origin;
                 self.eat_token();
 
@@ -311,26 +331,24 @@ impl<'a> Parser<'a> {
                     origin,
                 }))
             }
-            Some(Token {
+            Token {
                 kind: TokenKind::LiteralNumber,
                 ..
-            }) => self.parse_literal_number(),
-            Some(Token {
+            } => self.parse_literal_number(),
+            Token {
                 kind: TokenKind::LiteralCharacter,
                 ..
-            }) => {
+            } => {
                 let tok = *self.eat_token().unwrap();
                 Some(self.new_node(Node {
                     kind: NodeKind::Character,
                     origin: tok.origin,
                 }))
             }
-            Some(
-                tok @ Token {
-                    kind: TokenKind::LiteralString | TokenKind::KeywordSelf | TokenKind::KeywordThis,
-                    ..
-                },
-            ) => {
+            Token {
+                kind: TokenKind::LiteralString | TokenKind::KeywordSelf | TokenKind::KeywordThis,
+                ..
+            } => {
                 let origin = tok.origin;
                 let kind = tok.kind;
                 self.eat_token();
@@ -340,10 +358,10 @@ impl<'a> Parser<'a> {
                     origin,
                 }))
             }
-            Some(Token {
+            Token {
                 kind: TokenKind::LeftParen,
                 ..
-            }) => {
+            } => {
                 let left_paren = self.match_kind(TokenKind::LeftParen)?;
                 let e = self.parse_expr().unwrap_or_else(|| {
                     self.add_error_with_explanation(
@@ -375,10 +393,10 @@ impl<'a> Parser<'a> {
         }
 
         let mut lhs = self.parse_multiplicative_expr()?;
-        while let Some(Token {
+        while let Token {
             kind: TokenKind::Plus | TokenKind::Minus,
             ..
-        }) = self.peek()
+        } = self.peek()
         {
             let op = *self.eat_token().unwrap();
 
@@ -414,13 +432,12 @@ impl<'a> Parser<'a> {
 
         let mut lhs = self.parse_cast_expr()?;
         loop {
-            let op = match self.peek() {
-                Some(
-                    op @ Token {
-                        kind: TokenKind::Star | TokenKind::Slash | TokenKind::Percent,
-                        ..
-                    },
-                ) if self.peek_peek().map(|t| t.kind) != Some(TokenKind::LeftCurly) => *op,
+            let op = self.peek();
+            match op {
+                Token {
+                    kind: TokenKind::Star | TokenKind::Slash | TokenKind::Percent,
+                    ..
+                } if self.peek_peek().kind != TokenKind::LeftCurly => op,
                 _ => {
                     break;
                 }
@@ -488,12 +505,12 @@ impl<'a> Parser<'a> {
 
         let first_expr = self.parse_assignment_expr()?;
 
-        if self.peek().map(|t| t.kind) != Some(TokenKind::Comma) {
+        if self.peek().kind != TokenKind::Comma {
             return Some(first_expr);
         }
 
         let mut exprs = vec![first_expr];
-        let first_comma_origin = self.peek().map(|t| t.origin).unwrap();
+        let first_comma_origin = self.peek().origin;
 
         while let Some(tok) = self.match_kind(TokenKind::Comma) {
             let expr = self.parse_assignment_expr().unwrap_or_else(|| {
@@ -527,10 +544,10 @@ impl<'a> Parser<'a> {
         }
 
         match self.peek() {
-            Some(Token {
+            Token {
                 kind: TokenKind::PlusPlus | TokenKind::MinusMinus,
                 ..
-            }) => {
+            } => {
                 let op = *self.eat_token().unwrap();
                 let unary = self.parse_unary_expr().unwrap_or_else(|| {
                     self.add_error_with_explanation(
@@ -545,7 +562,7 @@ impl<'a> Parser<'a> {
                     origin: op.origin,
                 }))
             }
-            Some(Token {
+            Token {
                 kind:
                     TokenKind::Ampersand
                     | TokenKind::Star
@@ -554,7 +571,7 @@ impl<'a> Parser<'a> {
                     | TokenKind::Tilde
                     | TokenKind::Bang,
                 ..
-            }) => {
+            } => {
                 let op = *self.eat_token().unwrap();
 
                 let node = match self.parse_cast_expr() {
@@ -566,10 +583,10 @@ impl<'a> Parser<'a> {
                     origin: op.origin,
                 }))
             }
-            Some(Token {
+            Token {
                 kind: TokenKind::KeywordSizeof,
                 ..
-            }) => {
+            } => {
                 let op = *self.eat_token().unwrap();
 
                 if self.match_kind(TokenKind::LeftParen).is_some() {
@@ -599,10 +616,10 @@ impl<'a> Parser<'a> {
                     }))
                 }
             }
-            Some(Token {
+            Token {
                 kind: TokenKind::KeywordStringof,
                 ..
-            }) => {
+            } => {
                 let op = *self.eat_token().unwrap();
 
                 let unary = self.parse_unary_expr().unwrap_or_else(|| {
@@ -627,18 +644,16 @@ impl<'a> Parser<'a> {
     // Certain DTrace-specific keywords may appear as struct/union member names in member-access
     // expressions.
     fn parse_keyword_as_ident(&mut self) -> Option<Token> {
-        match self.peek().map(|t| t.kind) {
-            Some(
-                TokenKind::Identifier
-                | TokenKind::KeywordProbe
-                | TokenKind::KeywordProvider
-                | TokenKind::KeywordSelf
-                | TokenKind::KeywordString
-                | TokenKind::KeywordStringof
-                | TokenKind::KeywordUserland
-                | TokenKind::KeywordXlate
-                | TokenKind::KeywordTranslator,
-            ) => self.eat_token().copied(),
+        match self.peek().kind {
+            TokenKind::Identifier
+            | TokenKind::KeywordProbe
+            | TokenKind::KeywordProvider
+            | TokenKind::KeywordSelf
+            | TokenKind::KeywordString
+            | TokenKind::KeywordStringof
+            | TokenKind::KeywordUserland
+            | TokenKind::KeywordXlate
+            | TokenKind::KeywordTranslator => self.eat_token().copied(),
             _ => None,
         }
     }
@@ -661,10 +676,10 @@ impl<'a> Parser<'a> {
 
         // Handle `offsetof` and `xlate` first.
         match self.peek() {
-            Some(Token {
+            Token {
                 kind: TokenKind::KeywordOffsetOf,
                 ..
-            }) => {
+            } => {
                 let op = *self.eat_token().unwrap();
                 let left_paren = self
                     .expect_token_one(TokenKind::LeftParen, "opening parenthesis after offsetof");
@@ -695,10 +710,10 @@ impl<'a> Parser<'a> {
                     origin: op.origin,
                 }));
             }
-            Some(Token {
+            Token {
                 kind: TokenKind::KeywordXlate,
                 ..
-            }) => {
+            } => {
                 let op = *self.eat_token().unwrap();
                 let lt = self.expect_token_one(TokenKind::Lt, "'<' after xlate");
                 let type_name = self.parse_type_name().unwrap_or_else(|| {
@@ -737,10 +752,10 @@ impl<'a> Parser<'a> {
 
         loop {
             match self.peek() {
-                Some(Token {
+                Token {
                     kind: TokenKind::LeftSquareBracket,
                     ..
-                }) => {
+                } => {
                     let token = *self.eat_token().unwrap();
 
                     let rhs = self.parse_argument_expr_list();
@@ -754,10 +769,10 @@ impl<'a> Parser<'a> {
                         origin: token.origin,
                     });
                 }
-                Some(Token {
+                Token {
                     kind: TokenKind::LeftParen,
                     ..
-                }) => {
+                } => {
                     let token = *self.eat_token().unwrap();
 
                     let rhs = self.parse_argument_expr_list();
@@ -771,10 +786,10 @@ impl<'a> Parser<'a> {
                         origin: token.origin,
                     });
                 }
-                Some(Token {
+                Token {
                     kind: TokenKind::Dot | TokenKind::Arrow,
                     ..
-                }) => {
+                } => {
                     let op = *self.eat_token().unwrap();
                     if let Some(keyword_as_ident) = self.parse_keyword_as_ident() {
                         lhs = self.new_node(Node {
@@ -793,10 +808,10 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
-                Some(Token {
+                Token {
                     kind: TokenKind::PlusPlus | TokenKind::MinusMinus,
                     ..
-                }) => {
+                } => {
                     let op = *self.eat_token().unwrap();
 
                     lhs = self.new_node(Node {
@@ -819,10 +834,10 @@ impl<'a> Parser<'a> {
         }
 
         let expr = self.parse_assignment_expr()?;
-        let first_comma_origin = if self.peek().map(|t| t.kind) != Some(TokenKind::Comma) {
+        let first_comma_origin = if self.peek().kind != TokenKind::Comma {
             return Some(expr);
         } else {
-            self.peek().unwrap().origin
+            self.peek().origin
         };
 
         let mut args = vec![expr];
@@ -897,20 +912,18 @@ impl<'a> Parser<'a> {
 
         let lhs = self.parse_conditional_expr()?;
 
-        match self.peek().map(|t| t.kind) {
-            Some(
-                TokenKind::Eq
-                | TokenKind::PlusEq
-                | TokenKind::MinusEq
-                | TokenKind::StarEq
-                | TokenKind::SlashEq
-                | TokenKind::PercentEq
-                | TokenKind::LtLtEq
-                | TokenKind::GtGtEq
-                | TokenKind::AmpersandEq
-                | TokenKind::CaretEq
-                | TokenKind::PipeEq,
-            ) => {
+        match self.peek().kind {
+            TokenKind::Eq
+            | TokenKind::PlusEq
+            | TokenKind::MinusEq
+            | TokenKind::StarEq
+            | TokenKind::SlashEq
+            | TokenKind::PercentEq
+            | TokenKind::LtLtEq
+            | TokenKind::GtGtEq
+            | TokenKind::AmpersandEq
+            | TokenKind::CaretEq
+            | TokenKind::PipeEq => {
                 let op = *self.eat_token().unwrap();
                 let rhs = self.parse_assignment_expr().unwrap_or_else(|| {
                     self.add_error_with_explanation(
@@ -1152,10 +1165,10 @@ impl<'a> Parser<'a> {
         }
 
         let mut lhs = self.parse_relational_expr()?;
-        while let Some(Token {
+        while let Token {
             kind: TokenKind::EqEq | TokenKind::BangEq,
             ..
-        }) = self.peek()
+        } = self.peek()
         {
             let op = *self.eat_token().unwrap();
 
@@ -1190,10 +1203,10 @@ impl<'a> Parser<'a> {
         }
 
         let mut lhs = self.parse_shift_expr()?;
-        while let Some(Token {
+        while let Token {
             kind: TokenKind::Gt | TokenKind::Lt | TokenKind::LtEq | TokenKind::GtEq,
             ..
-        }) = self.peek()
+        } = self.peek()
         {
             let op = *self.eat_token().unwrap();
 
@@ -1227,7 +1240,7 @@ impl<'a> Parser<'a> {
 
         let mut lhs = self.parse_additive_expr()?;
 
-        while let Some(TokenKind::LtLt | TokenKind::GtGt) = self.peek().map(|t| t.kind) {
+        while let TokenKind::LtLt | TokenKind::GtGt = self.peek().kind {
             let op = *self.eat_token().unwrap();
             let rhs = self.parse_additive_expr().unwrap_or_else(|| {
                 self.add_error_with_explanation(
@@ -1262,8 +1275,8 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        match self.peek().map(|t| t.kind) {
-            Some(TokenKind::KeywordIf) => {
+        match self.peek().kind {
+            TokenKind::KeywordIf => {
                 let if_token = *self.eat_token().unwrap();
 
                 self.expect_token_one(TokenKind::LeftParen, "opening parenthesis in if expression");
@@ -1377,7 +1390,7 @@ impl<'a> Parser<'a> {
         }
 
         let tok = self.peek();
-        let origin = tok.map(|t| t.origin).unwrap_or_default();
+        let origin = tok.origin;
         self.eat_token().unwrap();
         let src = lex::str_from_source(self.lexer.input, &origin);
         let num: u64 = str::parse(src)
@@ -1404,7 +1417,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if matches!(self.peek().map(|t| t.kind), Some(TokenKind::LiteralNumber)) {
+        if self.peek().kind == TokenKind::LiteralNumber {
             return self.parse_literal_number();
         }
 
@@ -1435,19 +1448,19 @@ impl<'a> Parser<'a> {
         }
         let mut stmts = Vec::new();
         for _ in 0..self.remaining_tokens_count() {
-            match self.peek().map(|t| t.kind) {
-                Some(TokenKind::RightCurly) => {
-                    let origin = self.peek().unwrap().origin;
+            match self.peek().kind {
+                TokenKind::RightCurly => {
+                    let origin = self.peek().origin;
                     return Some(self.new_node(Node {
                         kind: NodeKind::Block(stmts),
                         origin,
                     }));
                 }
-                Some(TokenKind::KeywordIf) => {
+                TokenKind::KeywordIf => {
                     let stmt = self.parse_statement().unwrap();
                     stmts.push(stmt);
                 }
-                Some(TokenKind::Eof) | None => {
+                TokenKind::Eof => {
                     self.add_error_with_explanation(
                         ErrorKind::MissingStatement,
                         self.current_or_last_origin_for_err(),
@@ -1459,18 +1472,15 @@ impl<'a> Parser<'a> {
                         origin: self.current_or_last_origin_for_err(),
                     }));
                 }
-                Some(TokenKind::SemiColon) => {
+                TokenKind::SemiColon => {
                     let tok = *self.eat_token().unwrap();
                     stmts.push(self.new_node(Node {
                         kind: NodeKind::EmptyStmt,
                         origin: tok.origin,
                     }));
                 }
-                Some(_) => {
-                    let origin = self
-                        .peek()
-                        .map(|t| t.origin)
-                        .unwrap_or_else(Origin::new_unknown);
+                _ => {
+                    let origin = self.peek().origin;
 
                     let expr = self.parse_expr().unwrap_or_else(|| {
                         self.add_error_with_explanation(
@@ -1511,10 +1521,10 @@ impl<'a> Parser<'a> {
 
         let probe_specifier = self.parse_probe_specifier()?;
 
-        if self.peek().map(|t| t.kind) != Some(TokenKind::Comma) {
+        if self.peek().kind != TokenKind::Comma {
             return Some(probe_specifier);
         }
-        let first_comma_origin = self.peek().unwrap().origin;
+        let first_comma_origin = self.peek().origin;
         let mut specifiers = vec![probe_specifier];
 
         while let Some(comma) = self.match_kind(TokenKind::Comma) {
@@ -1660,13 +1670,7 @@ impl<'a> Parser<'a> {
     }
 
     fn is_at_end(&self) -> bool {
-        matches!(
-            self.peek(),
-            Some(Token {
-                kind: TokenKind::Eof,
-                ..
-            }) | None
-        )
+        self.peek().kind == TokenKind::Eof
     }
 
     // translation_unit        → external_declaration+ ;
@@ -1710,10 +1714,9 @@ impl<'a> Parser<'a> {
         assert!(!self.lexer.error_mode);
 
         loop {
-            //for _i in 0..self.tokens.len() {
-            let token_kind = match self.peek().map(|t| t.kind) {
-                None | Some(TokenKind::Eof) => break,
-                Some(t) => t,
+            let token_kind = match self.peek().kind {
+                TokenKind::Eof => break,
+                t => t,
             };
 
             if self.lexer.error_mode {
@@ -2023,14 +2026,12 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        match self.peek().map(|t| t.kind) {
-            Some(
-                TokenKind::KeywordAuto
-                | TokenKind::KeywordRegister
-                | TokenKind::KeywordStatic
-                | TokenKind::KeywordExtern
-                | TokenKind::KeywordTypedef,
-            ) => {
+        match self.peek().kind {
+            TokenKind::KeywordAuto
+            | TokenKind::KeywordRegister
+            | TokenKind::KeywordStatic
+            | TokenKind::KeywordExtern
+            | TokenKind::KeywordTypedef => {
                 let tok = *self.eat_token().unwrap();
                 Some(self.new_node(Node {
                     kind: NodeKind::StorageClassSpecifier(tok.kind),
@@ -2050,29 +2051,27 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        match self.peek().map(|t| t.kind) {
-            Some(
-                TokenKind::KeywordVoid
-                | TokenKind::KeywordChar
-                | TokenKind::KeywordShort
-                | TokenKind::KeywordInt
-                | TokenKind::KeywordLong
-                | TokenKind::KeywordFloat
-                | TokenKind::KeywordDouble
-                | TokenKind::KeywordSigned
-                | TokenKind::KeywordUnsigned
-                | TokenKind::KeywordUserland
-                | TokenKind::KeywordString,
-            ) => {
+        match self.peek().kind {
+            TokenKind::KeywordVoid
+            | TokenKind::KeywordChar
+            | TokenKind::KeywordShort
+            | TokenKind::KeywordInt
+            | TokenKind::KeywordLong
+            | TokenKind::KeywordFloat
+            | TokenKind::KeywordDouble
+            | TokenKind::KeywordSigned
+            | TokenKind::KeywordUnsigned
+            | TokenKind::KeywordUserland
+            | TokenKind::KeywordString => {
                 let tok = *self.eat_token().unwrap();
                 Some(self.new_node(Node {
                     kind: NodeKind::TypeSpecifier(tok.kind),
                     origin: tok.origin,
                 }))
             }
-            Some(TokenKind::Identifier) => {
-                let origin = self.peek().unwrap().origin;
-                let kind = self.peek().unwrap().kind;
+            TokenKind::Identifier => {
+                let origin = self.peek().origin;
+                let kind = self.peek().kind;
                 let name = lex::str_from_source(self.lexer.input, &origin);
                 if self.typenames.contains(name) {
                     Some(self.new_node(Node {
@@ -2083,10 +2082,10 @@ impl<'a> Parser<'a> {
                     None
                 }
             }
-            Some(TokenKind::KeywordStruct | TokenKind::KeywordUnion) => {
+            TokenKind::KeywordStruct | TokenKind::KeywordUnion => {
                 self.parse_struct_or_union_specifier()
             }
-            Some(TokenKind::KeywordEnum) => self.parse_enum_specifier(),
+            TokenKind::KeywordEnum => self.parse_enum_specifier(),
             _ => None,
         }
     }
@@ -2097,10 +2096,8 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        match self.peek().map(|t| t.kind) {
-            Some(
-                TokenKind::KeywordConst | TokenKind::KeywordRestrict | TokenKind::KeywordVolatile,
-            ) => {
+        match self.peek().kind {
+            TokenKind::KeywordConst | TokenKind::KeywordRestrict | TokenKind::KeywordVolatile => {
                 let tok = *self.eat_token().unwrap();
                 Some(self.new_node(Node {
                     kind: NodeKind::TypeQualifier(tok.kind),
@@ -2118,8 +2115,8 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        match self.peek().map(|t| t.kind) {
-            Some(TokenKind::KeywordSelf | TokenKind::KeywordThis) => {
+        match self.peek().kind {
+            TokenKind::KeywordSelf | TokenKind::KeywordThis => {
                 let tok = *self.eat_token().unwrap();
                 Some(self.new_node(Node {
                     kind: NodeKind::DStorageClassSpecifier(tok.kind),
@@ -2174,8 +2171,8 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let mut lhs = match self.peek().map(|t| t.kind) {
-            Some(TokenKind::Identifier) => {
+        let mut lhs = match self.peek().kind {
+            TokenKind::Identifier => {
                 let token = *self.eat_token().unwrap();
                 let identifier = lex::str_from_source(self.lexer.input, &token.origin).to_owned();
                 let identifier_node = self.new_node(Node {
@@ -2187,7 +2184,7 @@ impl<'a> Parser<'a> {
                     origin: token.origin,
                 }))
             }
-            Some(TokenKind::LeftParen) => {
+            TokenKind::LeftParen => {
                 let left_paren = *self.eat_token().unwrap();
                 let decl = self.parse_declarator().unwrap_or_else(|| {
                     self.add_error_with_explanation(
@@ -2473,11 +2470,14 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let mut lhs = match self.peek().map(|t| t.kind) {
-            Some(TokenKind::LeftParen)
+        let mut lhs = match self.peek().kind {
+            TokenKind::LeftParen
                 if matches!(
-                    self.peek_peek().map(|t| t.kind),
-                    Some(TokenKind::Star | TokenKind::LeftParen | TokenKind::LeftSquareBracket,)
+                    self.peek_peek(),
+                    Token {
+                        kind: TokenKind::Star | TokenKind::LeftParen | TokenKind::LeftSquareBracket,
+                        ..
+                    }
                 ) =>
             {
                 let tok = *self.eat_token().unwrap();
@@ -2500,7 +2500,7 @@ impl<'a> Parser<'a> {
                     origin: tok.origin,
                 }))
             }
-            Some(TokenKind::LeftParen) => {
+            TokenKind::LeftParen => {
                 let func = self.parse_function().unwrap_or_else(|| {
                     self.add_error_with_explanation(
                         ErrorKind::MissingFunction,
@@ -2511,7 +2511,7 @@ impl<'a> Parser<'a> {
                 });
                 Some(func)
             }
-            Some(TokenKind::LeftSquareBracket) => {
+            TokenKind::LeftSquareBracket => {
                 let array = self.parse_array().unwrap_or_else(|| {
                     self.add_error_with_explanation(
                         ErrorKind::MissingArray,
@@ -2527,9 +2527,9 @@ impl<'a> Parser<'a> {
         };
 
         loop {
-            match self.peek().map(|t| t.kind) {
-                Some(TokenKind::LeftSquareBracket) => {
-                    let origin = self.peek().unwrap().origin;
+            match self.peek().kind {
+                TokenKind::LeftSquareBracket => {
+                    let origin = self.peek().origin;
                     let array = self.parse_array().unwrap_or_else(|| {
                         self.add_error_with_explanation(
                             ErrorKind::MissingArray,
@@ -2543,13 +2543,18 @@ impl<'a> Parser<'a> {
                         origin,
                     }));
                 }
-                Some(TokenKind::LeftParen)
+                TokenKind::LeftParen
                     if !matches!(
-                        self.peek_peek().map(|t| t.kind),
-                        Some(TokenKind::Star | TokenKind::LeftParen | TokenKind::LeftSquareBracket,)
+                        self.peek_peek(),
+                        Token {
+                            kind: TokenKind::Star
+                                | TokenKind::LeftParen
+                                | TokenKind::LeftSquareBracket,
+                            ..
+                        }
                     ) =>
                 {
-                    let origin = self.peek().unwrap().origin;
+                    let origin = self.peek().origin;
 
                     let func = self.parse_array().unwrap_or_else(|| {
                         self.add_error_with_explanation(
@@ -2617,10 +2622,10 @@ impl<'a> Parser<'a> {
         }
 
         // Empty (valid).
-        if let Some(Token {
+        if let Token {
             kind: TokenKind::RightSquareBracket,
             ..
-        }) = self.peek()
+        } = self.peek()
         {
             return None;
         }
@@ -2760,8 +2765,8 @@ impl<'a> Parser<'a> {
 
     // function_parameters     → /* empty */ | parameter_type_list ;
     fn parse_function_parameters(&mut self) -> Option<NodeId> {
-        match self.peek().map(|t| t.kind) {
-            Some(TokenKind::RightParen | TokenKind::Eof) | None => {
+        match self.peek().kind {
+            TokenKind::RightParen | TokenKind::Eof => {
                 return None;
             }
             _ => {}
