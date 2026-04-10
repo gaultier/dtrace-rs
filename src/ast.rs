@@ -137,7 +137,6 @@ pub struct NameToDef {
 
 pub struct Parser<'a> {
     error_mode: bool,
-    pub errors: Vec<Error>,
     pub(crate) lexer: Lexer<'a>,
     pub(crate) nodes: Vec<Node>,
     pub(crate) node_to_type: HashMap<NodeId, Type>,
@@ -203,7 +202,6 @@ impl<'a> Parser<'a> {
     pub fn new(lexer: Lexer<'a>) -> Self {
         Self {
             error_mode: false,
-            errors: Vec::new(),
             nodes: Vec::new(),
             node_to_type: HashMap::new(),
             name_to_def: NameToDef::new(),
@@ -261,7 +259,9 @@ impl<'a> Parser<'a> {
             return;
         }
 
-        self.errors.push(Error::new(kind, origin, explanation));
+        self.lexer
+            .errors
+            .push(Error::new(kind, origin, explanation));
         self.error_mode = true;
 
         // Skip to the next newline to avoid having cascading errors.
@@ -1912,7 +1912,7 @@ impl<'a> Parser<'a> {
         Self::resolve_node(
             NodeId(0),
             &self.nodes,
-            &mut self.errors,
+            &mut self.lexer.errors,
             &mut self.name_to_def,
         );
     }
