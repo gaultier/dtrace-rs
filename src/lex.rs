@@ -15,8 +15,10 @@ const DEPENDS_ON_POSSIBLE_VALUES: &str = "provider, module, library";
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
 enum LexerState {
+    // S2.
     ProgramOuterScope,
     InsideControlDirective(u32 /* line */),
+    // S0.
     InsideClauseAndExpr,
 }
 
@@ -352,53 +354,144 @@ impl Lexer {
 
         let lit = &input[origin.offset as usize..origin.offset as usize + len as usize];
         let kind = match (self.state, lit) {
-            (_, "auto") => TokenKind::KeywordAuto,
-            (LexerState::ProgramOuterScope, "break") => TokenKind::KeywordBreak,
-            (LexerState::ProgramOuterScope, "case") => TokenKind::KeywordCase,
-            (LexerState::ProgramOuterScope, "char") => TokenKind::KeywordChar,
+            (LexerState::ProgramOuterScope, "auto") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordAuto
+            }
+            (LexerState::InsideClauseAndExpr, "auto") => TokenKind::KeywordAuto,
+            (LexerState::InsideClauseAndExpr, "break") => TokenKind::KeywordBreak,
+            (LexerState::InsideClauseAndExpr, "case") => TokenKind::KeywordCase,
             (LexerState::InsideClauseAndExpr, "char") => TokenKind::KeywordChar,
-            (_, "const") => TokenKind::KeywordConst,
-            (LexerState::ProgramOuterScope, "continue") => TokenKind::KeywordContinue,
-            (_, "counter") => TokenKind::KeywordCounter,
-            (LexerState::ProgramOuterScope, "default") => TokenKind::KeywordDefault,
-            (LexerState::ProgramOuterScope, "do") => TokenKind::KeywordDo,
-            (_, "double") => TokenKind::KeywordDouble,
-            (LexerState::ProgramOuterScope, "else") => TokenKind::KeywordElse,
-            (_, "enum") => TokenKind::KeywordEnum,
-            (_, "extern") => TokenKind::KeywordExtern,
-            (_, "float") => TokenKind::KeywordFloat,
-            (LexerState::ProgramOuterScope, "for") => TokenKind::KeywordFor,
-            (LexerState::ProgramOuterScope, "goto") => TokenKind::KeywordGoto,
-            (LexerState::ProgramOuterScope, "if") => TokenKind::KeywordIf,
-            (_, "import") => TokenKind::KeywordImport,
-            (_, "inline") => TokenKind::KeywordInline,
-            (_, "int") => TokenKind::KeywordInt,
-            (_, "long") => TokenKind::KeywordLong,
-            (LexerState::ProgramOuterScope, "offsetof") => TokenKind::KeywordOffsetOf,
-            (LexerState::ProgramOuterScope, "probe") => TokenKind::KeywordProbe,
-            (_, "provider") => TokenKind::KeywordProvider,
-            (_, "register") => TokenKind::KeywordRegister,
-            (_, "restrict") => TokenKind::KeywordRestrict,
-            (LexerState::ProgramOuterScope, "return") => TokenKind::KeywordReturn,
-            (_, "self") => TokenKind::KeywordSelf,
-            (_, "short") => TokenKind::KeywordShort,
-            (_, "signed") => TokenKind::KeywordSigned,
-            (LexerState::ProgramOuterScope, "sizeof") => TokenKind::KeywordSizeof,
-            (_, "static") => TokenKind::KeywordStatic,
-            (_, "string") => TokenKind::KeywordString,
-            (LexerState::ProgramOuterScope, "stringof") => TokenKind::KeywordStringof,
-            (_, "struct") => TokenKind::KeywordStruct,
-            (LexerState::ProgramOuterScope, "switch") => TokenKind::KeywordSwitch,
-            (LexerState::ProgramOuterScope, "this") => TokenKind::KeywordThis,
-            (LexerState::ProgramOuterScope, "translator") => TokenKind::KeywordTranslator,
-            (LexerState::ProgramOuterScope, "typedef") => TokenKind::KeywordTypedef,
-            (LexerState::ProgramOuterScope, "union") => TokenKind::KeywordUnion,
-            (LexerState::ProgramOuterScope, "unsigned") => TokenKind::KeywordUnsigned,
-            (LexerState::ProgramOuterScope, "userland") => TokenKind::KeywordUserland,
-            (LexerState::ProgramOuterScope, "void") => TokenKind::KeywordVoid,
-            (LexerState::ProgramOuterScope, "volatile") => TokenKind::KeywordVolatile,
-            (LexerState::ProgramOuterScope, "while") => TokenKind::KeywordWhile,
-            (LexerState::ProgramOuterScope, "xlate") => TokenKind::KeywordXlate,
+            (LexerState::ProgramOuterScope, "char") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordChar
+            }
+            (LexerState::ProgramOuterScope, "const") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordConst
+            }
+            (LexerState::InsideClauseAndExpr, "const") => TokenKind::KeywordConst,
+            (LexerState::InsideClauseAndExpr, "continue") => TokenKind::KeywordContinue,
+            (LexerState::ProgramOuterScope, "counter") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordCounter
+            }
+            (LexerState::InsideClauseAndExpr, "counter") => TokenKind::KeywordCounter,
+            (LexerState::InsideClauseAndExpr, "default") => TokenKind::KeywordDefault,
+            (LexerState::InsideClauseAndExpr, "do") => TokenKind::KeywordDo,
+            (LexerState::ProgramOuterScope, "double") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordDouble
+            }
+            (LexerState::InsideClauseAndExpr, "double") => TokenKind::KeywordDouble,
+            (LexerState::InsideClauseAndExpr, "else") => TokenKind::KeywordElse,
+            (LexerState::ProgramOuterScope, "enum") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordEnum
+            }
+            (LexerState::InsideClauseAndExpr, "enum") => TokenKind::KeywordEnum,
+            (LexerState::ProgramOuterScope, "extern") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordExtern
+            }
+            (LexerState::InsideClauseAndExpr, "extern") => TokenKind::KeywordExtern,
+            (LexerState::ProgramOuterScope, "float") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordFloat
+            }
+            (LexerState::InsideClauseAndExpr, "float") => TokenKind::KeywordFloat,
+            (LexerState::InsideClauseAndExpr, "for") => TokenKind::KeywordFor,
+            (LexerState::InsideClauseAndExpr, "goto") => TokenKind::KeywordGoto,
+            (LexerState::InsideClauseAndExpr, "if") => TokenKind::KeywordIf,
+            (LexerState::ProgramOuterScope, "import") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordImport
+            }
+            (LexerState::InsideClauseAndExpr, "import") => TokenKind::KeywordImport,
+            (LexerState::ProgramOuterScope, "inline") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordInline
+            }
+            (LexerState::InsideClauseAndExpr, "inline") => TokenKind::KeywordInline,
+            (LexerState::ProgramOuterScope, "int") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordInt
+            }
+            (LexerState::InsideClauseAndExpr, "int") => TokenKind::KeywordInt,
+            (LexerState::ProgramOuterScope, "long") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordLong
+            }
+            (LexerState::InsideClauseAndExpr, "long") => TokenKind::KeywordLong,
+            (LexerState::InsideClauseAndExpr, "offsetof") => TokenKind::KeywordOffsetOf,
+            (LexerState::InsideClauseAndExpr, "probe") => TokenKind::KeywordProbe,
+            (LexerState::ProgramOuterScope, "provider") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordProvider
+            }
+            (LexerState::InsideClauseAndExpr, "provider") => TokenKind::KeywordProvider,
+            (LexerState::ProgramOuterScope, "register") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordRegister
+            }
+            (LexerState::InsideClauseAndExpr, "register") => TokenKind::KeywordRegister,
+            (LexerState::ProgramOuterScope, "restrict") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordRestrict
+            }
+            (LexerState::InsideClauseAndExpr, "restrict") => TokenKind::KeywordRestrict,
+            (LexerState::InsideClauseAndExpr, "return") => TokenKind::KeywordReturn,
+            (LexerState::ProgramOuterScope, "self") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordSelf
+            }
+            (LexerState::InsideClauseAndExpr, "self") => TokenKind::KeywordSelf,
+            (LexerState::ProgramOuterScope, "short") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordShort
+            }
+            (LexerState::InsideClauseAndExpr, "short") => TokenKind::KeywordShort,
+            (LexerState::ProgramOuterScope, "signed") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordSigned
+            }
+            (LexerState::InsideClauseAndExpr, "signed") => TokenKind::KeywordSigned,
+            (LexerState::InsideClauseAndExpr, "sizeof") => TokenKind::KeywordSizeof,
+            (LexerState::ProgramOuterScope, "static") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordStatic
+            }
+            (LexerState::InsideClauseAndExpr, "static") => TokenKind::KeywordStatic,
+            (LexerState::ProgramOuterScope, "string") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordString
+            }
+            (LexerState::InsideClauseAndExpr, "string") => TokenKind::KeywordString,
+            (LexerState::InsideClauseAndExpr, "stringof") => TokenKind::KeywordStringof,
+            (LexerState::ProgramOuterScope, "struct") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordStruct
+            }
+            (LexerState::InsideClauseAndExpr, "struct") => TokenKind::KeywordStruct,
+            (LexerState::InsideClauseAndExpr, "switch") => TokenKind::KeywordSwitch,
+            (LexerState::ProgramOuterScope, "this") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordThis
+            }
+            (LexerState::InsideClauseAndExpr, "this") => TokenKind::KeywordThis,
+            (LexerState::ProgramOuterScope, "translator") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordTranslator
+            }
+            (LexerState::InsideClauseAndExpr, "translator") => TokenKind::KeywordTranslator,
+            (LexerState::InsideClauseAndExpr, "typedef") => TokenKind::KeywordTypedef,
+            (LexerState::InsideClauseAndExpr, "union") => TokenKind::KeywordUnion,
+            (LexerState::InsideClauseAndExpr, "unsigned") => TokenKind::KeywordUnsigned,
+            (LexerState::InsideClauseAndExpr, "userland") => TokenKind::KeywordUserland,
+            (LexerState::InsideClauseAndExpr, "void") => TokenKind::KeywordVoid,
+            (LexerState::InsideClauseAndExpr, "volatile") => TokenKind::KeywordVolatile,
+            (LexerState::InsideClauseAndExpr, "while") => TokenKind::KeywordWhile,
+            (LexerState::InsideClauseAndExpr, "xlate") => TokenKind::KeywordXlate,
             _ => TokenKind::Identifier,
         };
 
@@ -410,15 +503,28 @@ impl Lexer {
         let first = self.advance(it, 1).unwrap();
         assert!(is_character_probe_specifier_start(first));
 
-        loop {
-            match it.peek() {
-                None => {
+        /*
+         * S2 has an ambiguity because RGX_PSPEC includes '*'
+         * as a glob character and '*' also can be DT_TOK_STAR.
+         * Since lex always matches the longest token, this
+         * rule can be matched by an input string like "int*",
+         * which could begin a global variable declaration such
+         * as "int*x;" or could begin a RGX_PSPEC with globbing
+         * such as "int* { trace(timestamp); }".  If C_PSPEC is
+         * not set, we must resolve the ambiguity in favor of
+         * the type and perform lexer pushback if the fragment
+         * before '*' or entire fragment matches a type name.
+         * If C_PSPEC is set, we always return a PSPEC token.
+         * If C_PSPEC is off, the user can avoid ambiguity by
+         * including a ':' delimiter in the specifier, which
+         * they should be doing anyway to specify the provider.
+         */
+        while let Some(c) = it.peek() {
+            match c {
+                _ if !is_character_probe_specifier_rest(*c) => {
                     break;
                 }
-                Some(c) if !is_character_probe_specifier_rest(*c) => {
-                    break;
-                }
-                Some(_) => {
+                _ => {
                     self.advance(it, 1);
                 }
             }
@@ -726,7 +832,7 @@ impl Lexer {
                 self.advance(&mut it, 1);
                 token
             }
-            (_, '.') if peek3(&it) == (Some('.'), Some('.')) => {
+            (LexerState::ProgramOuterScope, '.') if peek3(&it) == (Some('.'), Some('.')) => {
                 let origin = Origin {
                     len: 3,
                     ..self.origin
@@ -751,6 +857,18 @@ impl Lexer {
                 }
             }
 
+            (LexerState::ProgramOuterScope, '.') => {
+                let origin = Origin {
+                    len: 1,
+                    ..self.origin
+                };
+                let token = Token {
+                    kind: TokenKind::Dot,
+                    origin,
+                };
+                self.advance(&mut it, 1);
+                token
+            }
             (_, '.') => {
                 let origin = Origin {
                     len: 1,
@@ -761,6 +879,7 @@ impl Lexer {
                     origin,
                 };
                 self.advance(&mut it, 1);
+                self.add_error(ErrorKind::UnexpectedPeriod);
                 token
             }
             (_, '*') if peek2(&it) == Some('=') => {
