@@ -157,7 +157,6 @@ mod wasm32 {
 #[derive(Default, Debug, Serialize)]
 pub struct CompileResult {
     pub errors: Vec<Error>,
-    pub lex_tokens: Vec<Token>,
     pub control_directives: Vec<ControlDirective>,
     pub comments: Vec<Comment>,
     pub ast_nodes: Vec<Node>,
@@ -166,18 +165,14 @@ pub struct CompileResult {
 
 #[warn(unused_results)]
 pub fn compile(input: &str, file_id: FileId) -> CompileResult {
-    let mut lexer = Lexer::new(file_id);
-    lexer.lex(input);
-    dbg!(&lexer.tokens);
-
-    let mut parser = Parser::new(input, &lexer);
+    let lexer = Lexer::new(file_id, input);
+    let mut parser = Parser::new(lexer);
     let root = parser.parse();
 
     if !parser.errors.is_empty() {
         return CompileResult {
-            lex_tokens: parser.tokens,
-            comments: lexer.comments,
-            control_directives: lexer.control_directives,
+            comments: parser.lexer.comments,
+            control_directives: parser.lexer.control_directives,
             ast_nodes: parser.nodes,
             errors: parser.errors,
             ast_root: root,
@@ -187,11 +182,10 @@ pub fn compile(input: &str, file_id: FileId) -> CompileResult {
     // TODO: Resolving, type checking, etc.
 
     CompileResult {
-        lex_tokens: lexer.tokens,
-        comments: lexer.comments,
+        comments: parser.lexer.comments,
+        control_directives: parser.lexer.control_directives,
         ast_nodes: parser.nodes,
-        errors: lexer.errors,
+        errors: parser.errors,
         ast_root: root,
-        control_directives: lexer.control_directives,
     }
 }

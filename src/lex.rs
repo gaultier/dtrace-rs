@@ -94,11 +94,12 @@ pub struct Comment {
 }
 
 #[derive(Debug)]
-pub struct Lexer {
+pub struct Lexer<'a> {
     origin: Origin,
     error_mode: bool,
     pub errors: Vec<Error>,
     state: LexerState,
+    pub(crate) input: &'a str,
     pub control_directives: Vec<ControlDirective>,
     pub comments: Vec<Comment>,
 }
@@ -297,8 +298,8 @@ fn is_character_probe_specifier_rest(c: char) -> bool {
    '-' | '<' | '>' | '+' | '$' | ':' | '0'..='9' | 'a'..='z'  |  'A'..='Z' | '_' | '.' | '?' | '*' | '\\' | '[' | ']' | '!' | '(' | ')' )
 }
 
-impl Lexer {
-    pub fn new(file_id: FileId) -> Self {
+impl<'a> Lexer<'a> {
+    pub fn new(file_id: FileId, input: &'a str) -> Self {
         Self {
             origin: Origin::new(1, 1, 0, 0, file_id),
             error_mode: false,
@@ -306,6 +307,7 @@ impl Lexer {
             state: LexerState::ProgramOuterScope,
             control_directives: Vec::new(),
             comments: Vec::new(),
+            input,
         }
     }
 
