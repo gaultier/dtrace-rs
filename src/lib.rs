@@ -11,7 +11,7 @@ use serde::Serialize;
 use crate::{
     ast::{Node, NodeId, Parser},
     error::Error,
-    lex::{Comment, ControlDirective, Lexer, Token},
+    lex::{Comment, ControlDirective, Lexer},
     origin::FileId,
 };
 

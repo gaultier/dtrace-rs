@@ -674,10 +674,10 @@ impl<'a> Lexer<'a> {
             ..start_origin
         };
 
-        return Token {
+        Token {
             kind: TokenKind::Unknown,
             origin,
-        };
+        }
     }
 
     fn advance(&mut self, it: &mut Peekable<Chars>, count: usize) -> Option<char> {
@@ -1188,11 +1188,11 @@ impl<'a> Lexer<'a> {
                     self.advance(&mut it, 2);
                     token
                 } else {
-                    let token = Token {
+                    
+                    Token {
                         kind: TokenKind::Eq,
                         origin: Origin { len: 1, ..origin },
-                    };
-                    token
+                    }
                 }
             }
             (_, '/') if peek2(&it) == Some('/') => {
@@ -1229,11 +1229,11 @@ impl<'a> Lexer<'a> {
                 };
 
                 let len = self.origin.offset - origin.offset;
-                let token = Token {
+                
+                Token {
                     kind,
                     origin: Origin { len, ..self.origin },
-                };
-                token
+                }
             }
             (LexerState::InsideClauseAndExpr, '/') => {
                 let token = Token {
@@ -1290,11 +1290,8 @@ impl<'a> Lexer<'a> {
                 };
                 self.advance(&mut it, 1);
 
-                match self.state {
-                    LexerState::ProgramOuterScope => {
-                        self.state = LexerState::InsideClauseAndExpr;
-                    }
-                    _ => {}
+                if self.state == LexerState::ProgramOuterScope {
+                    self.state = LexerState::InsideClauseAndExpr;
                 }
                 token
             }
@@ -1309,11 +1306,8 @@ impl<'a> Lexer<'a> {
                 };
                 self.advance(&mut it, 1);
 
-                match self.state {
-                    LexerState::InsideClauseAndExpr => {
-                        self.state = LexerState::ProgramOuterScope;
-                    }
-                    _ => {}
+                if self.state == LexerState::InsideClauseAndExpr {
+                    self.state = LexerState::ProgramOuterScope;
                 }
                 token
             }
@@ -2008,13 +2002,13 @@ impl<'a> Lexer<'a> {
             self.advance(it, 1);
         }
 
-        return Token {
+        Token {
             kind: TokenKind::Aggregation,
             origin: Origin {
                 len: self.origin.offset - start_origin.offset,
                 ..start_origin
             },
-        };
+        }
     }
 }
 
