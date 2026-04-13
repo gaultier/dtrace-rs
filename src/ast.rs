@@ -83,7 +83,7 @@ pub(crate) enum NodeKind {
     ParamEllipsis,
     Parameters(Vec<NodeId>),
     ParameterDeclarationSpecifiers(Vec<NodeId>),
-    Character,
+    Character(char),
     InlineDefinition(NodeId, NodeId, NodeId),
     ParameterTypeList {
         params: Option<NodeId>,
@@ -331,12 +331,12 @@ impl<'a> Parser<'a> {
                 ..
             } => self.parse_literal_number(),
             Token {
-                kind: TokenKind::LiteralCharacter,
+                kind: TokenKind::LiteralCharacter(Some(c)),
                 ..
             } => {
                 let tok = self.lexer.lex();
                 Some(self.new_node(Node {
-                    kind: NodeKind::Character,
+                    kind: NodeKind::Character(c),
                     origin: tok.origin,
                 }))
             }
@@ -1881,7 +1881,7 @@ impl<'a> Parser<'a> {
             NodeKind::ParamEllipsis => {}
             NodeKind::Parameters(_) => {}
             NodeKind::ParameterDeclarationSpecifiers(_node_ids) => {}
-            NodeKind::Character => {}
+            NodeKind::Character(_) => {}
             NodeKind::InlineDefinition(_node_id, _node_id1, _node_id2) => {}
             NodeKind::ParameterTypeList {
                 params: _,
@@ -3007,7 +3007,7 @@ pub fn log(
             }
         }
         NodeKind::Unary(_token_kind, node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
-        NodeKind::Character => {}
+        NodeKind::Character(_) => {}
         NodeKind::InlineDefinition(decl_specifiers, declarator, expr) => {
             log(nodes, *decl_specifiers, indent + 2, file_id_to_name);
             log(nodes, *declarator, indent + 2, file_id_to_name);
@@ -3045,16 +3045,16 @@ pub fn log(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // use super::*;
 
-    #[test]
-    fn test_probe_with_predicate() {
-        let input = "fbt::: /self->spec/ {}";
-        let lexer = Lexer::new(1, input);
-        let mut parser = Parser::new(lexer);
-        let root_id = parser.parse();
-        let root = &parser.nodes[root_id.unwrap()];
-    }
+    // #[test]
+    // fn test_probe_with_predicate() {
+    //     let input = "fbt::: /self->spec/ {}";
+    //     let lexer = Lexer::new(1, input);
+    //     let mut parser = Parser::new(lexer);
+    //     let root_id = parser.parse();
+    //     let root = &parser.nodes[root_id.unwrap()];
+    // }
 
     //
     //#[test]

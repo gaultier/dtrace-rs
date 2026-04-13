@@ -24,7 +24,7 @@ pub fn format<W: Write>(
     let node = &nodes[node_id];
 
     match &node.kind {
-        NodeKind::Unknown | NodeKind::Character => {
+        NodeKind::Unknown | NodeKind::Character(_) => {
             let src = lex::str_from_source(input, &node.origin);
             w.write_all(src.as_bytes())?;
         }

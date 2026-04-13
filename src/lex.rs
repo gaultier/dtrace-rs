@@ -116,7 +116,7 @@ pub struct Lexer<'a> {
 pub enum TokenKind {
     LiteralNumber,
     LiteralString,
-    LiteralCharacter,
+    LiteralCharacter(Option<char>),
     Identifier,
     ProbeSpecifier,
     Dot,
@@ -615,32 +615,60 @@ impl<'a> Lexer<'a> {
         let first = self.advance(1);
         assert_eq!(first, Some('\''));
 
-        loop {
-            match self.peek1() {
-                Some('\'') => {
-                    self.advance(1);
-                    break;
-                }
-                Some('\n') | None => {
-                    self.add_error(ErrorKind::InvalidLiteralCharacter);
-                    break;
-                }
-                Some(_) => {
-                    self.advance(1);
-                }
+        let c = match (self.peek1(), self.peek2()) {
+            // Escape sequence.
+            (Some('\\'), Some('a')) => {
+                self.advance(2);
+                Some(7 as char)
             }
-        }
-
-        let len = self.origin.offset - start_origin.offset;
-        // TODO: Limit length, unescape.
-        let origin = Origin {
-            len,
-            ..start_origin
+            (Some('\\'), Some('b')) => {
+                self.advance(2);
+                Some(8 as char)
+            }
+            (Some('\\'), Some('f')) => {
+                self.advance(2);
+                Some(12 as char)
+            }
+            (Some('\\'), Some('n')) => {
+                self.advance(2);
+                Some(10 as char)
+            }
+            (Some('\\'), Some('r')) => {
+                self.advance(2);
+                Some(13 as char)
+            }
+            (Some('\\'), Some('t')) => {
+                self.advance(2);
+                Some(9 as char)
+            }
+            (Some('\\'), Some('v')) => {
+                self.advance(2);
+                Some(11 as char)
+            }
+            // Unescaped
+            (Some(c), Some('\'')) => {
+                self.advance(2);
+                Some(c)
+            }
+            _ => {
+                self.add_error(ErrorKind::InvalidLiteralCharacter);
+                // Skip.
+                while let Some(c) = self.peek1() {
+                    if c == '\n' || c == '\'' {
+                        break;
+                    }
+                    self.advance(1);
+                }
+                None
+            }
         };
 
         Token {
-            kind: TokenKind::LiteralCharacter,
-            origin,
+            kind: TokenKind::LiteralCharacter(c),
+            origin: Origin {
+                len: self.origin.offset - start_origin.offset,
+                ..start_origin
+            },
         }
     }
 
@@ -2335,6 +2363,30 @@ mod tests {
             assert_eq!(token.kind, TokenKind::LiteralNumber);
             let s = str_from_source(input, &token.origin);
             assert_eq!(s, "0xcafebabe");
+        }
+    }
+
+    #[test]
+    fn test_lex_character_literal() {
+        let input = "'r'";
+        let mut lexer = Lexer::new(1, input);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(Some('r')));
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, "'r'");
+        }
+    }
+
+    #[test]
+    fn test_lex_character_literal_escape_sequence() {
+        let input = "'\r'";
+        let mut lexer = Lexer::new(1, input);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(13 as char)));
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, "'\r'");
         }
     }
 }
