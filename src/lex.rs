@@ -657,7 +657,7 @@ impl<'a> Lexer<'a> {
             let mut count = 0;
             while let Some(c) = self.peek1() {
                 match c {
-                    '0'..'9' | 'a'..'f' | 'A'..'Z' => {
+                    '0'..='9' | 'a'..='f' | 'A'..='Z' => {
                         self.advance(1);
                         count += 1;
                     }
@@ -672,7 +672,7 @@ impl<'a> Lexer<'a> {
         } else {
             while let Some(c) = self.peek1() {
                 match c {
-                    '0'..'9' => {
+                    '0'..='9' => {
                         self.advance(1);
                     }
                     '.' => {
@@ -1245,24 +1245,27 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 token
             }
-            (_, '=') => {
+            (_, '=') if self.peek2() == Some('=') => {
                 let origin = self.origin;
+
+                let token = Token {
+                    kind: TokenKind::EqEq,
+                    origin: Origin { len: 2, ..origin },
+                };
+                self.advance(2);
+                token
+            }
+            (_, '=') => {
+                let origin = Origin {
+                    len: 1,
+                    ..self.origin
+                };
+                let token = Token {
+                    kind: TokenKind::Eq,
+                    origin,
+                };
                 self.advance(1);
-                if let Some(next) = self.peek1()
-                    && next == '='
-                {
-                    let token = Token {
-                        kind: TokenKind::EqEq,
-                        origin: Origin { len: 2, ..origin },
-                    };
-                    self.advance(2);
-                    token
-                } else {
-                    Token {
-                        kind: TokenKind::Eq,
-                        origin: Origin { len: 1, ..origin },
-                    }
-                }
+                token
             }
             (_, '/') if self.peek2() == Some('/') => {
                 self.single_line_comment();
@@ -2246,6 +2249,64 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Slash);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralNumber);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::ClosePredicateDelimiter);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LeftCurly);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::RightCurly);
+        }
+    }
+
+    #[test]
+    fn test_predicate() {
+        let input = r#"syscall::read:entry,
+        syscall::write:entry
+        /pid == 102429/
+        {
+        }
+"#;
+        let mut lexer = Lexer::new(1, input);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, "syscall::read:entry");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Comma);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, "syscall::write:entry");
+        }
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Slash);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Identifier);
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, "pid");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::EqEq);
         }
         {
             let token = lexer.lex();
