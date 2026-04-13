@@ -819,7 +819,7 @@ impl<'a> Lexer<'a> {
                     kind: TokenKind::MinusMinus,
                     origin,
                 };
-                self.advance(1);
+                self.advance(2);
                 token
             }
             (_, '-') if self.peek2() == Some('=') => {
@@ -831,7 +831,7 @@ impl<'a> Lexer<'a> {
                     kind: TokenKind::MinusEq,
                     origin,
                 };
-                self.advance(1);
+                self.advance(2);
                 token
             }
             (_, '-') if self.peek2() == Some('>') => {
@@ -843,7 +843,7 @@ impl<'a> Lexer<'a> {
                     kind: TokenKind::Arrow,
                     origin,
                 };
-                self.advance(1);
+                self.advance(2);
                 token
             }
             (_, '-') => {
