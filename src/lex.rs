@@ -1504,6 +1504,7 @@ impl<'a> Lexer<'a> {
             }
             (_, '"') => self.lex_literal_string(),
             (_, '\'') => self.lex_literal_character(),
+            // Macro.
             (LexerState::ProgramOuterScope, '$') => todo!(),
             (LexerState::InsideClauseAndExpr, '@') => self.lex_aggregation(),
             _ if c.is_ascii_digit() => self.lex_literal_number(),
