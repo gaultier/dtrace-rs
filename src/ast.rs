@@ -1746,11 +1746,11 @@ impl<'a> Parser<'a> {
 
     #[warn(unused_results)]
     pub fn parse(&mut self) -> Option<NodeId> {
-        let root = self.parse_program();
+        
 
         // self.resolve_nodes();
 
-        root
+        self.parse_program()
     }
 
     fn resolve_node(

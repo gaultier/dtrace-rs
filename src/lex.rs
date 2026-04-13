@@ -824,7 +824,7 @@ impl<'a> Lexer<'a> {
 
     fn peek3(&self) -> (Option<char>, Option<char>, Option<char>) {
         (
-            self.chars.get(self.chars_idx + 0).copied(),
+            self.chars.get(self.chars_idx).copied(),
             self.chars.get(self.chars_idx + 1).copied(),
             self.chars.get(self.chars_idx + 2).copied(),
         )
@@ -1565,7 +1565,7 @@ impl<'a> Lexer<'a> {
                 kind: TokenKind::Identifier,
                 origin: origin_ident,
             }) => {
-                let src = str_from_source(self.input, &origin_ident);
+                let src = str_from_source(self.input, origin_ident);
                 match src {
                     "line" => self.control_directive_line(&tokens[1..], origin),
                     "pragma" if tokens.len() > 1 => {
