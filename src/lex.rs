@@ -339,6 +339,31 @@ impl<'a> Lexer<'a> {
         assert!(!(first.is_ascii_whitespace() || first == '"'));
 
         while let Some(c) = self.peek1() {
+            if !self.is_identifier_character_trailing(c) {
+                break;
+            }
+
+            self.advance(1);
+        }
+
+        let len = self.origin.offset - start_origin.offset;
+        let origin = Origin {
+            len,
+            ..start_origin
+        };
+
+        Token {
+            kind: TokenKind::Identifier,
+            origin,
+        }
+    }
+
+    fn lex_pragma_identifier(&mut self) -> Token {
+        let start_origin = self.origin;
+        let first = self.advance(1).unwrap();
+        assert!(!(first.is_ascii_whitespace() || first == '"'));
+
+        while let Some(c) = self.peek1() {
             if c.is_ascii_whitespace() || c == '"' {
                 break;
             }
@@ -358,27 +383,9 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn lex_keyword(&mut self) -> Token {
-        let start_origin = self.origin;
-        let first = self.advance(1).unwrap();
-        assert!(self.is_identifier_character_leading(first));
-
-        while let Some(c) = self.peek1() {
-            if !self.is_identifier_character_trailing(c) {
-                break;
-            }
-
-            self.advance(1);
-        }
-
-        let len = self.origin.offset - start_origin.offset;
-        let origin = Origin {
-            len,
-            ..start_origin
-        };
-
-        let lit = &self.input[origin.offset as usize..origin.offset as usize + len as usize];
-        let kind = match (self.state, lit) {
+    fn lex_convert_to_keyword(&mut self, token: Token) -> Token {
+        let s = str_from_source(self.input, &token.origin);
+        let kind = match (self.state, s) {
             (LexerState::ProgramOuterScope, "auto") => {
                 self.state = LexerState::InsideClauseAndExpr;
                 TokenKind::KeywordAuto
@@ -517,10 +524,13 @@ impl<'a> Lexer<'a> {
             (LexerState::InsideClauseAndExpr, "volatile") => TokenKind::KeywordVolatile,
             (LexerState::InsideClauseAndExpr, "while") => TokenKind::KeywordWhile,
             (LexerState::InsideClauseAndExpr, "xlate") => TokenKind::KeywordXlate,
-            _ => TokenKind::Identifier,
+            _ => token.kind,
         };
 
-        Token { kind, origin }
+        Token {
+            kind,
+            origin: token.origin,
+        }
     }
 
     fn lex_probe_specifier(&mut self) -> Token {
@@ -1282,7 +1292,6 @@ impl<'a> Lexer<'a> {
                     }
                 }
 
-                dbg!(self.peek1());
                 let kind = match self.peek1() {
                     None | Some(';' | '{' | '/') => TokenKind::ClosePredicateDelimiter,
                     _ => TokenKind::Slash,
@@ -1455,18 +1464,18 @@ impl<'a> Lexer<'a> {
             (LexerState::InsideControlDirective(_), _)
                 if !(c.is_ascii_whitespace() || c == '"') =>
             {
-                self.lex_identifier()
+                self.lex_pragma_identifier()
             }
-            // FIXME: Keywords must have the highest predence.
+            (LexerState::ProgramOuterScope, _) if is_character_probe_specifier_start(c) => {
+                // TODO: Handle ambiguity of '*'.
+                let token = self.lex_probe_specifier();
+                self.lex_convert_to_keyword(token)
+            }
             (LexerState::InsideClauseAndExpr | LexerState::ProgramOuterScope, _)
                 if self.is_identifier_character_leading(c) =>
             {
-                self.lex_keyword()
-            }
-            // FIXME: Keywords must have the highest predence.
-            (LexerState::ProgramOuterScope, _) if is_character_probe_specifier_start(c) => {
-                // TODO: Handle ambiguity of '*'.
-                self.lex_probe_specifier()
+                let token = self.lex_identifier();
+                self.lex_convert_to_keyword(token)
             }
             _ => {
                 let token = Token {
@@ -2162,7 +2171,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
 
 #[cfg(test)]
 mod tests {
-    use crate::lex::{Lexer, TokenKind, str_from_source};
+    use crate::lex::{Lexer, LexerState, TokenKind, str_from_source};
 
     #[test]
     fn test_probe_specifier() {
@@ -2184,6 +2193,7 @@ mod tests {
             let s = str_from_source(input, &token.origin);
             assert_eq!(s, "fbt:::");
         }
+        lexer.begin(LexerState::InsideClauseAndExpr);
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Slash);
