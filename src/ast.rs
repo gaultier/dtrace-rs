@@ -251,10 +251,6 @@ impl<'a> Parser<'a> {
         cpy.lex()
     }
 
-    fn eat_token(&mut self) -> Option<&Token> {
-        todo!()
-    }
-
     // Used to avoid an avalanche of errors for the same line.
     fn skip_to_next_line(&mut self) {
         // TODO: Could just in the lexer skip to the next '\n' char.
@@ -317,10 +313,9 @@ impl<'a> Parser<'a> {
                 kind: TokenKind::Identifier,
                 ..
             } => {
-                let origin = tok.origin;
-                self.eat_token();
+                let tok = self.lexer.lex();
 
-                let identifier = lex::str_from_source(self.lexer.input, &origin).to_owned();
+                let identifier = lex::str_from_source(self.lexer.input, &tok.origin).to_owned();
 
                 Some(self.new_node(Node {
                     kind: if identifier.starts_with("@") {
@@ -328,7 +323,7 @@ impl<'a> Parser<'a> {
                     } else {
                         NodeKind::Identifier(identifier)
                     },
-                    origin,
+                    origin: tok.origin,
                 }))
             }
             Token {
@@ -339,7 +334,7 @@ impl<'a> Parser<'a> {
                 kind: TokenKind::LiteralCharacter,
                 ..
             } => {
-                let tok = *self.eat_token().unwrap();
+                let tok = self.lexer.lex();
                 Some(self.new_node(Node {
                     kind: NodeKind::Character,
                     origin: tok.origin,
@@ -349,13 +344,11 @@ impl<'a> Parser<'a> {
                 kind: TokenKind::LiteralString | TokenKind::KeywordSelf | TokenKind::KeywordThis,
                 ..
             } => {
-                let origin = tok.origin;
-                let kind = tok.kind;
-                self.eat_token();
+                let tok = self.lexer.lex();
 
                 Some(self.new_node(Node {
-                    kind: NodeKind::PrimaryToken(kind),
-                    origin,
+                    kind: NodeKind::PrimaryToken(tok.kind),
+                    origin: tok.origin,
                 }))
             }
             Token {
@@ -398,7 +391,7 @@ impl<'a> Parser<'a> {
             ..
         } = self.peek()
         {
-            let op = *self.eat_token().unwrap();
+            let op = self.lexer.lex();
 
             let rhs = match self.parse_multiplicative_expr() {
                 None => {
@@ -442,7 +435,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
             };
-            self.eat_token().unwrap();
+            let op = self.lexer.lex();
 
             let rhs = match self.parse_cast_expr() {
                 None => {
@@ -548,7 +541,7 @@ impl<'a> Parser<'a> {
                 kind: TokenKind::PlusPlus | TokenKind::MinusMinus,
                 ..
             } => {
-                let op = *self.eat_token().unwrap();
+                let op = self.lexer.lex();
                 let unary = self.parse_unary_expr().unwrap_or_else(|| {
                     self.add_error_with_explanation(
                         ErrorKind::MissingExpr,
@@ -572,7 +565,7 @@ impl<'a> Parser<'a> {
                     | TokenKind::Bang,
                 ..
             } => {
-                let op = *self.eat_token().unwrap();
+                let op = self.lexer.lex();
 
                 let node = match self.parse_cast_expr() {
                     None => self.new_node_unknown(),
@@ -587,7 +580,7 @@ impl<'a> Parser<'a> {
                 kind: TokenKind::KeywordSizeof,
                 ..
             } => {
-                let op = *self.eat_token().unwrap();
+                let op = self.lexer.lex();
 
                 if self.match_kind(TokenKind::LeftParen).is_some() {
                     let typename = self
@@ -620,7 +613,7 @@ impl<'a> Parser<'a> {
                 kind: TokenKind::KeywordStringof,
                 ..
             } => {
-                let op = *self.eat_token().unwrap();
+                let op = self.lexer.lex();
 
                 let unary = self.parse_unary_expr().unwrap_or_else(|| {
                     self.add_error_with_explanation(
@@ -653,7 +646,7 @@ impl<'a> Parser<'a> {
             | TokenKind::KeywordStringof
             | TokenKind::KeywordUserland
             | TokenKind::KeywordXlate
-            | TokenKind::KeywordTranslator => self.eat_token().copied(),
+            | TokenKind::KeywordTranslator => Some(self.lexer.lex()),
             _ => None,
         }
     }
@@ -680,7 +673,7 @@ impl<'a> Parser<'a> {
                 kind: TokenKind::KeywordOffsetOf,
                 ..
             } => {
-                let op = *self.eat_token().unwrap();
+                let op = self.lexer.lex();
                 let left_paren = self
                     .expect_token_one(TokenKind::LeftParen, "opening parenthesis after offsetof");
                 let type_name = self.parse_type_name().unwrap_or_else(|| {
@@ -714,7 +707,7 @@ impl<'a> Parser<'a> {
                 kind: TokenKind::KeywordXlate,
                 ..
             } => {
-                let op = *self.eat_token().unwrap();
+                let op = self.lexer.lex();
                 let lt = self.expect_token_one(TokenKind::Lt, "'<' after xlate");
                 let type_name = self.parse_type_name().unwrap_or_else(|| {
                     self.add_error_with_explanation(
@@ -756,7 +749,7 @@ impl<'a> Parser<'a> {
                     kind: TokenKind::LeftSquareBracket,
                     ..
                 } => {
-                    let token = *self.eat_token().unwrap();
+                    let op = self.lexer.lex();
 
                     let rhs = self.parse_argument_expr_list();
                     self.expect_token_one(
@@ -766,14 +759,14 @@ impl<'a> Parser<'a> {
 
                     lhs = self.new_node(Node {
                         kind: NodeKind::PostfixArrayAccess(lhs, rhs),
-                        origin: token.origin,
+                        origin: op.origin,
                     });
                 }
                 Token {
                     kind: TokenKind::LeftParen,
                     ..
                 } => {
-                    let token = *self.eat_token().unwrap();
+                    let op = self.lexer.lex();
 
                     let rhs = self.parse_argument_expr_list();
                     self.expect_token_one(
@@ -783,14 +776,14 @@ impl<'a> Parser<'a> {
 
                     lhs = self.new_node(Node {
                         kind: NodeKind::PostfixArguments(lhs, rhs),
-                        origin: token.origin,
+                        origin: op.origin,
                     });
                 }
                 Token {
                     kind: TokenKind::Dot | TokenKind::Arrow,
                     ..
                 } => {
-                    let op = *self.eat_token().unwrap();
+                    let op = self.lexer.lex();
                     if let Some(keyword_as_ident) = self.parse_keyword_as_ident() {
                         lhs = self.new_node(Node {
                             kind: NodeKind::FieldAccess(lhs, op.kind, keyword_as_ident),
@@ -812,7 +805,7 @@ impl<'a> Parser<'a> {
                     kind: TokenKind::PlusPlus | TokenKind::MinusMinus,
                     ..
                 } => {
-                    let op = *self.eat_token().unwrap();
+                    let op = self.lexer.lex();
 
                     lhs = self.new_node(Node {
                         kind: NodeKind::PostfixIncDecrement(lhs, op.kind),
@@ -924,7 +917,7 @@ impl<'a> Parser<'a> {
             | TokenKind::AmpersandEq
             | TokenKind::CaretEq
             | TokenKind::PipeEq => {
-                let op = *self.eat_token().unwrap();
+                let op = self.lexer.lex();
                 let rhs = self.parse_assignment_expr().unwrap_or_else(|| {
                     self.add_error_with_explanation(
                         ErrorKind::MissingExpr,
@@ -1170,7 +1163,7 @@ impl<'a> Parser<'a> {
             ..
         } = self.peek()
         {
-            let op = *self.eat_token().unwrap();
+            let op = self.lexer.lex();
 
             let rhs = match self.parse_relational_expr() {
                 None => {
@@ -1208,8 +1201,7 @@ impl<'a> Parser<'a> {
             ..
         } = self.peek()
         {
-            let op = *self.eat_token().unwrap();
-
+            let op = self.lexer.lex();
             let rhs = match self.parse_shift_expr() {
                 None => {
                     self.add_error_with_explanation(
@@ -1241,7 +1233,7 @@ impl<'a> Parser<'a> {
         let mut lhs = self.parse_additive_expr()?;
 
         while let TokenKind::LtLt | TokenKind::GtGt = self.peek().kind {
-            let op = *self.eat_token().unwrap();
+            let op = self.lexer.lex();
             let rhs = self.parse_additive_expr().unwrap_or_else(|| {
                 self.add_error_with_explanation(
                     ErrorKind::MissingExpr,
@@ -1277,7 +1269,7 @@ impl<'a> Parser<'a> {
 
         match self.peek().kind {
             TokenKind::KeywordIf => {
-                let if_token = *self.eat_token().unwrap();
+                let if_token = self.lexer.lex();
 
                 self.expect_token_one(TokenKind::LeftParen, "opening parenthesis in if expression");
                 let cond = self.parse_expr().unwrap_or_else(|| {
@@ -1387,15 +1379,13 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let tok = self.peek();
-        let origin = tok.origin;
-        self.eat_token().unwrap();
-        let src = lex::str_from_source(self.lexer.input, &origin);
+        let tok = self.lexer.lex();
+        let src = lex::str_from_source(self.lexer.input, &tok.origin);
         let num: u64 = str::parse(src)
             .map_err(|err: ParseIntError| {
                 self.add_error_with_explanation(
                     ErrorKind::InvalidLiteralNumber,
-                    origin,
+                    tok.origin,
                     err.to_string(),
                 );
             })
@@ -1403,7 +1393,7 @@ impl<'a> Parser<'a> {
 
         let node_id = self.new_node(Node {
             kind: NodeKind::Number(num),
-            origin,
+            origin: tok.origin,
         });
         self.node_to_type.insert(node_id, Type::new_int());
         Some(node_id)
@@ -1471,7 +1461,7 @@ impl<'a> Parser<'a> {
                     }));
                 }
                 TokenKind::SemiColon => {
-                    let tok = *self.eat_token().unwrap();
+                    let tok = self.lexer.lex();
                     stmts.push(self.new_node(Node {
                         kind: NodeKind::EmptyStmt,
                         origin: tok.origin,
@@ -2027,7 +2017,7 @@ impl<'a> Parser<'a> {
             | TokenKind::KeywordStatic
             | TokenKind::KeywordExtern
             | TokenKind::KeywordTypedef => {
-                let tok = *self.eat_token().unwrap();
+                let tok = self.lexer.lex();
                 Some(self.new_node(Node {
                     kind: NodeKind::StorageClassSpecifier(tok.kind),
                     origin: tok.origin,
@@ -2058,7 +2048,7 @@ impl<'a> Parser<'a> {
             | TokenKind::KeywordUnsigned
             | TokenKind::KeywordUserland
             | TokenKind::KeywordString => {
-                let tok = *self.eat_token().unwrap();
+                let tok = self.lexer.lex();
                 Some(self.new_node(Node {
                     kind: NodeKind::TypeSpecifier(tok.kind),
                     origin: tok.origin,
@@ -2093,7 +2083,7 @@ impl<'a> Parser<'a> {
 
         match self.peek().kind {
             TokenKind::KeywordConst | TokenKind::KeywordRestrict | TokenKind::KeywordVolatile => {
-                let tok = *self.eat_token().unwrap();
+                let tok = self.lexer.lex();
                 Some(self.new_node(Node {
                     kind: NodeKind::TypeQualifier(tok.kind),
                     origin: tok.origin,
@@ -2112,7 +2102,7 @@ impl<'a> Parser<'a> {
 
         match self.peek().kind {
             TokenKind::KeywordSelf | TokenKind::KeywordThis => {
-                let tok = *self.eat_token().unwrap();
+                let tok = self.lexer.lex();
                 Some(self.new_node(Node {
                     kind: NodeKind::DStorageClassSpecifier(tok.kind),
                     origin: tok.origin,
@@ -2168,19 +2158,19 @@ impl<'a> Parser<'a> {
 
         let mut lhs = match self.peek().kind {
             TokenKind::Identifier => {
-                let token = *self.eat_token().unwrap();
-                let identifier = lex::str_from_source(self.lexer.input, &token.origin).to_owned();
+                let tok = self.lexer.lex();
+                let identifier = lex::str_from_source(self.lexer.input, &tok.origin).to_owned();
                 let identifier_node = self.new_node(Node {
                     kind: NodeKind::Identifier(identifier),
-                    origin: token.origin,
+                    origin: tok.origin,
                 });
                 Some(self.new_node(Node {
                     kind: NodeKind::DirectDeclarator(identifier_node, None),
-                    origin: token.origin,
+                    origin: tok.origin,
                 }))
             }
             TokenKind::LeftParen => {
-                let left_paren = *self.eat_token().unwrap();
+                let left_paren = self.lexer.lex();
                 let decl = self.parse_declarator().unwrap_or_else(|| {
                     self.add_error_with_explanation(
                         ErrorKind::MissingDeclarator,
@@ -2475,7 +2465,7 @@ impl<'a> Parser<'a> {
                     }
                 ) =>
             {
-                let tok = *self.eat_token().unwrap();
+                let tok = self.lexer.lex();
 
                 let abstract_decl = self.parse_abstract_declarator().unwrap_or_else(|| {
                     self.add_error_with_explanation(
