@@ -116,7 +116,7 @@ pub struct Lexer<'a> {
 pub enum TokenKind {
     LiteralNumber,
     LiteralString,
-    LiteralCharacter(Option<char>),
+    LiteralCharacter(Option<i32>),
     Identifier,
     ProbeSpecifier,
     Dot,
@@ -619,46 +619,72 @@ impl<'a> Lexer<'a> {
             // Escape sequence.
             (Some('\\'), Some('a')) => {
                 self.advance(2);
-                Some(7 as char)
+                Some(7)
             }
             (Some('\\'), Some('b')) => {
                 self.advance(2);
-                Some(8 as char)
+                Some(8)
             }
             (Some('\\'), Some('f')) => {
                 self.advance(2);
-                Some(12 as char)
+                Some(12)
             }
             (Some('\\'), Some('n')) => {
                 self.advance(2);
-                Some(10 as char)
+                Some(10)
             }
             (Some('\\'), Some('r')) => {
                 self.advance(2);
-                Some(13 as char)
+                Some(13)
             }
             (Some('\\'), Some('t')) => {
                 self.advance(2);
-                Some(9 as char)
+                Some(9)
             }
             (Some('\\'), Some('v')) => {
                 self.advance(2);
-                Some(11 as char)
+                Some(11)
+            }
+            (Some('\\'), Some('"')) => {
+                self.advance(2);
+                Some('"' as i32)
+            }
+            (Some('\\'), Some('\\')) => {
+                self.advance(2);
+                Some('\\' as i32)
+            }
+            // Octal sequence.
+            (Some('\\'), Some('0'..='7')) => 'octal: {
+                self.advance(1);
+                let start = self.origin.offset as usize;
+                while let Some('0'..='7') = self.peek1() {
+                    self.advance(1);
+                }
+                if let Some('\'') = self.peek1() {
+                    self.advance(1);
+                } else {
+                    self.add_error(ErrorKind::InvalidLiteralCharacter);
+                    break 'octal None;
+                }
+
+                let s = &self.input[start..self.origin.offset as usize - 1];
+
+                match i32::from_str_radix(s, 8) {
+                    Ok(c) => Some(c),
+                    Err(_) => {
+                        self.add_error(ErrorKind::InvalidLiteralCharacter);
+                        None
+                    }
+                }
             }
             // Unescaped
             (Some(c), Some('\'')) => {
                 self.advance(2);
-                Some(c)
+                Some(c as i32)
             }
             _ => {
                 self.add_error(ErrorKind::InvalidLiteralCharacter);
-                // Skip.
-                while let Some(c) = self.peek1() {
-                    if c == '\n' || c == '\'' {
-                        break;
-                    }
-                    self.advance(1);
-                }
+                self.skip_until_or_newline('\'');
                 None
             }
         };
@@ -2102,6 +2128,15 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn skip_until_or_newline(&mut self, arg: char) {
+        while let Some(c) = self.peek1() {
+            if c == arg || c == '\n' {
+                break;
+            }
+            self.advance(1);
+        }
+    }
+
     fn skip_until(&mut self, arg: char) {
         while let Some(c) = self.peek1() {
             if c == arg {
@@ -2372,21 +2407,33 @@ mod tests {
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralCharacter(Some('r')));
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(Some('r' as i32)));
             let s = str_from_source(input, &token.origin);
             assert_eq!(s, "'r'");
         }
     }
 
     #[test]
-    fn test_lex_character_literal_escape_sequence() {
+    fn test_lex_character_literal_escape_sequence_c() {
         let input = "'\r'";
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(13 as char)));
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(13)));
             let s = str_from_source(input, &token.origin);
             assert_eq!(s, "'\r'");
+        }
+    }
+
+    #[test]
+    fn test_lex_character_literal_escape_sequence_octal() {
+        let input = "'\\0103'";
+        let mut lexer = Lexer::new(1, input);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(0o103)));
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, "'\\0103'");
         }
     }
 }
