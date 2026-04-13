@@ -2325,4 +2325,16 @@ mod tests {
             assert_eq!(token.kind, TokenKind::RightCurly);
         }
     }
+
+    #[test]
+    fn test_lex_hex_number() {
+        let input = "0xcafebabe";
+        let mut lexer = Lexer::new(1, input);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralNumber);
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, "0xcafebabe");
+        }
+    }
 }
