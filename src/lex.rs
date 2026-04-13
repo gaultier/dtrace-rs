@@ -1,3 +1,4 @@
+use log::info;
 use serde::Serialize;
 
 use crate::{
@@ -71,6 +72,11 @@ pub enum PragmaDependsOnKind {
 pub struct ControlDirective {
     pub origin: Origin,
     pub kind: ControlDirectiveKind,
+}
+impl ControlDirective {
+    pub fn log(&self, file_id_to_name: &std::collections::HashMap<u32, String>) {
+        info!("{}: {:?}", self.origin.display(file_id_to_name), self.kind);
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -1457,7 +1463,7 @@ impl<'a> Lexer<'a> {
                 // According to K&R[A12.9], we silently ignore null directive lines.
                 Ok(ControlDirective {
                     kind: ControlDirectiveKind::Ignored,
-                    origin: Origin::new_unknown(),
+                    origin: self.origin,
                 })
             }
             Some(Token {

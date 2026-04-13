@@ -43,6 +43,9 @@ fn main() {
             }
             if let Some(root) = compiled.ast_root {
                 compiler_rs_lib::ast::log(&compiled.ast_nodes, root, 0, &file_id_to_name);
+                for ctrl in compiled.control_directives {
+                    ctrl.log(&file_id_to_name);
+                }
             } else {
                 info!("no root node, nothing to log: {:#?}", &compiled);
             }
