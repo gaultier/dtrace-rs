@@ -644,6 +644,10 @@ impl<'a> Lexer<'a> {
                 self.advance(3);
                 Some('"' as i32)
             }
+            (Some('\\'), Some('\''), Some('\'')) => {
+                self.advance(3);
+                Some('\'' as i32)
+            }
             (Some('\\'), Some('\\'), Some('\'')) => {
                 self.advance(3);
                 Some('\\' as i32)
@@ -708,7 +712,6 @@ impl<'a> Lexer<'a> {
             }
         };
 
-        dbg!(c, start_origin);
         Token {
             kind: TokenKind::LiteralCharacter(c),
             origin: Origin {

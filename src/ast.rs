@@ -83,7 +83,7 @@ pub(crate) enum NodeKind {
     ParamEllipsis,
     Parameters(Vec<NodeId>),
     ParameterDeclarationSpecifiers(Vec<NodeId>),
-    Character(i32),
+    Character(Option<i32>),
     InlineDefinition(NodeId, NodeId, NodeId),
     ParameterTypeList {
         params: Option<NodeId>,
@@ -267,7 +267,6 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     self.lexer.advance(1);
-                    todo!()
                 }
             };
         }
@@ -331,7 +330,7 @@ impl<'a> Parser<'a> {
                 ..
             } => self.parse_literal_number(),
             Token {
-                kind: TokenKind::LiteralCharacter(Some(c)),
+                kind: TokenKind::LiteralCharacter(c),
                 ..
             } => {
                 let tok = self.lexer.lex();
@@ -922,7 +921,7 @@ impl<'a> Parser<'a> {
                     self.add_error_with_explanation(
                         ErrorKind::MissingExpr,
                         op.origin,
-                        String::from("expected unary expression after assignment operator"),
+                        String::from("expected expression after assignment operator"),
                     );
                     self.new_node_unknown()
                 });
