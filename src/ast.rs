@@ -8,7 +8,7 @@ use std::{
 use crate::{
     error::{Error, ErrorKind},
     lex::{self, Lexer, Token, TokenKind},
-    origin::Origin,
+    origin::{FileId, Origin},
     type_checker::Type,
 };
 use log::trace;
@@ -1754,9 +1754,6 @@ impl<'a> Parser<'a> {
     #[warn(unused_results)]
     pub fn parse(&mut self) -> Option<NodeId> {
         let root = self.parse_program();
-        if let Some(root) = root {
-            log(&self.nodes, root, 0);
-        }
 
         // self.resolve_nodes();
 
@@ -2787,11 +2784,17 @@ impl<'a> Parser<'a> {
     }
 }
 
-fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
+pub fn log(
+    nodes: &[Node],
+    node_id: NodeId,
+    indent: usize,
+    file_id_to_name: &HashMap<FileId, String>,
+) {
     let node = &nodes[node_id];
     trace!(
-        "{:indent$} id={} kind={:?}",
+        "{:indent$}{}: id={} kind={:?}",
         "",
+        node.origin.display(file_id_to_name),
         node_id.0,
         node.kind,
         indent = indent
@@ -2800,38 +2803,38 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         NodeKind::Unknown => {}
         NodeKind::Block(node_ids) => {
             for id in node_ids {
-                log(nodes, *id, indent + 2);
+                log(nodes, *id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::ProbeDefinition(probe, pred, actions) => {
-            log(nodes, *probe, indent + 2);
+            log(nodes, *probe, indent + 2, file_id_to_name);
             if let Some(pred) = pred {
-                log(nodes, *pred, indent + 2);
+                log(nodes, *pred, indent + 2, file_id_to_name);
             }
 
             if let Some(actions) = actions {
-                log(nodes, *actions, indent + 2);
+                log(nodes, *actions, indent + 2, file_id_to_name);
             }
         }
         NodeKind::Number(_) | NodeKind::Identifier(_) | NodeKind::ProbeSpecifier(_) => {}
         NodeKind::Assignment(lhs, _, rhs) | NodeKind::BinaryOp(lhs, _, rhs) => {
-            log(nodes, *lhs, indent + 2);
-            log(nodes, *rhs, indent + 2);
+            log(nodes, *lhs, indent + 2, file_id_to_name);
+            log(nodes, *rhs, indent + 2, file_id_to_name);
         }
         NodeKind::If {
             cond,
             then_block,
             else_block,
         } => {
-            log(nodes, *cond, indent + 2);
-            log(nodes, *then_block, indent + 2);
+            log(nodes, *cond, indent + 2, file_id_to_name);
+            log(nodes, *then_block, indent + 2, file_id_to_name);
             if let Some(else_block) = else_block {
-                log(nodes, *else_block, indent + 2);
+                log(nodes, *else_block, indent + 2, file_id_to_name);
             }
         }
         NodeKind::TranslationUnit(decls) => {
             for decl in decls {
-                log(nodes, *decl, indent + 2);
+                log(nodes, *decl, indent + 2, file_id_to_name);
             }
         }
         NodeKind::PrimaryToken(_) => {}
@@ -2839,64 +2842,66 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         NodeKind::Aggregation(_) => {}
         NodeKind::ProbeSpecifiers(node_ids) | NodeKind::CommaExpr(node_ids) => {
             for node in node_ids {
-                log(nodes, *node, indent + 2);
+                log(nodes, *node, indent + 2, file_id_to_name);
             }
         }
         NodeKind::SizeofType(_) => {}
-        NodeKind::SizeofExpr(node_id) => log(nodes, *node_id, indent + 2),
-        NodeKind::StringofExpr(node_id) => log(nodes, *node_id, indent + 2),
-        NodeKind::PostfixIncDecrement(node_id, _token_kind) => log(nodes, *node_id, indent + 2),
-        NodeKind::ExprStmt(node_id) => log(nodes, *node_id, indent + 2),
+        NodeKind::SizeofExpr(node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
+        NodeKind::StringofExpr(node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
+        NodeKind::PostfixIncDecrement(node_id, _token_kind) => {
+            log(nodes, *node_id, indent + 2, file_id_to_name)
+        }
+        NodeKind::ExprStmt(node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
         NodeKind::EmptyStmt => {}
         NodeKind::PostfixArrayAccess(primary, args) | NodeKind::PostfixArguments(primary, args) => {
-            log(nodes, *primary, indent + 2);
+            log(nodes, *primary, indent + 2, file_id_to_name);
             if let Some(node_id) = args {
-                log(nodes, *node_id, indent + 2)
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::TernaryExpr(lhs, mhs, rhs) => {
-            log(nodes, *lhs, indent + 2);
-            log(nodes, *mhs, indent + 2);
-            log(nodes, *rhs, indent + 2);
+            log(nodes, *lhs, indent + 2, file_id_to_name);
+            log(nodes, *mhs, indent + 2, file_id_to_name);
+            log(nodes, *rhs, indent + 2, file_id_to_name);
         }
         NodeKind::FieldAccess(node_id, _, _) => {
-            log(nodes, *node_id, indent + 2);
+            log(nodes, *node_id, indent + 2, file_id_to_name);
         }
         NodeKind::TypeName(specifier, declarator) => {
-            log(nodes, *specifier, indent + 2);
+            log(nodes, *specifier, indent + 2, file_id_to_name);
             if let Some(declarator) = declarator {
-                log(nodes, *declarator, indent + 2);
+                log(nodes, *declarator, indent + 2, file_id_to_name);
             }
         }
         NodeKind::OffsetOf(node_id, _token) => {
-            log(nodes, *node_id, indent + 2);
+            log(nodes, *node_id, indent + 2, file_id_to_name);
         }
         NodeKind::Declaration(decl_specifiers, init_declarator_list) => {
-            log(nodes, *decl_specifiers, indent + 2);
+            log(nodes, *decl_specifiers, indent + 2, file_id_to_name);
             if let Some(init_declarator_list) = init_declarator_list {
-                log(nodes, *init_declarator_list, indent + 2);
+                log(nodes, *init_declarator_list, indent + 2, file_id_to_name);
             }
         }
         NodeKind::DeclarationSpecifiers(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::DirectDeclarator(base, suffix) => {
-            log(nodes, *base, indent + 2);
+            log(nodes, *base, indent + 2, file_id_to_name);
             if let Some(node_id) = suffix {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::Declarator(ptr, declarator) => {
             if let Some(ptr) = ptr {
-                log(nodes, *ptr, indent + 2);
+                log(nodes, *ptr, indent + 2, file_id_to_name);
             }
-            log(nodes, *declarator, indent + 2);
+            log(nodes, *declarator, indent + 2, file_id_to_name);
         }
         NodeKind::InitDeclarators(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::TypeQualifier(_)
@@ -2905,134 +2910,139 @@ fn log(nodes: &[Node], node_id: NodeId, indent: usize) {
         | NodeKind::TypeSpecifier(_) => {}
         NodeKind::EnumDeclaration(_token, node_id) => {
             if let Some(node_id) = node_id {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::EnumeratorDeclaration(_token, node_id) => {
             if let Some(node_id) = node_id {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::EnumeratorsDeclaration(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::StructDeclaration(_, node_id) => {
             if let Some(node_id) = node_id {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::StructFieldsDeclaration(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::StructFieldDeclarator(declarator, const_expr) => {
-            log(nodes, *declarator, indent + 2);
+            log(nodes, *declarator, indent + 2, file_id_to_name);
             if let Some(node_id) = const_expr {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::StructFieldDeclaration(specifier_qualifier_list, declarator_list) => {
-            log(nodes, *specifier_qualifier_list, indent + 2);
+            log(
+                nodes,
+                *specifier_qualifier_list,
+                indent + 2,
+                file_id_to_name,
+            );
             if let Some(node_id) = declarator_list {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::StructFieldDeclaratorList(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::SpecifierQualifierList(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::Xlate(type_name, expr) => {
-            log(nodes, *type_name, indent + 2);
-            log(nodes, *expr, indent + 2);
+            log(nodes, *type_name, indent + 2, file_id_to_name);
+            log(nodes, *expr, indent + 2, file_id_to_name);
         }
         NodeKind::DirectAbstractDeclarator(node_id) => {
-            log(nodes, *node_id, indent + 2);
+            log(nodes, *node_id, indent + 2, file_id_to_name);
         }
         NodeKind::DirectAbstractArray(base, suffix) => {
             if let Some(base) = base {
-                log(nodes, *base, indent + 2);
+                log(nodes, *base, indent + 2, file_id_to_name);
             }
-            log(nodes, *suffix, indent + 2);
+            log(nodes, *suffix, indent + 2, file_id_to_name);
         }
         NodeKind::DirectAbstractFunction(base, suffix) => {
             if let Some(base) = base {
-                log(nodes, *base, indent + 2);
+                log(nodes, *base, indent + 2, file_id_to_name);
             }
-            log(nodes, *suffix, indent + 2);
+            log(nodes, *suffix, indent + 2, file_id_to_name);
         }
         NodeKind::AbstractDeclarator(ptr, abstract_decl) => {
             if let Some(node_id) = ptr {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
             if let Some(node_id) = abstract_decl {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::Pointer(type_qualifiers, ptr) => {
             for node_id in type_qualifiers {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
             if let Some(node_id) = ptr {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::Array(params) => {
             if let Some(node_id) = params {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::ParamEllipsis => {}
         NodeKind::Parameters(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::ParameterDeclarationSpecifiers(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::Unary(_token_kind, node_id) => log(nodes, *node_id, indent + 2),
+        NodeKind::Unary(_token_kind, node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
         NodeKind::Character => {}
         NodeKind::InlineDefinition(decl_specifiers, declarator, expr) => {
-            log(nodes, *decl_specifiers, indent + 2);
-            log(nodes, *declarator, indent + 2);
-            log(nodes, *expr, indent + 2);
+            log(nodes, *decl_specifiers, indent + 2, file_id_to_name);
+            log(nodes, *declarator, indent + 2, file_id_to_name);
+            log(nodes, *expr, indent + 2, file_id_to_name);
         }
         NodeKind::ArgumentsExpr(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::ParameterTypeList { params, ellipsis } => {
             if let Some(params) = params {
-                log(nodes, *params, indent + 2);
+                log(nodes, *params, indent + 2, file_id_to_name);
             }
             if let Some(ellipsis) = ellipsis {
-                log(nodes, *ellipsis, indent + 2);
+                log(nodes, *ellipsis, indent + 2, file_id_to_name);
             }
         }
         NodeKind::ArgumentsDeclaration(node_id) => {
             if let Some(node_id) = node_id {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
         NodeKind::ParameterDeclaration {
             param_decl_specifiers,
             declarator,
         } => {
-            log(nodes, *param_decl_specifiers, indent + 2);
+            log(nodes, *param_decl_specifiers, indent + 2, file_id_to_name);
             if let Some(node_id) = declarator {
-                log(nodes, *node_id, indent + 2);
+                log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
     }

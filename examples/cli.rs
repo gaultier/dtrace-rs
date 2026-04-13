@@ -41,6 +41,9 @@ fn main() {
                     .unwrap();
                 eprintln!()
             }
+            if let Some(root) = compiled.ast_root {
+                compiler_rs_lib::ast::log(&compiled.ast_nodes, root, 0, &file_id_to_name);
+            }
             if !compiled.errors.is_empty() {
                 std::process::exit(1)
             };
