@@ -632,7 +632,7 @@ impl<'a> Lexer<'a> {
         }
 
         let len = self.origin.offset - start_origin.offset;
-        // TODO: Limit length.
+        // TODO: Limit length, unescape.
         let origin = Origin {
             len,
             ..start_origin
