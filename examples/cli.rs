@@ -1,7 +1,7 @@
 use std::{collections::HashMap, io::Write};
 
 use compiler_rs_lib::compile;
-use log::{LevelFilter, Log};
+use log::{LevelFilter, Log, info};
 
 struct Logger {}
 
@@ -43,6 +43,8 @@ fn main() {
             }
             if let Some(root) = compiled.ast_root {
                 compiler_rs_lib::ast::log(&compiled.ast_nodes, root, 0, &file_id_to_name);
+            } else {
+                info!("no root node, nothing to log: {:#?}", &compiled);
             }
             if !compiled.errors.is_empty() {
                 std::process::exit(1)

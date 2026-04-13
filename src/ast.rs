@@ -1345,8 +1345,7 @@ impl<'a> Parser<'a> {
 
     // Best effort to find the closest token when doing error reporting.
     fn current_or_last_origin_for_err(&self) -> Origin {
-        //assert!(self.tokens_consumed <= self.tokens.len());
-        todo!()
+        self.lexer.origin
 
         //if self.tokens_consumed == self.tokens.len() {
         //    return self

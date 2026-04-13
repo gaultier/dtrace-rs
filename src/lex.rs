@@ -326,6 +326,31 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn lex_identifier(&mut self) -> Token {
+        let start_origin = self.origin;
+        let first = self.advance(1).unwrap();
+        assert!(!(first.is_ascii_whitespace() || first == '"'));
+
+        while let Some(c) = self.peek1() {
+            if c.is_ascii_whitespace() || c == '"' {
+                break;
+            }
+
+            self.advance(1);
+        }
+
+        let len = self.origin.offset - start_origin.offset;
+        let origin = Origin {
+            len,
+            ..start_origin
+        };
+
+        Token {
+            kind: TokenKind::Identifier,
+            origin,
+        }
+    }
+
     fn lex_keyword(&mut self) -> Token {
         let start_origin = self.origin;
         let first = self.advance(1).unwrap();
@@ -747,7 +772,8 @@ impl<'a> Lexer<'a> {
                         self.state = LexerState::ProgramOuterScope;
                         break;
                     }
-                    tokens.push(self.lex());
+                    let token = self.lex();
+                    tokens.push(token);
                 }
                 match self.control_directive(&tokens) {
                     Ok(directive) => self.control_directives.push(directive),
@@ -1402,6 +1428,11 @@ impl<'a> Lexer<'a> {
             (LexerState::InsideClauseAndExpr, _) if is_character_probe_specifier_start(c) => {
                 // TODO: Handle ambiguity of '*'.
                 self.lex_probe_specifier()
+            }
+            (LexerState::InsideControlDirective(_), _)
+                if !(c.is_ascii_whitespace() || c == '"') =>
+            {
+                self.lex_identifier()
             }
             _ => {
                 let token = Token {
