@@ -203,8 +203,6 @@ pub enum TokenKind {
     PipeEq,
     CaretEq,
     AmpersandEq,
-    GtGtEq,
-    LtLtEq,
     PercentEq,
     SlashEq,
     StarEq,
@@ -615,46 +613,46 @@ impl<'a> Lexer<'a> {
         let first = self.advance(1);
         assert_eq!(first, Some('\''));
 
-        let c = match (self.peek1(), self.peek2()) {
+        let c = match self.peek3() {
             // Escape sequence.
-            (Some('\\'), Some('a')) => {
-                self.advance(2);
+            (Some('\\'), Some('a'), Some('\'')) => {
+                self.advance(3);
                 Some(7)
             }
-            (Some('\\'), Some('b')) => {
-                self.advance(2);
+            (Some('\\'), Some('b'), Some('\'')) => {
+                self.advance(3);
                 Some(8)
             }
-            (Some('\\'), Some('f')) => {
-                self.advance(2);
+            (Some('\\'), Some('f'), Some('\'')) => {
+                self.advance(3);
                 Some(12)
             }
-            (Some('\\'), Some('n')) => {
-                self.advance(2);
+            (Some('\\'), Some('n'), Some('\'')) => {
+                self.advance(3);
                 Some(10)
             }
-            (Some('\\'), Some('r')) => {
-                self.advance(2);
+            (Some('\\'), Some('r'), Some('\'')) => {
+                self.advance(3);
                 Some(13)
             }
-            (Some('\\'), Some('t')) => {
-                self.advance(2);
+            (Some('\\'), Some('t'), Some('\'')) => {
+                self.advance(3);
                 Some(9)
             }
-            (Some('\\'), Some('v')) => {
-                self.advance(2);
+            (Some('\\'), Some('v'), Some('\'')) => {
+                self.advance(3);
                 Some(11)
             }
-            (Some('\\'), Some('"')) => {
-                self.advance(2);
+            (Some('\\'), Some('"'), Some('\'')) => {
+                self.advance(3);
                 Some('"' as i32)
             }
-            (Some('\\'), Some('\\')) => {
-                self.advance(2);
+            (Some('\\'), Some('\\'), Some('\'')) => {
+                self.advance(3);
                 Some('\\' as i32)
             }
             // Octal sequence.
-            (Some('\\'), Some('0'..='7')) => 'octal: {
+            (Some('\\'), Some('0'..='7'), _) => 'octal: {
                 self.advance(1);
                 let start = self.origin.offset as usize;
                 while let Some('0'..='7') = self.peek1() {
@@ -678,7 +676,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             // Hex sequence.
-            (Some('\\'), Some('x')) => 'hex: {
+            (Some('\\'), Some('x'), _) => 'hex: {
                 self.advance(2);
                 let start = self.origin.offset as usize;
                 while let Some('0'..='9' | 'a'..='z' | 'A'..='Z') = self.peek1() {
@@ -702,7 +700,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             // Unescaped
-            (Some(c), Some('\'')) => {
+            (Some(c), Some('\''), _) => {
                 self.advance(2);
                 Some(c as i32)
             }
@@ -823,8 +821,9 @@ impl<'a> Lexer<'a> {
         self.chars.get(self.chars_idx + 1).copied()
     }
 
-    fn peek3(&self) -> (Option<char>, Option<char>) {
+    fn peek3(&self) -> (Option<char>, Option<char>, Option<char>) {
         (
+            self.chars.get(self.chars_idx + 0).copied(),
             self.chars.get(self.chars_idx + 1).copied(),
             self.chars.get(self.chars_idx + 2).copied(),
         )
@@ -982,7 +981,9 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 token
             }
-            (LexerState::ProgramOuterScope, '.') if self.peek3() == (Some('.'), Some('.')) => {
+            (LexerState::ProgramOuterScope, '.')
+                if self.peek3() == (Some('.'), Some('.'), Some('.')) =>
+            {
                 let origin = Origin {
                     len: 3,
                     ..self.origin
@@ -1056,18 +1057,6 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 token
             }
-            (_, '>') if self.peek3() == (Some('>'), Some('=')) => {
-                let origin = Origin {
-                    len: 3,
-                    ..self.origin
-                };
-                let token = Token {
-                    kind: TokenKind::GtGtEq,
-                    origin,
-                };
-                self.advance(3);
-                token
-            }
             (_, '>') if self.peek2() == Some('>') => {
                 let origin = Origin {
                     len: 2,
@@ -1102,18 +1091,6 @@ impl<'a> Lexer<'a> {
                     origin,
                 };
                 self.advance(1);
-                token
-            }
-            (_, '<') if self.peek3() == (Some('<'), Some('=')) => {
-                let origin = Origin {
-                    len: 3,
-                    ..self.origin
-                };
-                let token = Token {
-                    kind: TokenKind::LtLtEq,
-                    origin,
-                };
-                self.advance(3);
                 token
             }
             (_, '<') if self.peek2() == Some('<') => {

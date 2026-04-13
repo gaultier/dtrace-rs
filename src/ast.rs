@@ -912,8 +912,8 @@ impl<'a> Parser<'a> {
             | TokenKind::StarEq
             | TokenKind::SlashEq
             | TokenKind::PercentEq
-            | TokenKind::LtLtEq
-            | TokenKind::GtGtEq
+            | TokenKind::LtEq
+            | TokenKind::GtEq
             | TokenKind::AmpersandEq
             | TokenKind::CaretEq
             | TokenKind::PipeEq => {
