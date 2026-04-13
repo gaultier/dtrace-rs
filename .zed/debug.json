@@ -1,0 +1,20 @@
+// Project-local debug tasks
+//
+// For more documentation on how to configure debug tasks,
+// see: https://zed.dev/docs/debugger
+
+[
+  {
+    "label": "Build & Debug example",
+    "build": {
+      "command": "cargo",
+      "args": ["build", "--example", "cli"],
+    },
+    "program": "$ZED_WORKTREE_ROOT/target/debug/examples/cli",
+    "args": ["ast", "examples/probe_predicate_empty_actions.d"],
+    // sourceLanguages is required for CodeLLDB (not GDB) when using Rust
+    "sourceLanguages": ["rust"],
+    "request": "launch",
+    "adapter": "CodeLLDB",
+  },
+]

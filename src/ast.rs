@@ -1527,6 +1527,8 @@ impl<'a> Parser<'a> {
             specifiers.push(specifier);
         }
 
+        self.lexer.begin(lex::LexerState::InsideClauseAndExpr);
+
         Some(self.new_node(Node {
             kind: NodeKind::ProbeSpecifiers(specifiers),
             origin: first_comma_origin,
@@ -1549,10 +1551,10 @@ impl<'a> Parser<'a> {
 
         // In file mode, a predication or action MUST follow.
 
-        let predicate = if let Some(_slash) = self.match_kind(TokenKind::PredicateDelimiter) {
+        let predicate = if let Some(_slash) = self.match_kind(TokenKind::Slash) {
             let expr = self.parse_expr();
             self.expect_token_one(
-                TokenKind::PredicateDelimiter,
+                TokenKind::ClosePredicateDelimiter,
                 "matching slash after predicate",
             );
             expr
@@ -1566,11 +1568,13 @@ impl<'a> Parser<'a> {
                 TokenKind::RightCurly,
                 "matching right curly bracket after action",
             );
+
             let node_id = self.new_node(Node {
                 kind: NodeKind::ProbeDefinition(probe_specifier, predicate, stmts),
                 origin: left_curly.origin,
             });
 
+            self.lexer.begin(lex::LexerState::ProgramOuterScope);
             return Some(node_id);
         }
 
@@ -1940,6 +1944,7 @@ impl<'a> Parser<'a> {
         let semicolon =
             self.expect_token_one(TokenKind::SemiColon, "expected semicolon after declaration");
 
+        self.lexer.begin(lex::LexerState::ProgramOuterScope);
         Some(
             self.new_node(Node {
                 kind: NodeKind::Declaration(decl_specifiers, init_decl_list),
@@ -3039,7 +3044,17 @@ pub fn log(
 
 #[cfg(test)]
 mod tests {
-    //use super::*;
+    use super::*;
+
+    #[test]
+    fn test_probe_with_predicate() {
+        let input = "fbt::: /self->spec/ {}";
+        let lexer = Lexer::new(1, input);
+        let mut parser = Parser::new(lexer);
+        let root_id = parser.parse();
+        let root = &parser.nodes[root_id.unwrap()];
+    }
+
     //
     //#[test]
     //fn parse_number() {

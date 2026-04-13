@@ -215,7 +215,7 @@ pub enum TokenKind {
     GtEq,
     LtEq,
     GtGt,
-    PredicateDelimiter,
+    ClosePredicateDelimiter,
     Aggregation,
 }
 
@@ -1262,7 +1262,7 @@ impl<'a> Lexer<'a> {
                 self.multi_line_comment();
                 self.lex()
             }
-            (LexerState::ProgramOuterScope, '/') => {
+            (LexerState::InsideClauseAndExpr, '/') => {
                 let origin = self.origin;
                 self.advance(1);
                 /*
@@ -1282,8 +1282,9 @@ impl<'a> Lexer<'a> {
                     }
                 }
 
+                dbg!(self.peek1());
                 let kind = match self.peek1() {
-                    None | Some(';' | '{' | '/') => TokenKind::PredicateDelimiter,
+                    None | Some(';' | '{' | '/') => TokenKind::ClosePredicateDelimiter,
                     _ => TokenKind::Slash,
                 };
 
@@ -1294,7 +1295,7 @@ impl<'a> Lexer<'a> {
                     origin: Origin { len, ..self.origin },
                 }
             }
-            (LexerState::InsideClauseAndExpr, '/') => {
+            (LexerState::ProgramOuterScope, '/') => {
                 let token = Token {
                     kind: TokenKind::Slash,
                     origin: self.origin.with_len(1),
@@ -1445,23 +1446,27 @@ impl<'a> Lexer<'a> {
             (_, '"') => self.lex_literal_string(),
             (_, '\'') => self.lex_literal_character(),
             (LexerState::ProgramOuterScope, '$') => todo!(),
+            (LexerState::InsideClauseAndExpr, '@') => self.lex_aggregation(),
             _ if c.is_ascii_digit() => self.lex_literal_number(),
             _ if c.is_whitespace() => {
                 self.advance(1);
                 self.lex()
             }
-            (LexerState::InsideClauseAndExpr, _) if self.is_identifier_character_leading(c) => {
-                self.lex_keyword()
-            }
-            (LexerState::InsideClauseAndExpr, '@') => self.lex_aggregation(),
-            (LexerState::ProgramOuterScope, _) if is_character_probe_specifier_start(c) => {
-                // TODO: Handle ambiguity of '*'.
-                self.lex_probe_specifier()
-            }
             (LexerState::InsideControlDirective(_), _)
                 if !(c.is_ascii_whitespace() || c == '"') =>
             {
                 self.lex_identifier()
+            }
+            // FIXME: Keywords must have the highest predence.
+            (LexerState::InsideClauseAndExpr | LexerState::ProgramOuterScope, _)
+                if self.is_identifier_character_leading(c) =>
+            {
+                self.lex_keyword()
+            }
+            // FIXME: Keywords must have the highest predence.
+            (LexerState::ProgramOuterScope, _) if is_character_probe_specifier_start(c) => {
+                // TODO: Handle ambiguity of '*'.
+                self.lex_probe_specifier()
             }
             _ => {
                 let token = Token {
@@ -2065,6 +2070,10 @@ impl<'a> Lexer<'a> {
             self.advance(1);
         }
     }
+
+    pub(crate) fn begin(&mut self, state: LexerState) {
+        self.state = state;
+    }
 }
 
 fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> {
@@ -2163,5 +2172,45 @@ mod tests {
         assert_eq!(token.kind, TokenKind::ProbeSpecifier);
         let s = str_from_source(input, &token.origin);
         assert_eq!(s, "syscall::open:entry");
+    }
+
+    #[test]
+    fn test_probe_with_predicate() {
+        let input = "fbt::: /self->spec/ {}";
+        let mut lexer = Lexer::new(1, input);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, "fbt:::");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Slash);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::KeywordSelf);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Arrow);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Identifier);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::ClosePredicateDelimiter);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LeftCurly);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::RightCurly);
+        }
     }
 }
