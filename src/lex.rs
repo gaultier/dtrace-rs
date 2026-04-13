@@ -1450,11 +1450,11 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 self.lex()
             }
-            (LexerState::ProgramOuterScope, _) if self.is_identifier_character_leading(c) => {
+            (LexerState::InsideClauseAndExpr, _) if self.is_identifier_character_leading(c) => {
                 self.lex_keyword()
             }
-            (LexerState::ProgramOuterScope, '@') => self.lex_aggregation(),
-            (LexerState::InsideClauseAndExpr, _) if is_character_probe_specifier_start(c) => {
+            (LexerState::InsideClauseAndExpr, '@') => self.lex_aggregation(),
+            (LexerState::ProgramOuterScope, _) if is_character_probe_specifier_start(c) => {
                 // TODO: Handle ambiguity of '*'.
                 self.lex_probe_specifier()
             }
@@ -2152,4 +2152,16 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use crate::lex::{Lexer, TokenKind, str_from_source};
+
+    #[test]
+    fn test_probe_specifier() {
+        let input = "syscall::open:entry{}";
+        let mut lexer = Lexer::new(1, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+        let s = str_from_source(input, &token.origin);
+        assert_eq!(s, "syscall::open:entry");
+    }
+}
