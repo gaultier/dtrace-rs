@@ -733,19 +733,6 @@ impl<'a> Lexer<'a> {
         let c = self.peek1().unwrap();
 
         match (&self.state, c) {
-            (LexerState::InsideControlDirective(_line), '\n') => {
-                todo!()
-                //let tokens: Vec<Token> = self
-                //    .tokens
-                //    .extract_if(.., |tok| tok.origin.line == *line)
-                //    .collect::<Vec<Token>>();
-                //match self.control_directive(input, &tokens) {
-                //    Ok(directive) => self.control_directives.push(directive),
-                //    Err(err) => self.errors.push(err),
-                //}
-                //self.state = LexerState::ProgramOuterScope;
-                //self.advance( &mut it);
-            }
             (_, '\n') => {
                 self.advance(1);
                 self.lex()
@@ -754,7 +741,19 @@ impl<'a> Lexer<'a> {
             (_, '#') => {
                 self.state = LexerState::InsideControlDirective(self.origin.line);
                 self.advance(1);
-                todo!()
+                let mut tokens = Vec::with_capacity(8);
+                loop {
+                    if let Some('\n') = self.peek1() {
+                        self.state = LexerState::ProgramOuterScope;
+                        break;
+                    }
+                    tokens.push(self.lex());
+                }
+                match self.control_directive(&tokens) {
+                    Ok(directive) => self.control_directives.push(directive),
+                    Err(err) => self.errors.push(err),
+                }
+                self.lex()
             }
             (_, '-') if self.peek2() == Some('-') => {
                 let origin = Origin {
@@ -1421,11 +1420,7 @@ impl<'a> Lexer<'a> {
     }
 
     #[warn(unused_results)]
-    fn control_directive(
-        &mut self,
-        input: &str,
-        tokens: &[Token],
-    ) -> Result<ControlDirective, Error> {
+    fn control_directive(&mut self, tokens: &[Token]) -> Result<ControlDirective, Error> {
         match tokens.first() {
             None => {
                 // According to K&R[A12.9], we silently ignore null directive lines.
@@ -1437,16 +1432,16 @@ impl<'a> Lexer<'a> {
             Some(Token {
                 kind: TokenKind::LiteralNumber,
                 origin,
-            }) => self.control_directive_line(tokens, *origin, input),
+            }) => self.control_directive_line(tokens, *origin),
             Some(Token {
                 kind: TokenKind::Identifier,
                 origin,
             }) => {
-                let src = str_from_source(input, origin);
+                let src = str_from_source(self.input, origin);
                 match src {
-                    "line" => self.control_directive_line(&tokens[1..], *origin, input),
+                    "line" => self.control_directive_line(&tokens[1..], *origin),
                     "pragma" if tokens.len() > 1 => {
-                        self.control_directive_pragma(&tokens[1..], *origin, input)
+                        self.control_directive_pragma(&tokens[1..], *origin)
                     }
                     // Ignore any #ident or #pragma ident lines.
                     "pragma" if tokens.len() == 1 => Ok(ControlDirective {
@@ -1458,7 +1453,7 @@ impl<'a> Lexer<'a> {
                         kind: ControlDirectiveKind::Ignored,
                         origin: origin.extend_to(tokens.last().map(|t| t.origin)),
                     }),
-                    "error" => self.control_directive_error(&tokens[1..], input),
+                    "error" => self.control_directive_error(&tokens[1..]),
                     _ => Err(Error::new(
                         ErrorKind::InvalidControlDirective,
                         origin.extend_to(tokens.last().map(|t| t.origin)),
@@ -1479,7 +1474,6 @@ impl<'a> Lexer<'a> {
         &mut self,
         tokens: &[Token],
         origin: Origin,
-        input: &str,
     ) -> Result<ControlDirective, Error> {
         let (line, file, trailing) = match tokens {
             // `5`
@@ -1524,9 +1518,9 @@ impl<'a> Lexer<'a> {
             }
         };
 
-        let line_src = str_from_source(input, &line.origin);
+        let line_src = str_from_source(self.input, &line.origin);
         let file_src = file.map(|f| {
-            let s = str_from_source(input, &f.origin);
+            let s = str_from_source(self.input, &f.origin);
             // Without the double quotes.
             s[1..s.len() - 1].to_owned()
         });
@@ -1542,7 +1536,7 @@ impl<'a> Lexer<'a> {
         };
 
         let trailing_num = if let Some(trailing) = trailing {
-            match str::parse::<usize>(str_from_source(input, &trailing.origin)) {
+            match str::parse::<usize>(str_from_source(self.input, &trailing.origin)) {
                 Ok(num) => Some(num),
                 Err(err) => {
                     return Err(Error::new(
@@ -1567,7 +1561,6 @@ impl<'a> Lexer<'a> {
         &mut self,
         tokens: &[Token],
         origin: Origin,
-        input: &str,
     ) -> Result<ControlDirective, Error> {
         let (directive1, directive2) = match (tokens.first(), tokens.get(1)) {
             (
@@ -1580,8 +1573,8 @@ impl<'a> Lexer<'a> {
                     origin: origin2,
                 }),
             ) => (
-                Some(str_from_source(input, origin1)),
-                Some(str_from_source(input, origin2)),
+                Some(str_from_source(self.input, origin1)),
+                Some(str_from_source(self.input, origin2)),
             ),
             (
                 Some(Token {
@@ -1589,35 +1582,35 @@ impl<'a> Lexer<'a> {
                     origin: origin1,
                 }),
                 _,
-            ) => (Some(str_from_source(input, origin1)), None),
+            ) => (Some(str_from_source(self.input, origin1)), None),
             _ => (None, None),
         };
 
         match (directive1, directive2) {
             // `#pragma error`, or  `#pragma D error`.
-            (Some("D"), Some("error")) => self.control_directive_error(&tokens[2..], input),
-            (Some("error"), _) => self.control_directive_error(&tokens[1..], input),
+            (Some("D"), Some("error")) => self.control_directive_error(&tokens[2..]),
+            (Some("error"), _) => self.control_directive_error(&tokens[1..]),
 
             // `#pragma line`.
-            (Some("D"), Some("line")) => self.control_directive_line(&tokens[2..], origin, input),
-            (Some("line"), _) => self.control_directive_line(&tokens[1..], origin, input),
+            (Some("D"), Some("line")) => self.control_directive_line(&tokens[2..], origin),
+            (Some("line"), _) => self.control_directive_line(&tokens[1..], origin),
             //
             // `#pragma depends_on`.
-            (Some("D"), Some("depends_on")) => self.pragma_depends_on(&tokens[2..], origin, input),
+            (Some("D"), Some("depends_on")) => self.pragma_depends_on(&tokens[2..], origin),
 
-            (Some("depends_on"), _) => self.pragma_depends_on(&tokens[1..], origin, input),
+            (Some("depends_on"), _) => self.pragma_depends_on(&tokens[1..], origin),
 
             // `#pragma attributes`.
-            (Some("D"), Some("attributes")) => self.pragma_attributes(&tokens[2..], origin, input),
-            (Some("attributes"), _) => self.pragma_attributes(&tokens[1..], origin, input),
+            (Some("D"), Some("attributes")) => self.pragma_attributes(&tokens[2..], origin),
+            (Some("attributes"), _) => self.pragma_attributes(&tokens[1..], origin),
 
             // `#pragma binding`.
-            (Some("D"), Some("binding")) => self.pragma_binding(&tokens[2..], origin, input),
-            (Some("binding"), _) => self.pragma_binding(&tokens[1..], origin, input),
+            (Some("D"), Some("binding")) => self.pragma_binding(&tokens[2..], origin),
+            (Some("binding"), _) => self.pragma_binding(&tokens[1..], origin),
 
             // `#pragma option`.
-            (Some("D"), Some("option")) => self.pragma_option(&tokens[2..], origin, input),
-            (Some("option"), _) => self.pragma_option(&tokens[1..], origin, input),
+            (Some("D"), Some("option")) => self.pragma_option(&tokens[2..], origin),
+            (Some("option"), _) => self.pragma_option(&tokens[1..], origin),
 
             // `#pragma`, `#pragma ident`,  `#pragma D ident`, or `#pragma someunknownstuff`: Ignore.
             _ => Ok(ControlDirective {
@@ -1628,13 +1621,9 @@ impl<'a> Lexer<'a> {
     }
 
     #[warn(unused_results)]
-    fn control_directive_error(
-        &mut self,
-        tokens: &[Token],
-        input: &str,
-    ) -> Result<ControlDirective, Error> {
+    fn control_directive_error(&mut self, tokens: &[Token]) -> Result<ControlDirective, Error> {
         let src = match (tokens.get(1), tokens.last()) {
-            (Some(start), Some(end)) => input[start.origin.offset as usize
+            (Some(start), Some(end)) => self.input[start.origin.offset as usize
                 ..end.origin.offset as usize + end.origin.len as usize]
                 .to_owned(),
             _ => String::new(),
@@ -1651,7 +1640,6 @@ impl<'a> Lexer<'a> {
         &self,
         tokens: &[Token],
         origin: Origin,
-        input: &str,
     ) -> Result<ControlDirective, Error> {
         let (s1, s2) = match tokens {
             [
@@ -1664,8 +1652,8 @@ impl<'a> Lexer<'a> {
                     origin: origin2,
                 },
             ] => {
-                let s1 = str_from_source(input, origin1);
-                let s2 = str_from_source(input, origin2);
+                let s1 = str_from_source(self.input, origin1);
+                let s2 = str_from_source(self.input, origin2);
                 (s1, s2)
             }
             _ => {
@@ -1751,7 +1739,6 @@ impl<'a> Lexer<'a> {
         &mut self,
         tokens: &[Token],
         origin: Origin,
-        input: &str,
     ) -> Result<ControlDirective, Error> {
         match tokens {
             [
@@ -1764,9 +1751,9 @@ impl<'a> Lexer<'a> {
                     origin: origin2,
                 },
             ] => {
-                let (version_str, version_origin) = quoted_string_from_source(input, origin1);
+                let (version_str, version_origin) = quoted_string_from_source(self.input, origin1);
                 let version = version_str2num(version_str, version_origin)?;
-                let identifier = str_from_source(input, origin2).to_owned();
+                let identifier = str_from_source(self.input, origin2).to_owned();
 
                 Ok(ControlDirective {
                     origin: origin.extend_to(tokens.last().map(|t| t.origin)),
@@ -1782,12 +1769,7 @@ impl<'a> Lexer<'a> {
     }
 
     #[warn(unused_results)]
-    fn pragma_option(
-        &self,
-        tokens: &[Token],
-        origin: Origin,
-        input: &str,
-    ) -> Result<ControlDirective, Error> {
+    fn pragma_option(&self, tokens: &[Token], origin: Origin) -> Result<ControlDirective, Error> {
         match tokens {
             [
                 Token {
@@ -1797,7 +1779,7 @@ impl<'a> Lexer<'a> {
             ] => {
                 // TODO: Validate option key against a list of known values?
 
-                let s = str_from_source(input, origin1);
+                let s = str_from_source(self.input, origin1);
                 if let Some((key, value)) = s.split_once('=') {
                     if value.contains('=') {
                         Err(Error {
@@ -1836,7 +1818,6 @@ impl<'a> Lexer<'a> {
         &mut self,
         tokens: &[Token],
         origin: Origin,
-        input: &str,
     ) -> Result<ControlDirective, Error> {
         let (kind_str, name) = match tokens {
             [
@@ -1849,8 +1830,8 @@ impl<'a> Lexer<'a> {
                     origin: origin2,
                 },
             ] => {
-                let kind = str_from_source(input, origin1);
-                let name = str_from_source(input, origin2);
+                let kind = str_from_source(self.input, origin1);
+                let name = str_from_source(self.input, origin2);
                 (kind, name)
             }
             _ => {
