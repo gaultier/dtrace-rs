@@ -54,6 +54,7 @@ pub enum ErrorKind {
     NestedComment,
     UnsupportedLiteralFloatNumber,
     UnexpectedPeriod,
+    ShebangMustComeFirst,
 }
 
 #[derive(Serialize, Debug, Clone)]

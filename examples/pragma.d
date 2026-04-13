@@ -1,3 +1,5 @@
+#! /usr/sbin/dtrace -Fs
+
 #
 #4
 #5 "foo.d"

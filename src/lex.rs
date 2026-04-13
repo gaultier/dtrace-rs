@@ -38,6 +38,7 @@ pub enum ControlDirectiveKind {
     PragmaAttributes { attribute: Attribute, name: String },
     Ignored,
     PragmaOption(String, Option<String>),
+    Shebang(String),
 }
 
 #[derive(Debug, Serialize)]
@@ -768,7 +769,28 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 self.lex()
             }
-            (_, '#') if self.peek2() == Some('!') => todo!(),
+            (_, '#') if self.peek2() == Some('!') => {
+                let prefix = &self.input[0..self.origin.offset as usize];
+                if prefix.find(|c: char| !c.is_ascii_whitespace()).is_some() {
+                    self.add_error(ErrorKind::ShebangMustComeFirst);
+                }
+                let origin = self.origin;
+                self.advance(2);
+                self.skip_until('\n');
+                let origin = Origin {
+                    len: self.origin.offset - origin.offset,
+                    ..origin
+                };
+
+                let s = str_from_source(self.input, &origin.skip(2))
+                    .trim_ascii()
+                    .to_owned();
+                self.control_directives.push(ControlDirective {
+                    origin,
+                    kind: ControlDirectiveKind::Shebang(s),
+                });
+                self.lex()
+            }
             (LexerState::ProgramOuterScope, '#') => {
                 self.state = LexerState::InsideControlDirective(self.origin.line);
                 self.advance(1);
@@ -2027,6 +2049,15 @@ impl<'a> Lexer<'a> {
                 len: self.origin.offset - start_origin.offset,
                 ..start_origin
             },
+        }
+    }
+
+    fn skip_until(&mut self, arg: char) {
+        while let Some(c) = self.peek1() {
+            if c == arg {
+                break;
+            }
+            self.advance(1);
         }
     }
 }
