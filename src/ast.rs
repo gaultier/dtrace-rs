@@ -1510,6 +1510,7 @@ impl<'a> Parser<'a> {
         let probe_specifier = self.parse_probe_specifier()?;
 
         if self.peek().kind != TokenKind::Comma {
+            self.lexer.begin(lex::LexerState::InsideClauseAndExpr);
             return Some(probe_specifier);
         }
         let first_comma_origin = self.peek().origin;

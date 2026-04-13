@@ -2223,4 +2223,45 @@ mod tests {
             assert_eq!(token.kind, TokenKind::RightCurly);
         }
     }
+
+    #[test]
+    fn test_slash() {
+        let input = "BEGIN / 1 / 2 / {}";
+        let mut lexer = Lexer::new(1, input);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, "BEGIN");
+        }
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Slash);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralNumber);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Slash);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralNumber);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::ClosePredicateDelimiter);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LeftCurly);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::RightCurly);
+        }
+    }
 }
