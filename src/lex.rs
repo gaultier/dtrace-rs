@@ -192,7 +192,7 @@ pub enum TokenKind {
     KeywordVolatile,
     KeywordWhile,
     KeywordXlate,
-    Unknown,
+    Unknown(Option<char>),
     PipeEq,
     CaretEq,
     AmpersandEq,
@@ -271,7 +271,7 @@ pub struct Token {
 impl Default for Token {
     fn default() -> Self {
         Self {
-            kind: TokenKind::Unknown,
+            kind: TokenKind::Unknown(None),
             origin: Origin::new_unknown(),
         }
     }
@@ -666,7 +666,7 @@ impl<'a> Lexer<'a> {
         };
 
         Token {
-            kind: TokenKind::Unknown,
+            kind: TokenKind::LiteralNumber,
             origin,
         }
     }
@@ -738,7 +738,7 @@ impl<'a> Lexer<'a> {
                 self.lex()
             }
             (_, '#') if self.peek2() == Some('!') => todo!(),
-            (_, '#') => {
+            (LexerState::ProgramOuterScope, '#') => {
                 self.state = LexerState::InsideControlDirective(self.origin.line);
                 self.advance(1);
                 let mut tokens = Vec::with_capacity(8);
@@ -1405,7 +1405,7 @@ impl<'a> Lexer<'a> {
             }
             _ => {
                 let token = Token {
-                    kind: TokenKind::Unknown,
+                    kind: TokenKind::Unknown(Some(c)),
                     origin: Origin {
                         len: 1,
                         ..self.origin
