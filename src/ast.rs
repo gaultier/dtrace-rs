@@ -141,6 +141,7 @@ pub struct Parser<'a> {
     pub(crate) node_to_type: HashMap<NodeId, Type>,
     pub(crate) name_to_def: NameToDef,
     pub(crate) typenames: HashSet<String>,
+    error_mode: bool,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -205,6 +206,7 @@ impl<'a> Parser<'a> {
             name_to_def: NameToDef::new(),
             typenames: HashSet::new(),
             lexer,
+            error_mode: false,
         }
     }
 
@@ -224,7 +226,6 @@ impl<'a> Parser<'a> {
         let mut cpy = Lexer {
             origin: self.lexer.origin,
             state: self.lexer.state,
-            error_mode: self.lexer.error_mode,
             input: self.lexer.input,
             control_directives: Vec::new(),
             comments: Vec::new(),
@@ -239,7 +240,6 @@ impl<'a> Parser<'a> {
         let mut cpy = Lexer {
             origin: self.lexer.origin,
             state: self.lexer.state,
-            error_mode: self.lexer.error_mode,
             input: self.lexer.input,
             control_directives: Vec::new(),
             comments: Vec::new(),
@@ -274,14 +274,14 @@ impl<'a> Parser<'a> {
     }
 
     fn add_error_with_explanation(&mut self, kind: ErrorKind, origin: Origin, explanation: String) {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return;
         }
 
         self.lexer
             .errors
             .push(Error::new(kind, origin, explanation));
-        self.lexer.error_mode = true;
+        self.error_mode = true;
 
         // Skip to the next newline to avoid having cascading errors.
         self.skip_to_next_line();
@@ -303,7 +303,7 @@ impl<'a> Parser<'a> {
     //                        | "this"
     //                        | "(" expression ")" ;
     fn parse_primary_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -381,7 +381,7 @@ impl<'a> Parser<'a> {
     //                        | additive_expression "+" multiplicative_expression
     //                        | additive_expression "-" multiplicative_expression ;
     fn parse_additive_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -419,7 +419,7 @@ impl<'a> Parser<'a> {
     //                        | multiplicative_expression "/" cast_expression
     //                        | multiplicative_expression "%" cast_expression ;
     fn parse_multiplicative_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -460,7 +460,7 @@ impl<'a> Parser<'a> {
     // cast_expression         → unary_expression
     //                        | "(" type_name ")" cast_expression ;
     fn parse_cast_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -492,7 +492,7 @@ impl<'a> Parser<'a> {
 
     // expression              → assignment_expression ( "," assignment_expression )* ;
     fn parse_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -532,7 +532,7 @@ impl<'a> Parser<'a> {
     //                         | "stringof" unary_expression ;
     // unary_operator          → "&" | "*" | "+" | "-" | "~" | "!" ;
     fn parse_unary_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -663,7 +663,7 @@ impl<'a> Parser<'a> {
     //                        | "xlate" "<" type_name ">" "(" expression ")" ;
     //
     fn parse_postfix_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -822,7 +822,7 @@ impl<'a> Parser<'a> {
     // argument_expression_list
     //                        → assignment_expression ( "," assignment_expression )* ;
     fn parse_argument_expr_list(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -854,7 +854,7 @@ impl<'a> Parser<'a> {
 
     // type_name               → specifier_qualifier_list abstract_declarator? ;
     fn parse_type_name(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
         let specifier = self.parse_specifier_qualifier_list()?;
@@ -873,7 +873,7 @@ impl<'a> Parser<'a> {
 
     // specifier_qualifier_list→ ( type_specifier | type_qualifier )+ ;
     fn parse_specifier_qualifier_list(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
         let type_specifier = self
@@ -899,7 +899,7 @@ impl<'a> Parser<'a> {
     //                        | unary_expression assignment_operator
     //                          assignment_expression ;
     fn parse_assignment_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -939,7 +939,7 @@ impl<'a> Parser<'a> {
     //                        | logical_or_expression "?" expression
     //                          ":" conditional_expression ;
     fn parse_conditional_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -978,7 +978,7 @@ impl<'a> Parser<'a> {
     // logical_or_expression   → logical_xor_expression
     //                        | logical_or_expression "||" logical_xor_expression ;
     fn parse_logical_or_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1007,7 +1007,7 @@ impl<'a> Parser<'a> {
     // logical_xor_expression  → logical_and_expression
     //                        | logical_xor_expression "^^" logical_and_expression ;
     fn parse_logical_xor_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1036,7 +1036,7 @@ impl<'a> Parser<'a> {
     // logical_and_expression  → inclusive_or_expression
     //                        | logical_and_expression "&&" inclusive_or_expression ;
     fn parse_logical_and_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1065,7 +1065,7 @@ impl<'a> Parser<'a> {
     // inclusive_or_expression → exclusive_or_expression
     //                        | inclusive_or_expression "|" exclusive_or_expression ;
     fn parse_inclusive_or_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1094,7 +1094,7 @@ impl<'a> Parser<'a> {
     // exclusive_or_expression → and_expression
     //                        | exclusive_or_expression "^" and_expression ;
     fn parse_exclusive_or_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1123,7 +1123,7 @@ impl<'a> Parser<'a> {
     // and_expression          → equality_expression
     //                        | and_expression "&" equality_expression ;
     fn parse_and_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1153,7 +1153,7 @@ impl<'a> Parser<'a> {
     //                        | equality_expression "==" relational_expression
     //                        | equality_expression "!=" relational_expression ;
     fn parse_equality_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1191,7 +1191,7 @@ impl<'a> Parser<'a> {
     //                        | relational_expression "<=" shift_expression
     //                        | relational_expression ">=" shift_expression ;
     fn parse_relational_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1226,7 +1226,7 @@ impl<'a> Parser<'a> {
     //                        | shift_expression "<<" additive_expression
     //                        | shift_expression ">>" additive_expression ;
     fn parse_shift_expr(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1259,7 +1259,7 @@ impl<'a> Parser<'a> {
     //                          "else" statement_or_block ;
 
     fn parse_statement(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1320,7 +1320,7 @@ impl<'a> Parser<'a> {
 
     // statement_or_block      → statement | "{" statement_list "}" ;
     fn parse_statement_or_block(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1375,7 +1375,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_literal_number(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1401,7 +1401,7 @@ impl<'a> Parser<'a> {
 
     // probe_specifier         → PSPEC | INT ;
     fn parse_probe_specifier(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1431,7 +1431,7 @@ impl<'a> Parser<'a> {
 
     // statement_list          → statement* expression? ;
     fn parse_statement_list(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
         let mut stmts = Vec::new();
@@ -1503,7 +1503,7 @@ impl<'a> Parser<'a> {
 
     // probe_specifier_list    → probe_specifier ( "," probe_specifier )* ;
     fn parse_probe_specifier_list(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1544,7 +1544,7 @@ impl<'a> Parser<'a> {
     //                          | probe_specifiers "{" statement_list "}"
     //                          | probe_specifiers "/" expression "/" "{" statement_list "}" ;
     fn parse_probe_definition(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1596,7 +1596,7 @@ impl<'a> Parser<'a> {
     //                           | probe_definition
     //                           | declaration ;
     fn parse_external_declaration(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1617,7 +1617,7 @@ impl<'a> Parser<'a> {
     // inline_definition       → "inline" declaration_specifiers declarator
     //                          "=" assignment_expression ";" ;
     fn parse_inline_definition(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1668,7 +1668,7 @@ impl<'a> Parser<'a> {
 
     // translation_unit        → external_declaration+ ;
     fn parse_translation_unit(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1695,7 +1695,7 @@ impl<'a> Parser<'a> {
 
     // d_program               → translation_unit? ;
     fn parse_d_program(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1704,7 +1704,7 @@ impl<'a> Parser<'a> {
 
     // program                 → d_expression | d_program | d_type ;
     fn parse_program(&mut self) -> Option<NodeId> {
-        assert!(!self.lexer.error_mode);
+        assert!(!self.error_mode);
 
         loop {
             let token_kind = match self.peek().kind {
@@ -1712,10 +1712,10 @@ impl<'a> Parser<'a> {
                 t => t,
             };
 
-            if self.lexer.error_mode {
+            if self.error_mode {
                 trace!("skipping to next line");
                 self.skip_to_next_line();
-                self.lexer.error_mode = false;
+                self.error_mode = false;
                 continue;
             }
 
@@ -1911,7 +1911,7 @@ impl<'a> Parser<'a> {
     // abstract_declarator     → pointer
     //                        | pointer? direct_abstract_declarator ;
     fn parse_abstract_declarator(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1934,7 +1934,7 @@ impl<'a> Parser<'a> {
 
     // declaration             → declaration_specifiers init_declarator_list? ";" ;
     fn parse_declaration(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1960,7 +1960,7 @@ impl<'a> Parser<'a> {
     //                            | type_specifier
     //                            | type_qualifier )+ ;
     fn parse_declaration_specifiers(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -1986,7 +1986,7 @@ impl<'a> Parser<'a> {
 
     // init_declarator_list    → init_declarator ( "," init_declarator )* ;
     fn parse_init_declarator_list(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2013,7 +2013,7 @@ impl<'a> Parser<'a> {
 
     // storage_class_specifier → "auto" | "register" | "static" | "extern" | "typedef" ;
     fn parse_storage_class_specifier(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2038,7 +2038,7 @@ impl<'a> Parser<'a> {
     //                          | struct_or_union_specifier
     //                          | enum_specifier ;
     fn parse_type_specifier(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2083,7 +2083,7 @@ impl<'a> Parser<'a> {
 
     // type_qualifier          → "const" | "restrict" | "volatile" ;
     fn parse_type_qualifier(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2102,7 +2102,7 @@ impl<'a> Parser<'a> {
     // d_storage_class_specifier
     //                          → storage_class_specifier | "self" | "this" ;
     fn parse_d_storage_class_specifier(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2120,7 +2120,7 @@ impl<'a> Parser<'a> {
 
     // init_declarator         → declarator ;
     fn parse_init_declarator(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2129,7 +2129,7 @@ impl<'a> Parser<'a> {
 
     // declarator              → pointer? direct_declarator ;
     fn parse_declarator(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2158,7 +2158,7 @@ impl<'a> Parser<'a> {
     //                          | direct_declarator array
     //                          | direct_declarator function ;
     fn parse_direct_declarator(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2208,7 +2208,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_pointer(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2230,7 +2230,7 @@ impl<'a> Parser<'a> {
     // enum_specifier          → "enum" ( IDENT | TNAME )? "{" enumerator_list "}"
     //                          | "enum" ( IDENT | TNAME ) ;
     fn parse_enum_specifier(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2268,7 +2268,7 @@ impl<'a> Parser<'a> {
 
     // enumerator_list         → enumerator ( "," enumerator )* ;
     fn parse_enumerator_list(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2294,7 +2294,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_enumerator(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2321,7 +2321,7 @@ impl<'a> Parser<'a> {
     //                          "{" struct_declaration_list "}"
     //                        | struct_or_union ( IDENT | TNAME ) ;
     fn parse_struct_or_union_specifier(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
         let tok = self
@@ -2361,7 +2361,7 @@ impl<'a> Parser<'a> {
 
     // struct_declaration_list → struct_declaration+ ;
     fn parse_struct_declaration_list(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
         let decl = self.parse_struct_declaration()?;
@@ -2380,7 +2380,7 @@ impl<'a> Parser<'a> {
 
     // struct_declaration      → specifier_qualifier_list struct_declarator_list ";" ;
     fn parse_struct_declaration(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
         let spec = self.parse_specifier_qualifier_list()?;
@@ -2398,7 +2398,7 @@ impl<'a> Parser<'a> {
 
     // struct_declarator_list  → struct_declarator ( "," struct_declarator )* ;
     fn parse_struct_declarator_list(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
         let decl = self.parse_struct_declarator()?;
@@ -2425,7 +2425,7 @@ impl<'a> Parser<'a> {
 
     // struct_declarator       → declarator ( ":" constant_expression )?
     fn parse_struct_declarator(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
         let declarator = self.parse_declarator()?;
@@ -2457,7 +2457,7 @@ impl<'a> Parser<'a> {
     //                        | direct_abstract_declarator? array
     //                        | direct_abstract_declarator? function ;
     fn parse_direct_abstract_declarator(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2571,7 +2571,7 @@ impl<'a> Parser<'a> {
 
     // array                   → "[" array_parameters "]" ;
     fn parse_array(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2592,7 +2592,7 @@ impl<'a> Parser<'a> {
 
     // function                → "(" function_parameters ")" ;
     fn parse_function(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2608,7 +2608,7 @@ impl<'a> Parser<'a> {
 
     // array_parameters        → /* empty */ | constant_expression | parameter_type_list ;
     fn parse_array_parameters(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2675,7 +2675,7 @@ impl<'a> Parser<'a> {
 
     // parameter_list          → parameter_declaration ( "," parameter_declaration )* ;
     fn parse_parameter_list(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 
@@ -2703,7 +2703,7 @@ impl<'a> Parser<'a> {
     // parameter_declaration → parameter_declaration_specifiers
     //                        ( declarator | abstract_declarator )? ;
     fn parse_parameter_declaration(&mut self) -> Option<NodeId> {
-        if self.lexer.error_mode {
+        if self.error_mode {
             return None;
         }
 

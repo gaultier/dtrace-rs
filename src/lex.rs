@@ -102,7 +102,6 @@ pub struct Comment {
 #[derive(Debug)]
 pub struct Lexer<'a> {
     pub(crate) origin: Origin,
-    pub(crate) error_mode: bool,
     pub errors: Vec<Error>,
     pub(crate) state: LexerState,
     pub(crate) input: &'a str,
@@ -296,7 +295,6 @@ impl<'a> Lexer<'a> {
     pub fn new(file_id: FileId, input: &'a str) -> Self {
         Self {
             origin: Origin::new(1, 1, 0, 0, file_id),
-            error_mode: false,
             errors: Vec::new(),
             state: LexerState::ProgramOuterScope,
             control_directives: Vec::new(),
@@ -310,7 +308,6 @@ impl<'a> Lexer<'a> {
     fn add_error(&mut self, kind: ErrorKind) {
         self.errors
             .push(Error::new(kind, self.origin, String::new()));
-        self.error_mode = true;
     }
 
     fn is_identifier_character_trailing(&self, c: char) -> bool {
@@ -706,11 +703,12 @@ impl<'a> Lexer<'a> {
             }
             _ => {
                 self.add_error(ErrorKind::InvalidLiteralCharacter);
-                self.skip_until_or_newline('\'');
+                self.skip_until_inclusive_or_newline('\'');
                 None
             }
         };
 
+        dbg!(c, start_origin);
         Token {
             kind: TokenKind::LiteralCharacter(c),
             origin: Origin {
@@ -830,15 +828,6 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn lex(&mut self) -> Token {
-        if self.error_mode {
-            while let Some(c) = self.peek1()
-                && c != '\n'
-            {
-                self.advance(1);
-            }
-            self.error_mode = false;
-        }
-
         if self.peek1().is_none() {
             let origin = Origin {
                 len: 0,
@@ -863,7 +852,7 @@ impl<'a> Lexer<'a> {
                 }
                 let origin = self.origin;
                 self.advance(2);
-                self.skip_until('\n');
+                self.skip_until_exclusive('\n');
                 let origin = Origin {
                     len: self.origin.offset - origin.offset,
                     ..origin
@@ -2129,16 +2118,16 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn skip_until_or_newline(&mut self, arg: char) {
+    fn skip_until_inclusive_or_newline(&mut self, arg: char) {
         while let Some(c) = self.peek1() {
+            self.advance(1);
             if c == arg || c == '\n' {
                 break;
             }
-            self.advance(1);
         }
     }
 
-    fn skip_until(&mut self, arg: char) {
+    fn skip_until_exclusive(&mut self, arg: char) {
         while let Some(c) = self.peek1() {
             if c == arg {
                 break;
@@ -2410,7 +2399,7 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralCharacter(Some('r' as i32)));
             let s = str_from_source(input, &token.origin);
-            assert_eq!(s, "'r'");
+            assert_eq!(s, input);
         }
     }
 
@@ -2422,31 +2411,47 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(13)));
             let s = str_from_source(input, &token.origin);
-            assert_eq!(s, "'\r'");
+            assert_eq!(s, input);
         }
     }
 
     #[test]
     fn test_lex_character_literal_escape_sequence_octal() {
-        let input = "'\\0103'";
+        let input = r#"'\0103'"#;
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(0o103)));
             let s = str_from_source(input, &token.origin);
-            assert_eq!(s, "'\\0103'");
+            assert_eq!(s, input);
         }
     }
 
     #[test]
     fn test_lex_character_literal_escape_sequence_hex() {
-        let input = "'\\x4E'";
+        let input = r#"'\x4e'"#;
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(0x4E)));
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(0x4e)));
             let s = str_from_source(input, &token.origin);
-            assert_eq!(s, "'\\x4E'");
+            assert_eq!(s, "'\\x4e'");
+        }
+    }
+
+    #[test]
+    fn test_lex_character_literal_multiple() {
+        let input = r#"'\"\ba';"#;
+        let mut lexer = Lexer::new(1, input);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(None));
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, &input[0..input.len() - 1]);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::SemiColon);
         }
     }
 }
