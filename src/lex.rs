@@ -793,6 +793,7 @@ impl<'a> Lexer<'a> {
             }
             (LexerState::ProgramOuterScope, '#') => {
                 self.state = LexerState::InsideControlDirective(self.origin.line);
+                let origin = self.origin;
                 self.advance(1);
                 let mut tokens = Vec::with_capacity(8);
                 loop {
@@ -803,7 +804,7 @@ impl<'a> Lexer<'a> {
                     let token = self.lex();
                     tokens.push(token);
                 }
-                match self.control_directive(&tokens) {
+                match self.control_directive(&tokens, origin) {
                     Ok(directive) => self.control_directives.push(directive),
                     Err(err) => self.errors.push(err),
                 }
@@ -1479,28 +1480,32 @@ impl<'a> Lexer<'a> {
     }
 
     #[warn(unused_results)]
-    fn control_directive(&mut self, tokens: &[Token]) -> Result<ControlDirective, Error> {
+    fn control_directive(
+        &mut self,
+        tokens: &[Token],
+        origin: Origin,
+    ) -> Result<ControlDirective, Error> {
         match tokens.first() {
             None => {
                 // According to K&R[A12.9], we silently ignore null directive lines.
                 Ok(ControlDirective {
                     kind: ControlDirectiveKind::Ignored,
-                    origin: self.origin,
+                    origin,
                 })
             }
             Some(Token {
                 kind: TokenKind::LiteralNumber,
-                origin,
-            }) => self.control_directive_line(tokens, *origin),
+                ..
+            }) => self.control_directive_line(tokens, origin),
             Some(Token {
                 kind: TokenKind::Identifier,
-                origin,
+                origin: origin_ident,
             }) => {
-                let src = str_from_source(self.input, origin);
+                let src = str_from_source(self.input, &origin_ident);
                 match src {
-                    "line" => self.control_directive_line(&tokens[1..], *origin),
+                    "line" => self.control_directive_line(&tokens[1..], origin),
                     "pragma" if tokens.len() > 1 => {
-                        self.control_directive_pragma(&tokens[1..], *origin)
+                        self.control_directive_pragma(&tokens[1..], origin)
                     }
                     // Ignore any #ident or #pragma ident lines.
                     "pragma" if tokens.len() == 1 => Ok(ControlDirective {
@@ -1520,9 +1525,9 @@ impl<'a> Lexer<'a> {
                     )),
                 }
             }
-            Some(other) => Err(Error::new(
+            Some(_) => Err(Error::new(
                 ErrorKind::InvalidControlDirective,
-                other.origin.extend_to(tokens.last().map(|t| t.origin)),
+                origin.extend_to(tokens.last().map(|t| t.origin)),
                 String::new(),
             )),
         }
