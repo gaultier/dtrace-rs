@@ -677,6 +677,30 @@ impl<'a> Lexer<'a> {
                     }
                 }
             }
+            // Hex sequence.
+            (Some('\\'), Some('x')) => 'hex: {
+                self.advance(2);
+                let start = self.origin.offset as usize;
+                while let Some('0'..='9' | 'a'..='z' | 'A'..='Z') = self.peek1() {
+                    self.advance(1);
+                }
+                if let Some('\'') = self.peek1() {
+                    self.advance(1);
+                } else {
+                    self.add_error(ErrorKind::InvalidLiteralCharacter);
+                    break 'hex None;
+                }
+
+                let s = &self.input[start..self.origin.offset as usize - 1];
+
+                match i32::from_str_radix(s, 16) {
+                    Ok(c) => Some(c),
+                    Err(_) => {
+                        self.add_error(ErrorKind::InvalidLiteralCharacter);
+                        None
+                    }
+                }
+            }
             // Unescaped
             (Some(c), Some('\'')) => {
                 self.advance(2);
@@ -2434,6 +2458,18 @@ mod tests {
             assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(0o103)));
             let s = str_from_source(input, &token.origin);
             assert_eq!(s, "'\\0103'");
+        }
+    }
+
+    #[test]
+    fn test_lex_character_literal_escape_sequence_hex() {
+        let input = "'\\x4E'";
+        let mut lexer = Lexer::new(1, input);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(0x4E)));
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, "'\\x4E'");
         }
     }
 }
