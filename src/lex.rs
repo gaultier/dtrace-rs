@@ -111,10 +111,10 @@ pub struct Lexer<'a> {
     pub(crate) chars_idx: usize,
 }
 
-#[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone)]
+#[derive(PartialEq, Eq, Debug, Serialize, Clone)]
 pub enum NumberOrString {
     Number(usize),
-    String,
+    String(String),
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone)]
@@ -2319,8 +2319,36 @@ pub(crate) fn resolve_macro_argument_reference(
         }
     };
 
+    /*
+     * If the macro text is not a valid integer or ident,
+     * then we treat it as a string.  The string may be
+     * optionally enclosed in quotes, which we strip.
+     */
+    if !is_identifier_string(value) {
+        // TODO: Handle C escape sequences.
+        return Some(Ok(NumberOrString::String(value.to_owned())));
+    }
+
     // At this point the macro argument is considered a string.
     todo!()
+}
+
+fn is_identifier_string(s: &str) -> bool {
+    let mut it = s.chars();
+    let first_valid = it
+        .next()
+        .map(|c| c.is_ascii_alphabetic() || c == '_' || c == '`')
+        .unwrap_or_default();
+    if !first_valid {
+        return false;
+    }
+
+    for c in it {
+        if !(c.is_ascii_alphanumeric() || c == '_' || c == '`') {
+            return false;
+        }
+    }
+    return true;
 }
 
 #[cfg(test)]
