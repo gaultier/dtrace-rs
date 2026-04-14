@@ -112,8 +112,8 @@ pub struct Lexer<'a> {
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone)]
-pub enum IntOrString {
-    Number(i32),
+pub enum NumberOrString {
+    Number(usize),
     String,
 }
 
@@ -2272,6 +2272,55 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
         minor,
         patch,
     })
+}
+
+pub(crate) fn resolve_macro_argument_reference(
+    token: &Token,
+    args: &[&str],
+) -> Option<Result<NumberOrString, Error>> {
+    let macro_arg_ref: u32 = match token.kind {
+        TokenKind::MacroArgumentReference(Some(num)) => num,
+        _ => {
+            return None;
+        }
+    };
+
+    let value = match args.get(macro_arg_ref as usize) {
+        Some(v) => v,
+        None => {
+            return Some(Err(Error {
+                kind: ErrorKind::InvalidMacroArgument,
+                origin: token.origin,
+                explanation: format!("macro argument reference {} is not defined", macro_arg_ref),
+            }));
+        }
+    };
+
+    if value
+        .chars()
+        .next()
+        .map(|c: char| c == '+' || c == '-' || c.is_ascii_digit())
+        .is_some()
+    {
+        match value.parse::<usize>() {
+            Ok(num) => {
+                return Some(Ok(NumberOrString::Number(num)));
+            }
+            Err(err) => {
+                return Some(Err(Error {
+                    kind: ErrorKind::InvalidMacroArgument,
+                    origin: token.origin,
+                    explanation: format!(
+                        "macro argument reference {} resolves to an invalid number: {}",
+                        macro_arg_ref, err
+                    ),
+                }));
+            }
+        }
+    };
+
+    // At this point the macro argument is considered a string.
+    todo!()
 }
 
 #[cfg(test)]

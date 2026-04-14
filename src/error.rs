@@ -56,6 +56,7 @@ pub enum ErrorKind {
     UnexpectedPeriod,
     ShebangMustComeFirst,
     InvalidMacroArgumentReference,
+    InvalidMacroArgument,
 }
 
 #[derive(Serialize, Debug, Clone)]
