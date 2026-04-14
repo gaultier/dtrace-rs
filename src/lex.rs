@@ -112,6 +112,12 @@ pub struct Lexer<'a> {
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone)]
+pub enum IntOrString {
+    Number(i32),
+    String,
+}
+
+#[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone)]
 pub enum TokenKind {
     LiteralNumber,
     LiteralString,
@@ -214,6 +220,7 @@ pub enum TokenKind {
     GtGt,
     ClosePredicateDelimiter,
     Aggregation,
+    MacroArgumentReference(Option<u32>),
 }
 
 impl TryFrom<&str> for Stability {
@@ -1505,7 +1512,18 @@ impl<'a> Lexer<'a> {
             (_, '"') => self.lex_literal_string(),
             (_, '\'') => self.lex_literal_character(),
             // Macro.
-            (LexerState::ProgramOuterScope, '$') => todo!(),
+            (LexerState::InsideClauseAndExpr, '$')
+                if self.peek3() == (Some('$'), Some('$'), Some(c)) && c.is_ascii_digit() =>
+            {
+                self.advance(2);
+                self.macro_argument_reference()
+            }
+            (LexerState::InsideClauseAndExpr, '$')
+                if self.peek2().map(|c| c.is_ascii_digit()).unwrap_or_default() =>
+            {
+                self.advance(1);
+                self.macro_argument_reference()
+            }
             (LexerState::InsideClauseAndExpr, '@') => self.lex_aggregation(),
             _ if c.is_ascii_digit() => self.lex_literal_number(),
             _ if c.is_whitespace() => {
@@ -2142,6 +2160,33 @@ impl<'a> Lexer<'a> {
 
     pub(crate) fn begin(&mut self, state: LexerState) {
         self.state = state;
+    }
+
+    fn macro_argument_reference(&mut self) -> Token {
+        let origin = self.origin;
+        while let Some(c) = self.peek1() {
+            if c.is_ascii_digit() {
+                self.advance(1);
+            } else {
+                break;
+            }
+        }
+
+        let s = &self.input[origin.offset as usize..self.origin.offset as usize];
+        assert!(s.len() > 0);
+
+        let num: Option<u32> = match s.parse::<i32>() {
+            Ok(n) => Some(n as u32),
+            Err(_) => None,
+        };
+
+        Token {
+            kind: TokenKind::MacroArgumentReference(num),
+            origin: Origin {
+                len: self.origin.offset - origin.offset,
+                ..origin
+            },
+        }
     }
 }
 

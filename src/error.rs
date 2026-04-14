@@ -55,6 +55,7 @@ pub enum ErrorKind {
     UnsupportedLiteralFloatNumber,
     UnexpectedPeriod,
     ShebangMustComeFirst,
+    InvalidMacroArgumentReference,
 }
 
 #[derive(Serialize, Debug, Clone)]
