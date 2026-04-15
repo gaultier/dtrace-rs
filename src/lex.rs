@@ -1182,8 +1182,9 @@ impl<'a> Lexer<'a> {
                 self.lex()
             }
             (LexerState::InsideClauseAndExpr, '/') => {
-                let origin = self.position;
+                let start = self.position;
                 self.advance(1);
+                let end = self.position; // capture end before consuming lookahead whitespace
                 /*
                  * The use of "/" as the predicate delimiter and as the
                  * integer division symbol requires special lookahead
@@ -1208,7 +1209,7 @@ impl<'a> Lexer<'a> {
 
                 Token {
                     kind,
-                    origin: origin.extend_to_inclusive(self.position),
+                    origin: start.extend_to_inclusive(end),
                 }
             }
             (LexerState::ProgramOuterScope, '/') => {
@@ -2012,11 +2013,7 @@ impl<'a> Lexer<'a> {
             _ => {
                 return Token {
                     kind: TokenKind::Aggregation,
-                    origin: self.position.extend_to_inclusive(crate::origin::Position {
-                        byte_offset: self.position.byte_offset + 1,
-                        column: self.position.column + 1,
-                        ..self.position
-                    }),
+                    origin: start.extend_to_inclusive(self.position),
                 };
             }
         }
@@ -2241,10 +2238,17 @@ mod tests {
         let mut lexer = Lexer::new(1, input);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::ProbeSpecifier);
-        let s = str_from_source(input, token.origin);
-        assert_eq!(s, "syscall::open:entry");
-        assert_eq!(lexer.lex().kind, TokenKind::LeftCurly);
-        assert_eq!(lexer.lex().kind, TokenKind::RightCurly);
+        assert_eq!(str_from_source(input, token.origin), "syscall::open:entry");
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LeftCurly);
+            assert_eq!(str_from_source(input, token.origin), "{");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::RightCurly);
+            assert_eq!(str_from_source(input, token.origin), "}");
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2255,37 +2259,43 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::ProbeSpecifier);
-            let s = str_from_source(input, token.origin);
-            assert_eq!(s, "fbt:::");
+            assert_eq!(str_from_source(input, token.origin), "fbt:::");
         }
         lexer.begin(LexerState::InsideClauseAndExpr);
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Slash);
+            assert_eq!(str_from_source(input, token.origin), "/");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::KeywordSelf);
+            assert_eq!(str_from_source(input, token.origin), "self");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Arrow);
+            assert_eq!(str_from_source(input, token.origin), "->");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Identifier);
+            assert_eq!(str_from_source(input, token.origin), "spec");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::ClosePredicateDelimiter);
+            assert_eq!(str_from_source(input, token.origin), "/");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LeftCurly);
+            assert_eq!(str_from_source(input, token.origin), "{");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::RightCurly);
+            assert_eq!(str_from_source(input, token.origin), "}");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
@@ -2297,37 +2307,43 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::ProbeSpecifier);
-            let s = str_from_source(input, token.origin);
-            assert_eq!(s, "BEGIN");
+            assert_eq!(str_from_source(input, token.origin), "BEGIN");
         }
         lexer.begin(LexerState::InsideClauseAndExpr);
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Slash);
+            assert_eq!(str_from_source(input, token.origin), "/");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralNumber);
+            assert_eq!(str_from_source(input, token.origin), "1");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Slash);
+            assert_eq!(str_from_source(input, token.origin), "/");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralNumber);
+            assert_eq!(str_from_source(input, token.origin), "2");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::ClosePredicateDelimiter);
+            assert_eq!(str_from_source(input, token.origin), "/");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LeftCurly);
+            assert_eq!(str_from_source(input, token.origin), "{");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::RightCurly);
+            assert_eq!(str_from_source(input, token.origin), "}");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
@@ -2350,43 +2366,48 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Comma);
+            assert_eq!(str_from_source(input, token.origin), ",");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::ProbeSpecifier);
-            let s = str_from_source(input, token.origin);
-            assert_eq!(s, "syscall::write:entry");
+            assert_eq!(str_from_source(input, token.origin), "syscall::write:entry");
         }
         lexer.begin(LexerState::InsideClauseAndExpr);
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Slash);
+            assert_eq!(str_from_source(input, token.origin), "/");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Identifier);
-            let s = str_from_source(input, token.origin);
-            assert_eq!(s, "pid");
+            assert_eq!(str_from_source(input, token.origin), "pid");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::EqEq);
+            assert_eq!(str_from_source(input, token.origin), "==");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralNumber);
+            assert_eq!(str_from_source(input, token.origin), "102429");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::ClosePredicateDelimiter);
+            assert_eq!(str_from_source(input, token.origin), "/");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LeftCurly);
+            assert_eq!(str_from_source(input, token.origin), "{");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::RightCurly);
+            assert_eq!(str_from_source(input, token.origin), "}");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
@@ -2463,12 +2484,12 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralCharacter(None));
-            let s = str_from_source(input, token.origin);
-            assert_eq!(s, &input[0..input.len() - 1]);
+            assert_eq!(str_from_source(input, token.origin), &input[0..input.len() - 1]);
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::SemiColon);
+            assert_eq!(str_from_source(input, token.origin), ";");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
@@ -2629,30 +2650,32 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LeftCurly);
+            assert_eq!(str_from_source(input, token.origin), "{");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Identifier);
-            let s = str_from_source(input, token.origin);
-            assert_eq!(s, "print");
+            assert_eq!(str_from_source(input, token.origin), "print");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LeftParen);
+            assert_eq!(str_from_source(input, token.origin), "(");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::MacroArgumentReference(Some(1)));
-            let s = str_from_source(input, token.origin);
-            assert_eq!(s, "$$1");
+            assert_eq!(str_from_source(input, token.origin), "$$1");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::RightParen);
+            assert_eq!(str_from_source(input, token.origin), ")");
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::RightCurly);
+            assert_eq!(str_from_source(input, token.origin), "}");
         }
         {
             let token = lexer.lex();
@@ -2676,7 +2699,9 @@ mod tests {
     fn test_lex_unknown() {
         let input = "\x01";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::Unknown(Some('\x01')));
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Unknown(Some('\x01')));
+        assert_eq!(str_from_source(input, token.origin), "\x01");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2684,8 +2709,16 @@ mod tests {
     fn test_lex_paren() {
         let input = "()";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::LeftParen);
-        assert_eq!(lexer.lex().kind, TokenKind::RightParen);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LeftParen);
+            assert_eq!(str_from_source(input, token.origin), "(");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::RightParen);
+            assert_eq!(str_from_source(input, token.origin), ")");
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2693,8 +2726,16 @@ mod tests {
     fn test_lex_square_brackets() {
         let input = "[]";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::LeftSquareBracket);
-        assert_eq!(lexer.lex().kind, TokenKind::RightSquareBracket);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LeftSquareBracket);
+            assert_eq!(str_from_source(input, token.origin), "[");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::RightSquareBracket);
+            assert_eq!(str_from_source(input, token.origin), "]");
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2702,7 +2743,9 @@ mod tests {
     fn test_lex_dot() {
         let input = ".";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::Dot);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Dot);
+        assert_eq!(str_from_source(input, token.origin), ".");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2710,7 +2753,9 @@ mod tests {
     fn test_lex_dot_dot_dot() {
         let input = "...";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::DotDotDot);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::DotDotDot);
+        assert_eq!(str_from_source(input, token.origin), "...");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2718,7 +2763,9 @@ mod tests {
     fn test_lex_tilde() {
         let input = "~";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::Tilde);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Tilde);
+        assert_eq!(str_from_source(input, token.origin), "~");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2726,7 +2773,9 @@ mod tests {
     fn test_lex_question() {
         let input = "?";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::Question);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Question);
+        assert_eq!(str_from_source(input, token.origin), "?");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2734,7 +2783,9 @@ mod tests {
     fn test_lex_eq() {
         let input = "=";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::Eq);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Eq);
+        assert_eq!(str_from_source(input, token.origin), "=");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2742,8 +2793,16 @@ mod tests {
     fn test_lex_bang_operators() {
         let input = "! !=";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::Bang);
-        assert_eq!(lexer.lex().kind, TokenKind::BangEq);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Bang);
+            assert_eq!(str_from_source(input, token.origin), "!");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::BangEq);
+            assert_eq!(str_from_source(input, token.origin), "!=");
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2751,7 +2810,9 @@ mod tests {
     fn test_lex_plus_eq() {
         let input = "+=";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::PlusEq);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::PlusEq);
+        assert_eq!(str_from_source(input, token.origin), "+=");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2759,9 +2820,21 @@ mod tests {
     fn test_lex_minus_operators() {
         let input = "- -- -=";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::Minus);
-        assert_eq!(lexer.lex().kind, TokenKind::MinusMinus);
-        assert_eq!(lexer.lex().kind, TokenKind::MinusEq);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Minus);
+            assert_eq!(str_from_source(input, token.origin), "-");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::MinusMinus);
+            assert_eq!(str_from_source(input, token.origin), "--");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::MinusEq);
+            assert_eq!(str_from_source(input, token.origin), "-=");
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2770,8 +2843,16 @@ mod tests {
         let input = "* *=";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        assert_eq!(lexer.lex().kind, TokenKind::Star);
-        assert_eq!(lexer.lex().kind, TokenKind::StarEq);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Star);
+            assert_eq!(str_from_source(input, token.origin), "*");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::StarEq);
+            assert_eq!(str_from_source(input, token.origin), "*=");
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2779,8 +2860,16 @@ mod tests {
     fn test_lex_percent_operators() {
         let input = "% %=";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::Percent);
-        assert_eq!(lexer.lex().kind, TokenKind::PercentEq);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Percent);
+            assert_eq!(str_from_source(input, token.origin), "%");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::PercentEq);
+            assert_eq!(str_from_source(input, token.origin), "%=");
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2788,9 +2877,21 @@ mod tests {
     fn test_lex_caret_operators() {
         let input = "^ ^^ ^=";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::Caret);
-        assert_eq!(lexer.lex().kind, TokenKind::CaretCaret);
-        assert_eq!(lexer.lex().kind, TokenKind::CaretEq);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Caret);
+            assert_eq!(str_from_source(input, token.origin), "^");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::CaretCaret);
+            assert_eq!(str_from_source(input, token.origin), "^^");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::CaretEq);
+            assert_eq!(str_from_source(input, token.origin), "^=");
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2798,9 +2899,21 @@ mod tests {
     fn test_lex_ampersand_operators() {
         let input = "& && &=";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::Ampersand);
-        assert_eq!(lexer.lex().kind, TokenKind::AmpersandAmpersand);
-        assert_eq!(lexer.lex().kind, TokenKind::AmpersandEq);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Ampersand);
+            assert_eq!(str_from_source(input, token.origin), "&");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::AmpersandAmpersand);
+            assert_eq!(str_from_source(input, token.origin), "&&");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::AmpersandEq);
+            assert_eq!(str_from_source(input, token.origin), "&=");
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2808,9 +2921,21 @@ mod tests {
     fn test_lex_pipe_operators() {
         let input = "| || |=";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::Pipe);
-        assert_eq!(lexer.lex().kind, TokenKind::PipePipe);
-        assert_eq!(lexer.lex().kind, TokenKind::PipeEq);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Pipe);
+            assert_eq!(str_from_source(input, token.origin), "|");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::PipePipe);
+            assert_eq!(str_from_source(input, token.origin), "||");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::PipeEq);
+            assert_eq!(str_from_source(input, token.origin), "|=");
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2818,12 +2943,36 @@ mod tests {
     fn test_lex_comparison_operators() {
         let input = "> >= >> < <= <<";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::Gt);
-        assert_eq!(lexer.lex().kind, TokenKind::GtEq);
-        assert_eq!(lexer.lex().kind, TokenKind::GtGt);
-        assert_eq!(lexer.lex().kind, TokenKind::Lt);
-        assert_eq!(lexer.lex().kind, TokenKind::LtEq);
-        assert_eq!(lexer.lex().kind, TokenKind::LtLt);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Gt);
+            assert_eq!(str_from_source(input, token.origin), ">");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::GtEq);
+            assert_eq!(str_from_source(input, token.origin), ">=");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::GtGt);
+            assert_eq!(str_from_source(input, token.origin), ">>");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Lt);
+            assert_eq!(str_from_source(input, token.origin), "<");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LtEq);
+            assert_eq!(str_from_source(input, token.origin), "<=");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LtLt);
+            assert_eq!(str_from_source(input, token.origin), "<<");
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2832,8 +2981,16 @@ mod tests {
         let input = ": :=";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        assert_eq!(lexer.lex().kind, TokenKind::Colon);
-        assert_eq!(lexer.lex().kind, TokenKind::ColonEq);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Colon);
+            assert_eq!(str_from_source(input, token.origin), ":");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::ColonEq);
+            assert_eq!(str_from_source(input, token.origin), ":=");
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2842,10 +2999,16 @@ mod tests {
         let input = "@count @";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::Aggregation);
-        assert_eq!(str_from_source(input, token.origin), "@count");
-        assert_eq!(lexer.lex().kind, TokenKind::Aggregation);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Aggregation);
+            assert_eq!(str_from_source(input, token.origin), "@count");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Aggregation);
+            assert_eq!(str_from_source(input, token.origin), "@");
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2855,12 +3018,20 @@ mod tests {
         let input = "$$99999999999";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        assert_eq!(lexer.lex().kind, TokenKind::MacroArgumentReference(None));
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::MacroArgumentReference(None));
+        assert_eq!(str_from_source(input, token.origin), "$$99999999999");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
     #[test]
     fn test_lex_keywords_type_declarators() {
+        for kw in ["auto", "char", "const", "double", "enum", "float", "int", "long", "short", "signed", "struct"] {
+            let mut lexer = Lexer::new(FILE_ID, kw);
+            let token = lexer.lex();
+            assert_eq!(str_from_source(kw, token.origin), kw, "origin mismatch for keyword {kw}");
+            assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        }
         assert_eq!(Lexer::new(FILE_ID, "auto").lex().kind, TokenKind::KeywordAuto);
         assert_eq!(Lexer::new(FILE_ID, "char").lex().kind, TokenKind::KeywordChar);
         assert_eq!(Lexer::new(FILE_ID, "const").lex().kind, TokenKind::KeywordConst);
@@ -2876,6 +3047,12 @@ mod tests {
 
     #[test]
     fn test_lex_keywords_storage_class() {
+        for kw in ["counter", "extern", "inline", "register", "restrict", "static"] {
+            let mut lexer = Lexer::new(FILE_ID, kw);
+            let token = lexer.lex();
+            assert_eq!(str_from_source(kw, token.origin), kw, "origin mismatch for keyword {kw}");
+            assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        }
         assert_eq!(Lexer::new(FILE_ID, "counter").lex().kind, TokenKind::KeywordCounter);
         assert_eq!(Lexer::new(FILE_ID, "extern").lex().kind, TokenKind::KeywordExtern);
         assert_eq!(Lexer::new(FILE_ID, "inline").lex().kind, TokenKind::KeywordInline);
@@ -2886,6 +3063,12 @@ mod tests {
 
     #[test]
     fn test_lex_keywords_dtrace_types() {
+        for kw in ["import", "provider", "string", "translator"] {
+            let mut lexer = Lexer::new(FILE_ID, kw);
+            let token = lexer.lex();
+            assert_eq!(str_from_source(kw, token.origin), kw, "origin mismatch for keyword {kw}");
+            assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        }
         assert_eq!(Lexer::new(FILE_ID, "import").lex().kind, TokenKind::KeywordImport);
         assert_eq!(Lexer::new(FILE_ID, "provider").lex().kind, TokenKind::KeywordProvider);
         assert_eq!(Lexer::new(FILE_ID, "string").lex().kind, TokenKind::KeywordString);
@@ -2894,7 +3077,11 @@ mod tests {
 
     #[test]
     fn test_lex_keywords_this() {
-        assert_eq!(Lexer::new(FILE_ID, "this").lex().kind, TokenKind::KeywordThis);
+        let mut lexer = Lexer::new(FILE_ID, "this");
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::KeywordThis);
+        assert_eq!(str_from_source("this", token.origin), "this");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
     #[test]
@@ -2902,18 +3089,24 @@ mod tests {
         let input = "break case continue default do else for goto if return switch while";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordBreak);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordCase);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordContinue);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordDefault);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordDo);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordElse);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordFor);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordGoto);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordIf);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordReturn);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordSwitch);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordWhile);
+        for (kind, text) in [
+            (TokenKind::KeywordBreak, "break"),
+            (TokenKind::KeywordCase, "case"),
+            (TokenKind::KeywordContinue, "continue"),
+            (TokenKind::KeywordDefault, "default"),
+            (TokenKind::KeywordDo, "do"),
+            (TokenKind::KeywordElse, "else"),
+            (TokenKind::KeywordFor, "for"),
+            (TokenKind::KeywordGoto, "goto"),
+            (TokenKind::KeywordIf, "if"),
+            (TokenKind::KeywordReturn, "return"),
+            (TokenKind::KeywordSwitch, "switch"),
+            (TokenKind::KeywordWhile, "while"),
+        ] {
+            let token = lexer.lex();
+            assert_eq!(token.kind, kind);
+            assert_eq!(str_from_source(input, token.origin), text);
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2922,14 +3115,20 @@ mod tests {
         let input = "offsetof sizeof typedef union unsigned userland void volatile";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordOffsetOf);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordSizeof);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordTypedef);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordUnion);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordUnsigned);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordUserland);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordVoid);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordVolatile);
+        for (kind, text) in [
+            (TokenKind::KeywordOffsetOf, "offsetof"),
+            (TokenKind::KeywordSizeof, "sizeof"),
+            (TokenKind::KeywordTypedef, "typedef"),
+            (TokenKind::KeywordUnion, "union"),
+            (TokenKind::KeywordUnsigned, "unsigned"),
+            (TokenKind::KeywordUserland, "userland"),
+            (TokenKind::KeywordVoid, "void"),
+            (TokenKind::KeywordVolatile, "volatile"),
+        ] {
+            let token = lexer.lex();
+            assert_eq!(token.kind, kind);
+            assert_eq!(str_from_source(input, token.origin), text);
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2938,9 +3137,15 @@ mod tests {
         let input = "probe stringof xlate";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordProbe);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordStringof);
-        assert_eq!(lexer.lex().kind, TokenKind::KeywordXlate);
+        for (kind, text) in [
+            (TokenKind::KeywordProbe, "probe"),
+            (TokenKind::KeywordStringof, "stringof"),
+            (TokenKind::KeywordXlate, "xlate"),
+        ] {
+            let token = lexer.lex();
+            assert_eq!(token.kind, kind);
+            assert_eq!(str_from_source(input, token.origin), text);
+        }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 }
