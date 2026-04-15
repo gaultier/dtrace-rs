@@ -340,7 +340,11 @@ impl<'a> Parser<'a> {
                 }))
             }
             Token {
-                kind: TokenKind::LiteralString | TokenKind::KeywordSelf | TokenKind::KeywordThis,
+                kind:
+                    TokenKind::LiteralString
+                    | TokenKind::KeywordSelf
+                    | TokenKind::KeywordThis
+                    | TokenKind::MacroArgumentReference(_), /* Addition to avoid resolving macro argument references. */
                 ..
             } => {
                 let tok = self.lexer.lex();
@@ -1746,8 +1750,6 @@ impl<'a> Parser<'a> {
 
     #[warn(unused_results)]
     pub fn parse(&mut self) -> Option<NodeId> {
-        
-
         // self.resolve_nodes();
 
         self.parse_program()

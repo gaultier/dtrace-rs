@@ -1515,14 +1515,16 @@ impl<'a> Lexer<'a> {
             (LexerState::InsideClauseAndExpr, '$')
                 if self.peek3() == (Some('$'), Some('$'), Some(c)) && c.is_ascii_digit() =>
             {
+                let origin = self.origin;
                 self.advance(2);
-                self.macro_argument_reference()
+                self.macro_argument_reference(origin)
             }
             (LexerState::InsideClauseAndExpr, '$')
                 if self.peek2().map(|c| c.is_ascii_digit()).unwrap_or_default() =>
             {
+                let origin = self.origin;
                 self.advance(1);
-                self.macro_argument_reference()
+                self.macro_argument_reference(origin)
             }
             (LexerState::InsideClauseAndExpr, '@') => self.lex_aggregation(),
             _ if c.is_ascii_digit() => self.lex_literal_number(),
@@ -2162,8 +2164,7 @@ impl<'a> Lexer<'a> {
         self.state = state;
     }
 
-    fn macro_argument_reference(&mut self) -> Token {
-        let origin = self.origin;
+    fn macro_argument_reference(&mut self, origin: Origin) -> Token {
         while let Some(c) = self.peek1() {
             if c.is_ascii_digit() {
                 self.advance(1);
@@ -2172,7 +2173,9 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let s = &self.input[origin.offset as usize..self.origin.offset as usize];
+        let s = &self.input[origin.offset as usize..self.origin.offset as usize]
+            .trim_start_matches('$');
+        dbg!(s);
         assert!(s.len() > 0);
 
         let num: Option<u32> = match s.parse::<i32>() {
@@ -2272,83 +2275,6 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
         minor,
         patch,
     })
-}
-
-pub(crate) fn resolve_macro_argument_reference(
-    token: &Token,
-    args: &[&str],
-) -> Option<Result<NumberOrString, Error>> {
-    let macro_arg_ref: u32 = match token.kind {
-        TokenKind::MacroArgumentReference(Some(num)) => num,
-        _ => {
-            return None;
-        }
-    };
-
-    let value = match args.get(macro_arg_ref as usize) {
-        Some(v) => v,
-        None => {
-            return Some(Err(Error {
-                kind: ErrorKind::InvalidMacroArgument,
-                origin: token.origin,
-                explanation: format!("macro argument reference {} is not defined", macro_arg_ref),
-            }));
-        }
-    };
-
-    if value
-        .chars()
-        .next()
-        .map(|c: char| c == '+' || c == '-' || c.is_ascii_digit())
-        .is_some()
-    {
-        match value.parse::<usize>() {
-            Ok(num) => {
-                return Some(Ok(NumberOrString::Number(num)));
-            }
-            Err(err) => {
-                return Some(Err(Error {
-                    kind: ErrorKind::InvalidMacroArgument,
-                    origin: token.origin,
-                    explanation: format!(
-                        "macro argument reference {} resolves to an invalid number: {}",
-                        macro_arg_ref, err
-                    ),
-                }));
-            }
-        }
-    };
-
-    /*
-     * If the macro text is not a valid integer or ident,
-     * then we treat it as a string.  The string may be
-     * optionally enclosed in quotes, which we strip.
-     */
-    if !is_identifier_string(value) {
-        // TODO: Handle C escape sequences.
-        return Some(Ok(NumberOrString::String(value.to_owned())));
-    }
-
-    // At this point the macro argument is considered a string.
-    todo!()
-}
-
-fn is_identifier_string(s: &str) -> bool {
-    let mut it = s.chars();
-    let first_valid = it
-        .next()
-        .map(|c| c.is_ascii_alphabetic() || c == '_' || c == '`')
-        .unwrap_or_default();
-    if !first_valid {
-        return false;
-    }
-
-    for c in it {
-        if !(c.is_ascii_alphanumeric() || c == '_' || c == '`') {
-            return false;
-        }
-    }
-    return true;
 }
 
 #[cfg(test)]
@@ -2578,6 +2504,67 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::SemiColon);
+        }
+    }
+
+    #[test]
+    fn test_lex_probe_specifier_with_macro_argument_reference() {
+        let input = "BEG$$1 ";
+        let mut lexer = Lexer::new(1, input);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, &input[0..input.len() - 1]);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Eof);
+        }
+    }
+
+    #[test]
+    fn test_lex_macro_argument_reference() {
+        let input = "BEGIN {print($$1) } ";
+        let mut lexer = Lexer::new(1, input);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, "BEGIN");
+        }
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LeftCurly);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Identifier);
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, "print");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LeftParen);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::MacroArgumentReference(Some(1)));
+            let s = str_from_source(input, &token.origin);
+            assert_eq!(s, "$$1");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::RightParen);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::RightCurly);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Eof);
         }
     }
 }
