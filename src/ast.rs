@@ -262,7 +262,7 @@ impl<'a> Parser<'a> {
                     kind: TokenKind::Eof,
                     ..
                 } => return,
-                Token { origin, .. } if origin.line > current_line => {
+                Token { origin, .. } if origin.start.line > current_line => {
                     return;
                 }
                 _ => {
@@ -314,7 +314,7 @@ impl<'a> Parser<'a> {
             } => {
                 let tok = self.lexer.lex();
 
-                let identifier = lex::str_from_source(self.lexer.input, &tok.origin).to_owned();
+                let identifier = lex::str_from_source(self.lexer.input, tok.origin).to_owned();
 
                 Some(self.new_node(Node {
                     kind: if identifier.starts_with("@") {
@@ -470,7 +470,7 @@ impl<'a> Parser<'a> {
         if let Some(op) = self.match_kind(TokenKind::LeftParen) {
             let typ = self.expect_token_one(TokenKind::Identifier, "type in cast");
             let typ_str = if let Some(typ) = typ {
-                lex::str_from_source(self.lexer.input, &typ.origin).to_owned()
+                lex::str_from_source(self.lexer.input, typ.origin).to_owned()
             } else {
                 String::new()
             };
@@ -588,7 +588,7 @@ impl<'a> Parser<'a> {
                 if self.match_kind(TokenKind::LeftParen).is_some() {
                     let typename = self
                         .expect_token_one(TokenKind::Identifier, "type name for sizeof")
-                        .map(|t| lex::str_from_source(self.lexer.input, &t.origin).to_owned())
+                        .map(|t| lex::str_from_source(self.lexer.input, t.origin).to_owned())
                         .unwrap_or_default();
                     self.expect_token_one(TokenKind::RightParen, "matching parenthesis for sizeof");
 
@@ -1340,7 +1340,7 @@ impl<'a> Parser<'a> {
 
     // Best effort to find the closest token when doing error reporting.
     fn current_or_last_origin_for_err(&self) -> Origin {
-        self.lexer.position
+        self.lexer.position.into()
 
         //if self.tokens_consumed == self.tokens.len() {
         //    return self
@@ -1356,7 +1356,7 @@ impl<'a> Parser<'a> {
         //} else if self.tokens_consumed > 0 {
         //    self.tokens[self.tokens_consumed - 1].origin
         //} else {
-        //    Origin::new_unknown()
+        //    Origin::default()
         //}
     }
 
@@ -1383,7 +1383,7 @@ impl<'a> Parser<'a> {
         }
 
         let tok = self.lexer.lex();
-        let src = lex::str_from_source(self.lexer.input, &tok.origin);
+        let src = lex::str_from_source(self.lexer.input, tok.origin);
         let num: u64 = str::parse(src)
             .map_err(|err: ParseIntError| {
                 self.add_error_with_explanation(
@@ -1413,7 +1413,7 @@ impl<'a> Parser<'a> {
         }
 
         if let Some(tok) = self.match_kind(TokenKind::ProbeSpecifier) {
-            let s = lex::str_from_source(self.lexer.input, &tok.origin).to_owned();
+            let s = lex::str_from_source(self.lexer.input, tok.origin).to_owned();
             let node_id = self.new_node(Node {
                 kind: NodeKind::ProbeSpecifier(s),
                 origin: tok.origin,
@@ -1421,7 +1421,7 @@ impl<'a> Parser<'a> {
             return Some(node_id);
         }
         if let Some(tok) = self.match_kind(TokenKind::Identifier) {
-            let s = lex::str_from_source(self.lexer.input, &tok.origin).to_owned();
+            let s = lex::str_from_source(self.lexer.input, tok.origin).to_owned();
             let node_id = self.new_node(Node {
                 kind: NodeKind::ProbeSpecifier(s),
                 origin: tok.origin,
@@ -1490,7 +1490,7 @@ impl<'a> Parser<'a> {
                     } else {
                         stmts.push(self.new_node(Node {
                             kind: NodeKind::ExprStmt(expr),
-                            origin: Origin::new_unknown(),
+                            origin: Origin::default(),
                         }));
 
                         return Some(self.new_node(Node {
@@ -1691,7 +1691,7 @@ impl<'a> Parser<'a> {
 
         let node_id = self.new_node(Node {
             kind: NodeKind::TranslationUnit(decls),
-            origin: Origin::new_unknown(),
+            origin: Origin::default(),
         });
         Some(node_id)
     }
@@ -2064,7 +2064,7 @@ impl<'a> Parser<'a> {
             TokenKind::Identifier => {
                 let origin = self.peek().origin;
                 let kind = self.peek().kind;
-                let name = lex::str_from_source(self.lexer.input, &origin);
+                let name = lex::str_from_source(self.lexer.input, origin);
                 if self.typenames.contains(name) {
                     Some(self.new_node(Node {
                         kind: NodeKind::TypeSpecifier(kind),
@@ -2166,7 +2166,7 @@ impl<'a> Parser<'a> {
         let mut lhs = match self.peek().kind {
             TokenKind::Identifier => {
                 let tok = self.lexer.lex();
-                let identifier = lex::str_from_source(self.lexer.input, &tok.origin).to_owned();
+                let identifier = lex::str_from_source(self.lexer.input, tok.origin).to_owned();
                 let identifier_node = self.new_node(Node {
                     kind: NodeKind::Identifier(identifier),
                     origin: tok.origin,
@@ -2237,7 +2237,7 @@ impl<'a> Parser<'a> {
 
         let enum_tok = self.match_kind(TokenKind::KeywordEnum)?;
         let name_tok = self.match_kind(TokenKind::Identifier);
-        let name = name_tok.map(|t| lex::str_from_source(self.lexer.input, &t.origin).to_owned());
+        let name = name_tok.map(|t| lex::str_from_source(self.lexer.input, t.origin).to_owned());
         if let Some(name) = &name {
             self.typenames.insert(name.clone());
         }
@@ -2311,7 +2311,7 @@ impl<'a> Parser<'a> {
             })
         });
 
-        let identifier = lex::str_from_source(self.lexer.input, &identifier_tok.origin).to_owned();
+        let identifier = lex::str_from_source(self.lexer.input, identifier_tok.origin).to_owned();
         Some(self.new_node(Node {
             kind: NodeKind::EnumeratorDeclaration(identifier, expr),
             origin: identifier_tok.origin,
@@ -2330,7 +2330,7 @@ impl<'a> Parser<'a> {
             .or_else(|| self.match_kind(TokenKind::KeywordUnion))?;
 
         let name_tok = self.match_kind(TokenKind::Identifier);
-        let name = name_tok.map(|t| lex::str_from_source(self.lexer.input, &t.origin).to_owned());
+        let name = name_tok.map(|t| lex::str_from_source(self.lexer.input, t.origin).to_owned());
 
         if let Some(name) = &name {
             self.typenames.insert(name.clone());

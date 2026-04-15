@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::{
     error::{Error, ErrorKind},
-    origin::{FileId, Origin, Position},
+    origin::{FileId, Origin, Position, PositionKind},
 };
 
 const STABILITY_POSSIBLE_VALUES: &str =
@@ -297,7 +297,10 @@ fn is_character_probe_specifier_rest(c: char) -> bool {
 impl<'a> Lexer<'a> {
     pub fn new(file_id: FileId, input: &'a str) -> Self {
         Self {
-            position: Position::default(),
+            position: Position {
+                kind: PositionKind::File(file_id),
+                ..Position::default()
+            },
             errors: Vec::new(),
             state: LexerState::ProgramOuterScope,
             control_directives: Vec::new(),
@@ -332,7 +335,8 @@ impl<'a> Lexer<'a> {
 
     fn lex_identifier(&mut self) -> Token {
         let start = self.position;
-        let first = self.advance(1).unwrap();
+        let (first, _) = self.advance(1);
+        let first = first.unwrap();
         assert!(!(first.is_ascii_whitespace() || first == '"'));
 
         let mut end = self.position;
@@ -354,7 +358,8 @@ impl<'a> Lexer<'a> {
 
     fn lex_pragma_identifier(&mut self) -> Token {
         let start_origin = self.position;
-        let first = self.advance(1).unwrap();
+        let (first, _) = self.advance(1);
+        let first = first.unwrap();
         assert!(!(first.is_ascii_whitespace() || first == '"'));
 
         while let Some(c) = self.peek1() {
@@ -365,11 +370,7 @@ impl<'a> Lexer<'a> {
             self.advance(1);
         }
 
-        let len = self.position.offset - start_origin.offset;
-        let origin = Origin {
-            len,
-            ..start_origin
-        };
+        let origin = start_origin.extend_to_inclusive(self.position);
 
         Token {
             kind: TokenKind::Identifier,
@@ -378,7 +379,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_convert_to_keyword(&mut self, token: Token) -> Token {
-        let s = str_from_source(self.input, &token.origin);
+        let s = str_from_source(self.input, token.origin);
         let kind = match (self.state, s) {
             (LexerState::ProgramOuterScope, "auto") => {
                 self.state = LexerState::InsideClauseAndExpr;
@@ -529,7 +530,8 @@ impl<'a> Lexer<'a> {
 
     fn lex_probe_specifier(&mut self) -> Token {
         let start_origin = self.position;
-        let first = self.advance(1).unwrap();
+        let (first, _) = self.advance(1);
+        let first = first.unwrap();
         assert!(is_character_probe_specifier_start(first));
 
         /*
@@ -559,11 +561,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let len = self.position.offset - start_origin.offset;
-        let origin = Origin {
-            len,
-            ..start_origin
-        };
+        let origin = start_origin.extend_to_inclusive(self.position);
 
         Token {
             kind: TokenKind::ProbeSpecifier,
@@ -573,7 +571,7 @@ impl<'a> Lexer<'a> {
 
     fn lex_literal_string(&mut self) -> Token {
         let start_origin = self.position;
-        let first = self.advance(1);
+        let (first, _) = self.advance(1);
         assert_eq!(first, Some('"'));
 
         loop {
@@ -583,7 +581,7 @@ impl<'a> Lexer<'a> {
                     break;
                 }
                 Some('\n') | None => {
-                    self.add_error(ErrorKind::InvalidLiteralString);
+                    self.add_error(ErrorKind::InvalidLiteralString, self.position.into());
                     break;
                 }
                 Some(_) => {
@@ -592,11 +590,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let len = self.position.offset - start_origin.offset;
-        let origin = Origin {
-            len,
-            ..start_origin
-        };
+        let origin = start_origin.extend_to_inclusive(self.position);
 
         Token {
             kind: TokenKind::LiteralString,
@@ -606,7 +600,7 @@ impl<'a> Lexer<'a> {
 
     fn lex_literal_character(&mut self) -> Token {
         let start_origin = self.position;
-        let first = self.advance(1);
+        let (first, _) = self.advance(1);
         assert_eq!(first, Some('\''));
 
         let c = match self.peek3() {
@@ -654,23 +648,23 @@ impl<'a> Lexer<'a> {
             // Octal sequence.
             (Some('\\'), Some('0'..='7'), _) => 'octal: {
                 self.advance(1);
-                let start = self.position.offset as usize;
+                let start = self.position.byte_offset as usize;
                 while let Some('0'..='7') = self.peek1() {
                     self.advance(1);
                 }
                 if let Some('\'') = self.peek1() {
                     self.advance(1);
                 } else {
-                    self.add_error(ErrorKind::InvalidLiteralCharacter);
+                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
                     break 'octal None;
                 }
 
-                let s = &self.input[start..self.position.offset as usize - 1];
+                let s = &self.input[start..self.position.byte_offset as usize - 1];
 
                 match i32::from_str_radix(s, 8) {
                     Ok(c) => Some(c),
                     Err(_) => {
-                        self.add_error(ErrorKind::InvalidLiteralCharacter);
+                        self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
                         None
                     }
                 }
@@ -678,23 +672,23 @@ impl<'a> Lexer<'a> {
             // Hex sequence.
             (Some('\\'), Some('x'), _) => 'hex: {
                 self.advance(2);
-                let start = self.position.offset as usize;
+                let start = self.position.byte_offset as usize;
                 while let Some('0'..='9' | 'a'..='z' | 'A'..='Z') = self.peek1() {
                     self.advance(1);
                 }
                 if let Some('\'') = self.peek1() {
                     self.advance(1);
                 } else {
-                    self.add_error(ErrorKind::InvalidLiteralCharacter);
+                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
                     break 'hex None;
                 }
 
-                let s = &self.input[start..self.position.offset as usize - 1];
+                let s = &self.input[start..self.position.byte_offset as usize - 1];
 
                 match i32::from_str_radix(s, 16) {
                     Ok(c) => Some(c),
                     Err(_) => {
-                        self.add_error(ErrorKind::InvalidLiteralCharacter);
+                        self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
                         None
                     }
                 }
@@ -705,7 +699,7 @@ impl<'a> Lexer<'a> {
                 Some(c as i32)
             }
             _ => {
-                self.add_error(ErrorKind::InvalidLiteralCharacter);
+                self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
                 self.skip_until_inclusive_or_newline('\'');
                 None
             }
@@ -713,16 +707,14 @@ impl<'a> Lexer<'a> {
 
         Token {
             kind: TokenKind::LiteralCharacter(c),
-            origin: Origin {
-                len: self.position.offset - start_origin.offset,
-                ..start_origin
-            },
+            origin: start_origin.extend_to_inclusive(self.position),
         }
     }
 
     fn lex_literal_number(&mut self) -> Token {
         let start_origin = self.position;
-        let first = self.advance(1).unwrap();
+        let (first, _) = self.advance(1);
+        let first = first.unwrap();
         assert!(first.is_ascii_digit());
 
         if let Some(second) = self.peek1()
@@ -743,7 +735,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             if count == 0 {
-                self.add_error(ErrorKind::InvalidLiteralNumber);
+                self.add_error(ErrorKind::InvalidLiteralNumber, self.position.into());
             }
         } else {
             while let Some(c) = self.peek1() {
@@ -752,7 +744,10 @@ impl<'a> Lexer<'a> {
                         self.advance(1);
                     }
                     '.' => {
-                        self.add_error(ErrorKind::UnsupportedLiteralFloatNumber);
+                        self.add_error(
+                            ErrorKind::UnsupportedLiteralFloatNumber,
+                            self.position.into(),
+                        );
                         self.advance(1);
                         break;
                     }
@@ -761,9 +756,9 @@ impl<'a> Lexer<'a> {
                     }
                 }
             }
-            let len = self.position.offset - start_origin.offset;
+            let len = self.position.byte_offset - start_origin.byte_offset;
             if first == '0' && len > 1 {
-                self.add_error(ErrorKind::InvalidLiteralNumber);
+                self.add_error(ErrorKind::InvalidLiteralNumber, self.position.into());
             }
         }
 
@@ -777,11 +772,7 @@ impl<'a> Lexer<'a> {
             self.advance(1);
         }
 
-        let len = self.position.offset - start_origin.offset;
-        let origin = Origin {
-            len,
-            ..start_origin
-        };
+        let origin = start_origin.extend_to_inclusive(self.position);
 
         Token {
             kind: TokenKind::LiteralNumber,
@@ -856,7 +847,7 @@ impl<'a> Lexer<'a> {
                     );
                 }
                 let start = self.position;
-                = self.advance(2);
+                self.advance(2);
                 self.skip_until_exclusive('\n');
                 let origin = start.extend_to_inclusive(self.position);
                 let s = str_from_source(self.input, origin.forwards(2))
@@ -881,436 +872,305 @@ impl<'a> Lexer<'a> {
                     let token = self.lex();
                     tokens.push(token);
                 }
-                match self.control_directive(&tokens, start) {
+                match self.control_directive(&tokens, start.into()) {
                     Ok(directive) => self.control_directives.push(directive),
                     Err(err) => self.errors.push(err),
                 }
                 self.lex()
             }
             (_, '-') if self.peek2() == Some('-') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::MinusMinus,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::MinusMinus,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '-') if self.peek2() == Some('=') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::MinusEq,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::MinusEq,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '-') if self.peek2() == Some('>') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Arrow,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::Arrow,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '-') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Minus,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Minus,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '+') if self.peek2() == Some('+') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::PlusPlus,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::PlusPlus,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '+') if self.peek2() == Some('=') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::PlusEq,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::PlusEq,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '+') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Plus,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Plus,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (LexerState::ProgramOuterScope, '.')
                 if self.peek3() == (Some('.'), Some('.'), Some('.')) =>
             {
-                let origin = Origin {
-                    len: 3,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::DotDotDot,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(3);
-                token
+                Token {
+                    kind: TokenKind::DotDotDot,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '.') if self.peek2().map(|c| c.is_ascii_digit()).unwrap_or_default() => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                self.add_error(ErrorKind::UnsupportedLiteralFloatNumber);
+                let start = self.position;
                 self.advance(2);
+                self.add_error(
+                    ErrorKind::UnsupportedLiteralFloatNumber,
+                    start.extend_to_inclusive(self.position),
+                );
                 Token {
                     kind: TokenKind::LiteralNumber,
-                    origin,
+                    origin: start.extend_to_inclusive(self.position),
                 }
             }
 
             (LexerState::ProgramOuterScope, '.') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Dot,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Dot,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '.') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Dot,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                self.add_error(ErrorKind::UnexpectedPeriod);
-                token
+                self.add_error(
+                    ErrorKind::UnexpectedPeriod,
+                    start.extend_to_inclusive(self.position),
+                );
+                Token {
+                    kind: TokenKind::Dot,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '*') if self.peek2() == Some('=') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::StarEq,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::StarEq,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '*') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Star,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Star,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '>') if self.peek2() == Some('>') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::GtGt,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::GtGt,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '>') if self.peek2() == Some('=') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::GtEq,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::GtEq,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '>') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Gt,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Gt,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '<') if self.peek2() == Some('<') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::LtLt,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::LtLt,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '<') if self.peek2() == Some('=') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::LtEq,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::LtEq,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '<') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Lt,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Lt,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '^') if self.peek2() == Some('=') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::CaretEq,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::CaretEq,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '^') if self.peek2() == Some('^') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::CaretCaret,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::CaretCaret,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '^') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Caret,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Caret,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '&') if self.peek2() == Some('=') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::AmpersandEq,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::AmpersandEq,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '&') if self.peek2() == Some('&') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::AmpersandAmpersand,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::AmpersandAmpersand,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '&') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Ampersand,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Ampersand,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '?') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Question,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Question,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '|') if self.peek2() == Some('=') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::PipeEq,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::PipeEq,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '|') if self.peek2() == Some('|') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::PipePipe,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::PipePipe,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '|') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Pipe,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Pipe,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, ':') => {
                 if let Some(next) = self.peek1()
                     && next == '='
                 {
-                    let origin = Origin {
-                        len: 2,
-                        ..self.position
-                    };
-                    let token = Token {
-                        kind: TokenKind::ColonEq,
-                        origin,
-                    };
+                    let start = self.position;
                     self.advance(2);
-                    token
+                    Token {
+                        kind: TokenKind::ColonEq,
+                        origin: start.extend_to_inclusive(self.position),
+                    }
                 } else {
-                    let origin = Origin {
-                        len: 1,
-                        ..self.position
-                    };
-                    let token = Token {
-                        kind: TokenKind::Colon,
-                        origin,
-                    };
+                    let start = self.position;
                     self.advance(1);
-                    token
+                    Token {
+                        kind: TokenKind::Colon,
+                        origin: start.extend_to_inclusive(self.position),
+                    }
                 }
             }
             (_, '!') if self.peek2() == Some('=') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::BangEq,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::BangEq,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '!') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Bang,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Bang,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '=') if self.peek2() == Some('=') => {
-                let origin = self.position;
-
-                let token = Token {
-                    kind: TokenKind::EqEq,
-                    origin: Origin { len: 2, ..origin },
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::EqEq,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '=') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Eq,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Eq,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '/') if self.peek2() == Some('/') => {
                 self.single_line_comment();
@@ -1345,163 +1205,114 @@ impl<'a> Lexer<'a> {
                     _ => TokenKind::Slash,
                 };
 
-                let len = self.position.offset - origin.offset;
-
                 Token {
                     kind,
-                    origin: Origin {
-                        len,
-                        ..self.position
-                    },
+                    origin: origin.extend_to_inclusive(self.position),
                 }
             }
             (LexerState::ProgramOuterScope, '/') => {
-                let token = Token {
-                    kind: TokenKind::Slash,
-                    origin: self.position.with_len(1),
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Slash,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '%') if self.peek2() == Some('=') => {
-                let origin = Origin {
-                    len: 2,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::PercentEq,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(2);
-                token
+                Token {
+                    kind: TokenKind::PercentEq,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '%') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Percent,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Percent,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '~') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Tilde,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Tilde,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '{') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::LeftCurly,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
 
                 if self.state == LexerState::ProgramOuterScope {
                     self.state = LexerState::InsideClauseAndExpr;
                 }
-                token
+                Token {
+                    kind: TokenKind::LeftCurly,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '}') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::RightCurly,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
 
                 if self.state == LexerState::InsideClauseAndExpr {
                     self.state = LexerState::ProgramOuterScope;
                 }
-                token
+                Token {
+                    kind: TokenKind::RightCurly,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '(') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::LeftParen,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::LeftParen,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, ')') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::RightParen,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::RightParen,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, ',') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::Comma,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Comma,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '[') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::LeftSquareBracket,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::LeftSquareBracket,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, ']') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::RightSquareBracket,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::RightSquareBracket,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, ';') => {
-                let origin = Origin {
-                    len: 1,
-                    ..self.position
-                };
-                let token = Token {
-                    kind: TokenKind::SemiColon,
-                    origin,
-                };
+                let start = self.position;
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::SemiColon,
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
             (_, '"') => self.lex_literal_string(),
             (_, '\'') => self.lex_literal_character(),
@@ -1543,17 +1354,16 @@ impl<'a> Lexer<'a> {
                 self.lex_convert_to_keyword(token)
             }
             _ => {
-                let token = Token {
-                    kind: TokenKind::Unknown(Some(c)),
-                    origin: Origin {
-                        len: 1,
-                        ..self.position
-                    },
-                };
-
-                self.add_error(ErrorKind::UnknownToken);
+                let start = self.position;
+                self.add_error(
+                    ErrorKind::UnknownToken,
+                    start.extend_to_inclusive(self.position),
+                );
                 self.advance(1);
-                token
+                Token {
+                    kind: TokenKind::Unknown(Some(c)),
+                    origin: start.extend_to_inclusive(self.position),
+                }
             }
         }
     }
@@ -1580,7 +1390,7 @@ impl<'a> Lexer<'a> {
                 kind: TokenKind::Identifier,
                 origin: origin_ident,
             }) => {
-                let src = str_from_source(self.input, origin_ident);
+                let src = str_from_source(self.input, *origin_ident);
                 match src {
                     "line" => self.control_directive_line(&tokens[1..], origin),
                     "pragma" if tokens.len() > 1 => {
@@ -1589,24 +1399,32 @@ impl<'a> Lexer<'a> {
                     // Ignore any #ident or #pragma ident lines.
                     "pragma" if tokens.len() == 1 => Ok(ControlDirective {
                         kind: ControlDirectiveKind::Ignored,
-                        origin: origin.extend_to_inclusive(tokens.last().map(|t| t.origin)),
+                        origin: origin.start.extend_to_inclusive(
+                            tokens.last().map_or(origin.end, |t| t.origin.end),
+                        ),
                     }),
 
                     "ident" => Ok(ControlDirective {
                         kind: ControlDirectiveKind::Ignored,
-                        origin: origin.extend_to_inclusive(tokens.last().map(|t| t.origin)),
+                        origin: origin.start.extend_to_inclusive(
+                            tokens.last().map_or(origin.end, |t| t.origin.end),
+                        ),
                     }),
                     "error" => self.control_directive_error(&tokens[1..]),
                     _ => Err(Error::new(
                         ErrorKind::InvalidControlDirective,
-                        origin.extend_to_inclusive(tokens.last().map(|t| t.origin)),
+                        origin.start.extend_to_inclusive(
+                            tokens.last().map_or(origin.end, |t| t.origin.end),
+                        ),
                         String::new(),
                     )),
                 }
             }
             Some(_) => Err(Error::new(
                 ErrorKind::InvalidControlDirective,
-                origin.extend_to_inclusive(tokens.last().map(|t| t.origin)),
+                origin
+                    .start
+                    .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
                 String::new(),
             )),
         }
@@ -1661,9 +1479,9 @@ impl<'a> Lexer<'a> {
             }
         };
 
-        let line_src = str_from_source(self.input, &line.origin);
+        let line_src = str_from_source(self.input, line.origin);
         let file_src = file.map(|f| {
-            let s = str_from_source(self.input, &f.origin);
+            let s = str_from_source(self.input, f.origin);
             // Without the double quotes.
             s[1..s.len() - 1].to_owned()
         });
@@ -1679,7 +1497,7 @@ impl<'a> Lexer<'a> {
         };
 
         let trailing_num = if let Some(trailing) = trailing {
-            match str::parse::<usize>(str_from_source(self.input, &trailing.origin)) {
+            match str::parse::<usize>(str_from_source(self.input, trailing.origin)) {
                 Ok(num) => Some(num),
                 Err(err) => {
                     return Err(Error::new(
@@ -1694,7 +1512,9 @@ impl<'a> Lexer<'a> {
         };
 
         Ok(ControlDirective {
-            origin: origin.extend_to_inclusive(tokens.last().map(|t| t.origin)),
+            origin: origin
+                .start
+                .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
             kind: ControlDirectiveKind::Line(line_num, file_src, trailing_num),
         })
     }
@@ -1716,8 +1536,8 @@ impl<'a> Lexer<'a> {
                     origin: origin2,
                 }),
             ) => (
-                Some(str_from_source(self.input, origin1)),
-                Some(str_from_source(self.input, origin2)),
+                Some(str_from_source(self.input, *origin1)),
+                Some(str_from_source(self.input, *origin2)),
             ),
             (
                 Some(Token {
@@ -1725,7 +1545,7 @@ impl<'a> Lexer<'a> {
                     origin: origin1,
                 }),
                 _,
-            ) => (Some(str_from_source(self.input, origin1)), None),
+            ) => (Some(str_from_source(self.input, *origin1)), None),
             _ => (None, None),
         };
 
@@ -1758,7 +1578,9 @@ impl<'a> Lexer<'a> {
             // `#pragma`, `#pragma ident`,  `#pragma D ident`, or `#pragma someunknownstuff`: Ignore.
             _ => Ok(ControlDirective {
                 kind: ControlDirectiveKind::Ignored,
-                origin: origin.extend_to_inclusive(tokens.last().map(|last| last.origin)),
+                origin: origin
+                    .start
+                    .extend_to_inclusive(tokens.last().map_or(origin.end, |last| last.origin.end)),
             }),
         }
     }
@@ -1766,8 +1588,8 @@ impl<'a> Lexer<'a> {
     #[warn(unused_results)]
     fn control_directive_error(&mut self, tokens: &[Token]) -> Result<ControlDirective, Error> {
         let src = match (tokens.get(1), tokens.last()) {
-            (Some(start), Some(end)) => self.input[start.origin.offset as usize
-                ..end.origin.offset as usize + end.origin.len as usize]
+            (Some(start), Some(end)) => self.input
+                [start.origin.start.byte_offset as usize..end.origin.end.byte_offset as usize]
                 .to_owned(),
             _ => String::new(),
         };
@@ -1775,7 +1597,8 @@ impl<'a> Lexer<'a> {
         Ok(ControlDirective {
             origin: tokens[0]
                 .origin
-                .extend_to_inclusive(tokens.last().map(|t| t.origin)),
+                .start
+                .extend_to_inclusive(tokens.last().map_or(tokens[0].origin.end, |t| t.origin.end)),
             kind: ControlDirectiveKind::PragmaError(src),
         })
     }
@@ -1797,14 +1620,16 @@ impl<'a> Lexer<'a> {
                     origin: origin2,
                 },
             ] => {
-                let s1 = str_from_source(self.input, origin1);
-                let s2 = str_from_source(self.input, origin2);
+                let s1 = str_from_source(self.input, *origin1);
+                let s2 = str_from_source(self.input, *origin2);
                 (s1, s2)
             }
             _ => {
                 return Err(Error::new(
                     ErrorKind::InvalidControlDirective,
-                    origin.extend_to_inclusive(tokens.last().map(|t| t.origin)),
+                    origin
+                        .start
+                        .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
                     String::from("expected pragma attributes of the form: identifier identifier"),
                 ));
             }
@@ -1817,9 +1642,21 @@ impl<'a> Lexer<'a> {
         if let Some(trailing) = trailing {
             return Err(Error {
                 kind: ErrorKind::InvalidControlDirective,
-                origin: origin_identifier_first
-                    .forwards(s1.len() - trailing.len())
-                    .with_len(trailing.len()),
+                origin: {
+                    let skip = (s1.len() - trailing.len()) as u32;
+                    let n = trailing.len() as u32;
+                    let _start = crate::origin::Position {
+                        byte_offset: origin_identifier_first.start.byte_offset + skip,
+                        column: origin_identifier_first.start.column + skip,
+                        ..origin_identifier_first.start
+                    };
+                    let _end = crate::origin::Position {
+                        byte_offset: _start.byte_offset + n,
+                        column: _start.column + n,
+                        .._start
+                    };
+                    _start.extend_to_inclusive(_end)
+                },
                 explanation: String::from(
                     "expected up to 3 parts in attribute but found an extraneous part",
                 ),
@@ -1829,7 +1666,15 @@ impl<'a> Lexer<'a> {
             .map(|s| {
                 Stability::try_from(*s).map_err(|kind| Error {
                     kind,
-                    origin: origin_identifier_first.with_len(s.len()),
+                    origin: {
+                        let n = s.len() as u32;
+                        let _s = origin_identifier_first.start;
+                        _s.extend_to_inclusive(crate::origin::Position {
+                            byte_offset: _s.byte_offset + n,
+                            column: _s.column + n,
+                            .._s
+                        })
+                    },
                     explanation: format!(
                         "invalid stability, possible values are: {}",
                         STABILITY_POSSIBLE_VALUES,
@@ -1843,7 +1688,20 @@ impl<'a> Lexer<'a> {
             .map(|s| {
                 Stability::try_from(*s).map_err(|kind| Error {
                     kind,
-                    origin: origin_identifier_first.forwards(skip).with_len(s.len()),
+                    origin: {
+                        let n = s.len() as u32;
+                        let sk = skip as u32;
+                        let _start = crate::origin::Position {
+                            byte_offset: origin_identifier_first.start.byte_offset + sk,
+                            column: origin_identifier_first.start.column + sk,
+                            ..origin_identifier_first.start
+                        };
+                        _start.extend_to_inclusive(crate::origin::Position {
+                            byte_offset: _start.byte_offset + n,
+                            column: _start.column + n,
+                            .._start
+                        })
+                    },
                     explanation: format!(
                         "invalid stability, possible values are: {}",
                         STABILITY_POSSIBLE_VALUES,
@@ -1858,7 +1716,20 @@ impl<'a> Lexer<'a> {
             .map(|s| {
                 Class::try_from(*s).map_err(|kind| Error {
                     kind,
-                    origin: origin_identifier_first.forwards(skip).with_len(s.len()),
+                    origin: {
+                        let n = s.len() as u32;
+                        let sk = skip as u32;
+                        let _start = crate::origin::Position {
+                            byte_offset: origin_identifier_first.start.byte_offset + sk,
+                            column: origin_identifier_first.start.column + sk,
+                            ..origin_identifier_first.start
+                        };
+                        _start.extend_to_inclusive(crate::origin::Position {
+                            byte_offset: _start.byte_offset + n,
+                            column: _start.column + n,
+                            .._start
+                        })
+                    },
                     explanation: format!(
                         "invalid class, possible values are: {}",
                         CLASS_POSSIBLE_VALUES
@@ -1875,7 +1746,9 @@ impl<'a> Lexer<'a> {
                 // cases.
                 name: s2.to_owned(),
             },
-            origin: origin.extend_to_inclusive(tokens.last().map(|t| t.origin)),
+            origin: origin
+                .start
+                .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
         })
     }
 
@@ -1896,18 +1769,22 @@ impl<'a> Lexer<'a> {
                     origin: origin2,
                 },
             ] => {
-                let (version_str, version_origin) = quoted_string_from_source(self.input, origin1);
+                let (version_str, version_origin) = quoted_string_from_source(self.input, *origin1);
                 let version = version_str2num(version_str, version_origin)?;
-                let identifier = str_from_source(self.input, origin2).to_owned();
+                let identifier = str_from_source(self.input, *origin2).to_owned();
 
                 Ok(ControlDirective {
-                    origin: origin.extend_to_inclusive(tokens.last().map(|t| t.origin)),
+                    origin: origin
+                        .start
+                        .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
                     kind: ControlDirectiveKind::PragmaBinding(version, identifier),
                 })
             }
             _ => Err(Error::new(
                 ErrorKind::InvalidControlDirective,
-                origin.extend_to_inclusive(tokens.last().map(|t| t.origin)),
+                origin
+                    .start
+                    .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
                 String::from("expected pragma binding of the form: \"version\" identifier"),
             )),
         }
@@ -1924,7 +1801,7 @@ impl<'a> Lexer<'a> {
             ] => {
                 // TODO: Validate option key against a list of known values?
 
-                let s = str_from_source(self.input, origin1);
+                let s = str_from_source(self.input, *origin1);
                 if let Some((key, value)) = s.split_once('=') {
                     if value.contains('=') {
                         Err(Error {
@@ -1940,19 +1817,25 @@ impl<'a> Lexer<'a> {
                                 key.to_owned(),
                                 Some(value.to_owned()),
                             ),
-                            origin: origin.extend_to_inclusive(tokens.last().map(|t| t.origin)),
+                            origin: origin.start.extend_to_inclusive(
+                                tokens.last().map_or(origin.end, |t| t.origin.end),
+                            ),
                         })
                     }
                 } else {
                     Ok(ControlDirective {
                         kind: ControlDirectiveKind::PragmaOption(s.to_owned(), None),
-                        origin: origin.extend_to_inclusive(tokens.last().map(|t| t.origin)),
+                        origin: origin.start.extend_to_inclusive(
+                            tokens.last().map_or(origin.end, |t| t.origin.end),
+                        ),
                     })
                 }
             }
             other => Err(Error {
                 kind: ErrorKind::InvalidControlDirective,
-                origin: origin.extend_to_inclusive(other.last().map(|t| t.origin)),
+                origin: origin
+                    .start
+                    .extend_to_inclusive(other.last().map_or(origin.end, |t| t.origin.end)),
                 explanation: String::from("expected pragma option of the form key=value"),
             }),
         }
@@ -1975,14 +1858,16 @@ impl<'a> Lexer<'a> {
                     origin: origin2,
                 },
             ] => {
-                let kind = str_from_source(self.input, origin1);
-                let name = str_from_source(self.input, origin2);
+                let kind = str_from_source(self.input, *origin1);
+                let name = str_from_source(self.input, *origin2);
                 (kind, name)
             }
             _ => {
                 return Err(Error::new(
                     ErrorKind::InvalidControlDirective,
-                    origin.extend_to_inclusive(tokens.last().map(|t| t.origin)),
+                    origin
+                        .start
+                        .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
                     String::from("expected pragma depends_on of the form: identifier identifier"),
                 ));
             }
@@ -2006,7 +1891,9 @@ impl<'a> Lexer<'a> {
 
         Ok(ControlDirective {
             kind: ControlDirectiveKind::PragmaDependsOn(kind, name.to_owned()),
-            origin: origin.extend_to_inclusive(tokens.last().map(|t| t.origin)),
+            origin: origin
+                .start
+                .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
         })
     }
 
@@ -2029,7 +1916,11 @@ impl<'a> Lexer<'a> {
                 '/' if self.peek2() == Some('/') || self.peek2() == Some('*') => {
                     self.errors.push(Error {
                         kind: ErrorKind::NestedComment,
-                        origin: self.position.with_len(2),
+                        origin: self.position.extend_to_inclusive(crate::origin::Position {
+                            byte_offset: self.position.byte_offset + 2,
+                            column: self.position.column + 2,
+                            ..self.position
+                        }),
                         explanation: String::from("nested comment"),
                     });
                     self.advance(1);
@@ -2037,7 +1928,11 @@ impl<'a> Lexer<'a> {
                 '*' if self.peek2() == Some('/') => {
                     self.errors.push(Error {
                         kind: ErrorKind::NestedComment,
-                        origin: self.position.with_len(2),
+                        origin: self.position.extend_to_inclusive(crate::origin::Position {
+                            byte_offset: self.position.byte_offset + 2,
+                            column: self.position.column + 2,
+                            ..self.position
+                        }),
                         explanation: String::from("nested comment"),
                     });
                     self.advance(1);
@@ -2048,10 +1943,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let origin = Origin {
-            len: self.position.offset - origin.offset,
-            ..origin
-        };
+        let origin = origin.extend_to_inclusive(self.position);
 
         self.comments.push(Comment {
             kind: CommentKind::SingleLine,
@@ -2075,7 +1967,11 @@ impl<'a> Lexer<'a> {
                 '/' if self.peek2() == Some('*') => {
                     self.errors.push(Error {
                         kind: ErrorKind::NestedComment,
-                        origin: self.position.with_len(2),
+                        origin: self.position.extend_to_inclusive(crate::origin::Position {
+                            byte_offset: self.position.byte_offset + 2,
+                            column: self.position.column + 2,
+                            ..self.position
+                        }),
                         explanation: String::from("nested comment"),
                     });
                     self.advance(1);
@@ -2091,10 +1987,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let origin = Origin {
-            len: self.position.offset - origin.offset,
-            ..origin
-        };
+        let origin = origin.extend_to_inclusive(self.position);
 
         self.comments.push(Comment {
             kind: CommentKind::MultiLine,
@@ -2107,7 +2000,7 @@ impl<'a> Lexer<'a> {
 
     fn lex_aggregation(&mut self) -> Token {
         let start_origin = self.position;
-        let first = self.advance(1);
+        let (first, _) = self.advance(1);
         assert_eq!(first, Some('@'));
 
         let second = self.peek1();
@@ -2118,7 +2011,11 @@ impl<'a> Lexer<'a> {
             _ => {
                 return Token {
                     kind: TokenKind::Aggregation,
-                    origin: self.position.with_len(1),
+                    origin: self.position.extend_to_inclusive(crate::origin::Position {
+                        byte_offset: self.position.byte_offset + 1,
+                        column: self.position.column + 1,
+                        ..self.position
+                    }),
                 };
             }
         }
@@ -2131,10 +2028,7 @@ impl<'a> Lexer<'a> {
 
         Token {
             kind: TokenKind::Aggregation,
-            origin: Origin {
-                len: self.position.offset - start_origin.offset,
-                ..start_origin
-            },
+            origin: start_origin.extend_to_inclusive(self.position),
         }
     }
 
@@ -2160,7 +2054,7 @@ impl<'a> Lexer<'a> {
         self.state = state;
     }
 
-    fn macro_argument_reference(&mut self, origin: Origin) -> Token {
+    fn macro_argument_reference(&mut self, start: Position) -> Token {
         while let Some(c) = self.peek1() {
             if c.is_ascii_digit() {
                 self.advance(1);
@@ -2169,7 +2063,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let s = &self.input[origin.offset as usize..self.position.offset as usize]
+        let s = &self.input[start.byte_offset as usize..self.position.byte_offset as usize]
             .trim_start_matches('$');
         dbg!(s);
         assert!(s.len() > 0);
@@ -2181,10 +2075,7 @@ impl<'a> Lexer<'a> {
 
         Token {
             kind: TokenKind::MacroArgumentReference(num),
-            origin: Origin {
-                len: self.position.offset - origin.offset,
-                ..origin
-            },
+            origin: start.extend_to_inclusive(self.position),
         }
     }
 }
@@ -2205,9 +2096,21 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
     if let Some(trailing) = trailing {
         return Err(Error {
             kind: ErrorKind::InvalidControlDirective,
-            origin: origin
-                .forwards(version_str.len() - trailing.len())
-                .with_len(trailing.len()),
+            origin: {
+                let skip = (version_str.len() - trailing.len()) as u32;
+                let n = trailing.len() as u32;
+                let _start = crate::origin::Position {
+                    byte_offset: origin.start.byte_offset + skip,
+                    column: origin.start.column + skip,
+                    ..origin.start
+                };
+                let _end = crate::origin::Position {
+                    byte_offset: _start.byte_offset + n,
+                    column: _start.column + n,
+                    .._start
+                };
+                _start.extend_to_inclusive(_end)
+            },
             explanation: String::from(
                 "expected up to 3 parts in version string but found an extraneous part",
             ),
@@ -2216,7 +2119,15 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
 
     let major = str::parse::<u8>(major_str).map_err(|err| Error {
         kind: ErrorKind::InvalidVersionString,
-        origin: origin.with_len(major_str.len()),
+        origin: {
+            let n = major_str.len() as u32;
+            let _s = origin.start;
+            _s.extend_to_inclusive(crate::origin::Position {
+                byte_offset: _s.byte_offset + n,
+                column: _s.column + n,
+                .._s
+            })
+        },
         explanation: format!(
             "invalid major version in version string, expected a number up to 255: {}",
             err
@@ -2226,7 +2137,15 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
     let origin = origin.forwards(major_str.len() + 1);
     let minor = str::parse::<u16>(minor_str).map_err(|err| Error {
         kind: ErrorKind::InvalidVersionString,
-        origin: origin.with_len(minor_str.len()),
+        origin: {
+            let n = minor_str.len() as u32;
+            let _s = origin.start;
+            _s.extend_to_inclusive(crate::origin::Position {
+                byte_offset: _s.byte_offset + n,
+                column: _s.column + n,
+                .._s
+            })
+        },
         explanation: format!(
             "invalid minor version in version string, expected a number: {}",
             err
@@ -2235,7 +2154,15 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
     if minor > 0xfff {
         return Err(Error {
             kind: ErrorKind::InvalidVersionString,
-            origin: origin.with_len(minor_str.len()),
+            origin: {
+                let n = minor_str.len() as u32;
+                let _s = origin.start;
+                _s.extend_to_inclusive(crate::origin::Position {
+                    byte_offset: _s.byte_offset + n,
+                    column: _s.column + n,
+                    .._s
+                })
+            },
             explanation: String::from(
                 "minor version too high in version string, expected a number up to 4095",
             ),
@@ -2246,7 +2173,15 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
     let patch = if let Some(patch_str) = patch_str {
         let num = str::parse::<u16>(patch_str).map_err(|err| Error {
             kind: ErrorKind::InvalidVersionString,
-            origin: origin.with_len(patch_str.len()),
+            origin: {
+                let n = patch_str.len() as u32;
+                let _s = origin.start;
+                _s.extend_to_inclusive(crate::origin::Position {
+                    byte_offset: _s.byte_offset + n,
+                    column: _s.column + n,
+                    .._s
+                })
+            },
             explanation: format!(
                 "invalid patch version in version string, expected a number: {}",
                 err
@@ -2255,7 +2190,15 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
         if num > 0xfff {
             return Err(Error {
                 kind: ErrorKind::InvalidVersionString,
-                origin: origin.with_len(patch_str.len()),
+                origin: {
+                    let n = patch_str.len() as u32;
+                    let _s = origin.start;
+                    _s.extend_to_inclusive(crate::origin::Position {
+                        byte_offset: _s.byte_offset + n,
+                        column: _s.column + n,
+                        .._s
+                    })
+                },
                 explanation: String::from(
                     "patch version too high in version string, expected a number up to 4095",
                 ),
@@ -2275,7 +2218,21 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
 
 #[cfg(test)]
 mod tests {
-    use crate::lex::{Lexer, LexerState, TokenKind, str_from_source};
+    use crate::{
+        lex::{Lexer, LexerState, TokenKind, str_from_source},
+        origin::{Position, PositionKind},
+    };
+
+    const FILE_ID: u32 = 1;
+
+    fn pos(line: u32, column: u32, byte_offset: u32) -> Position {
+        Position {
+            line,
+            column,
+            byte_offset,
+            kind: PositionKind::File(FILE_ID),
+        }
+    }
 
     #[test]
     fn test_probe_specifier() {
@@ -2283,8 +2240,11 @@ mod tests {
         let mut lexer = Lexer::new(1, input);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::ProbeSpecifier);
-        let s = str_from_source(input, &token.origin);
+        let s = str_from_source(input, token.origin);
         assert_eq!(s, "syscall::open:entry");
+        assert_eq!(lexer.lex().kind, TokenKind::LeftCurly);
+        assert_eq!(lexer.lex().kind, TokenKind::RightCurly);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
     #[test]
@@ -2294,7 +2254,7 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::ProbeSpecifier);
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, "fbt:::");
         }
         lexer.begin(LexerState::InsideClauseAndExpr);
@@ -2326,6 +2286,7 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::RightCurly);
         }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
     #[test]
@@ -2335,7 +2296,7 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::ProbeSpecifier);
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, "BEGIN");
         }
         lexer.begin(LexerState::InsideClauseAndExpr);
@@ -2367,6 +2328,7 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::RightCurly);
         }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
     #[test]
@@ -2381,7 +2343,7 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::ProbeSpecifier);
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, "syscall::read:entry");
         }
         {
@@ -2391,7 +2353,7 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::ProbeSpecifier);
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, "syscall::write:entry");
         }
         lexer.begin(LexerState::InsideClauseAndExpr);
@@ -2402,7 +2364,7 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Identifier);
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, "pid");
         }
         {
@@ -2425,6 +2387,7 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::RightCurly);
         }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
     #[test]
@@ -2434,9 +2397,10 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralNumber);
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, "0xcafebabe");
         }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
     #[test]
@@ -2446,9 +2410,10 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralCharacter(Some('r' as i32)));
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, input);
         }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
     #[test]
@@ -2458,9 +2423,10 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(13)));
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, input);
         }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
     #[test]
@@ -2470,9 +2436,10 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(0o103)));
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, input);
         }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
     #[test]
@@ -2482,9 +2449,10 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(0x4e)));
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, "'\\x4e'");
         }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
     #[test]
@@ -2494,13 +2462,14 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralCharacter(None));
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, &input[0..input.len() - 1]);
         }
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::SemiColon);
         }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
     #[test]
@@ -2510,7 +2479,7 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::ProbeSpecifier);
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, &input[0..input.len() - 1]);
         }
         {
@@ -2520,13 +2489,125 @@ mod tests {
     }
 
     #[test]
+    fn test_origin_single_char_token() {
+        let input = "+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(token.origin.start, pos(1, 1, 0));
+        assert_eq!(token.origin.end, pos(1, 2, 1));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_origin_two_char_token() {
+        let input = "++";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::PlusPlus);
+        assert_eq!(token.origin.start, pos(1, 1, 0));
+        assert_eq!(token.origin.end, pos(1, 3, 2));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_origin_token_after_whitespace() {
+        let input = "   +";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(token.origin.start, pos(1, 4, 3));
+        assert_eq!(token.origin.end, pos(1, 5, 4));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_origin_token_on_second_line() {
+        let input = "\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(token.origin.start, pos(2, 1, 1));
+        assert_eq!(token.origin.end, pos(2, 2, 2));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_origin_identifier() {
+        let input = "hello {}";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+        assert_eq!(token.origin.start, pos(1, 1, 0));
+        assert_eq!(token.origin.end, pos(1, 6, 5));
+        assert_eq!(lexer.lex().kind, TokenKind::LeftCurly);
+        assert_eq!(lexer.lex().kind, TokenKind::RightCurly);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_origin_identifier_second_line() {
+        let input = "\nhello {}";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+        assert_eq!(token.origin.start, pos(2, 1, 1));
+        assert_eq!(token.origin.end, pos(2, 6, 6));
+        assert_eq!(lexer.lex().kind, TokenKind::LeftCurly);
+        assert_eq!(lexer.lex().kind, TokenKind::RightCurly);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_origin_string_literal() {
+        let input = r#""hello""#;
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralString);
+        assert_eq!(token.origin.start, pos(1, 1, 0));
+        assert_eq!(token.origin.end, pos(1, 8, 7));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_origin_single_line_comment() {
+        // Comment ends at newline (exclusive), next token follows.
+        let input = "// hi\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        // comment is consumed internally, lex() returns the next token
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.comments.len(), 1);
+        let comment = &lexer.comments[0];
+        assert_eq!(comment.origin.start, pos(1, 1, 0));
+        assert_eq!(comment.origin.end, pos(1, 6, 5));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_origin_multiline_comment() {
+        // "/* hi\nworld */" — 14 bytes, spans 2 lines.
+        let input = "/* hi\nworld */+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.comments.len(), 1);
+        let comment = &lexer.comments[0];
+        assert_eq!(comment.origin.start, pos(1, 1, 0));
+        // After consuming "/* hi\nworld */": line=2, column=9, byte_offset=14
+        assert_eq!(comment.origin.end, pos(2, 9, 14));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
     fn test_lex_macro_argument_reference() {
         let input = "BEGIN {print($$1) } ";
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::ProbeSpecifier);
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, "BEGIN");
         }
         lexer.begin(LexerState::InsideClauseAndExpr);
@@ -2537,7 +2618,7 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Identifier);
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, "print");
         }
         {
@@ -2547,7 +2628,7 @@ mod tests {
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::MacroArgumentReference(Some(1)));
-            let s = str_from_source(input, &token.origin);
+            let s = str_from_source(input, token.origin);
             assert_eq!(s, "$$1");
         }
         {

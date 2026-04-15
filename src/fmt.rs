@@ -25,7 +25,7 @@ pub fn format<W: Write>(
 
     match &node.kind {
         NodeKind::Unknown | NodeKind::Character(_) => {
-            let src = lex::str_from_source(input, &node.origin);
+            let src = lex::str_from_source(input, node.origin);
             w.write_all(src.as_bytes())?;
         }
         NodeKind::Block(node_ids) => {
@@ -57,12 +57,12 @@ pub fn format<W: Write>(
             w.write_all(b"\n")?;
         }
         NodeKind::Number(_) | NodeKind::Identifier(_) | NodeKind::ProbeSpecifier(_) => {
-            let src = lex::str_from_source(input, &node.origin);
+            let src = lex::str_from_source(input, node.origin);
             w.write_all(src.as_bytes())?;
         }
         NodeKind::Assignment(lhs, tok, rhs) | NodeKind::BinaryOp(lhs, tok, rhs) => {
             format(w, *lhs, nodes, input, indent, true, true)?;
-            let src = lex::str_from_source(input, &tok.origin);
+            let src = lex::str_from_source(input, tok.origin);
             write!(w, " {} ", src)?;
             format(w, *rhs, nodes, input, indent, true, true)?;
         }
@@ -122,7 +122,7 @@ pub fn format<W: Write>(
             }
         }
         NodeKind::PrimaryToken(_) => {
-            let src = lex::str_from_source(input, &node.origin);
+            let src = lex::str_from_source(input, node.origin);
             w.write_all(src.as_bytes())?;
         }
         NodeKind::Cast(type_name, node_id) => {

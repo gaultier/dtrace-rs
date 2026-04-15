@@ -117,8 +117,8 @@ impl Error {
         w.write_all(b": ")?;
 
         {
-            let start = self.origin.offset as usize;
-            let end = self.origin.offset as usize + self.origin.len as usize;
+            let start = self.origin.start.byte_offset as usize;
+            let end = self.origin.end.byte_offset as usize;
 
             // TODO: limit context length.
             let mut excerpt_start = start;

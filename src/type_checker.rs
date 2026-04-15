@@ -37,7 +37,7 @@ impl Default for Type {
         Self {
             kind: Box::new(TypeKind::Any),
             size: None,
-            origin: Origin::new_unknown(),
+            origin: Origin::default(),
         }
     }
 }

@@ -5,8 +5,8 @@ use std::{
 
 use lsp_types::{
     Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidOpenTextDocumentParams, Hover,
-    HoverContents, HoverParams, HoverProviderCapability, MarkedString, Position,
-    PositionEncodingKind, PublishDiagnosticsParams, Range, ServerCapabilities,
+    HoverContents, HoverParams, HoverProviderCapability, MarkedString,
+    PositionEncodingKind, PublishDiagnosticsParams, ServerCapabilities,
     TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions, Uri,
 };
 use serde::{Deserialize, Serialize};
@@ -124,24 +124,16 @@ pub enum Message {
     Notification(Notification),
 }
 
-impl From<Range> for Position {
-    fn from(val: Range) -> Self {
-        Position {
-            line: val.line - 1,
-            character: val.column - 1,
-        }
-    }
-}
-
-impl From<Range> for Range {
-    fn from(val: Range) -> Self {
-        Range {
-            start: val.into(),
-            end: Position {
-                line: val.line - 1,
-                character: val.column - 1 + val.len,
-            },
-        }
+fn origin_to_lsp_range(origin: Origin) -> lsp_types::Range {
+    lsp_types::Range {
+        start: lsp_types::Position {
+            line: origin.start.line - 1,
+            character: origin.start.column - 1,
+        },
+        end: lsp_types::Position {
+            line: origin.end.line - 1,
+            character: origin.end.column - 1,
+        },
     }
 }
 
@@ -270,9 +262,9 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
         .ast_nodes
         .iter()
         .find(|n| {
-            n.origin.line == pos.line + 1
-                && n.origin.column <= pos.character + 1
-                && ((pos.character + 1) < n.origin.column + n.origin.len)
+            n.origin.start.line == pos.line + 1
+                && n.origin.start.column <= pos.character + 1
+                && ((pos.character + 1) < n.origin.end.column)
         })
         .map(|n| (n.origin, format!("ast node: {:?}", n.kind)))
         .or_else(|| {
@@ -280,9 +272,9 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
                 .control_directives
                 .iter()
                 .find(|ctrl| {
-                    ctrl.origin.line == pos.line + 1
-                        && ctrl.origin.column <= pos.character + 1
-                        && ((pos.character + 1) < ctrl.origin.column + ctrl.origin.len)
+                    ctrl.origin.start.line == pos.line + 1
+                        && ctrl.origin.start.column <= pos.character + 1
+                        && ((pos.character + 1) < ctrl.origin.end.column)
                 })
                 .map(|ctrl| (ctrl.origin, format!("control directive: {:?}", ctrl.kind)))
         })
@@ -291,16 +283,16 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
                 .comments
                 .iter()
                 .find(|c| {
-                    c.origin.line == pos.line + 1
-                        && c.origin.column <= pos.character + 1
-                        && ((pos.character + 1) < c.origin.column + c.origin.len)
+                    c.origin.start.line == pos.line + 1
+                        && c.origin.start.column <= pos.character + 1
+                        && ((pos.character + 1) < c.origin.end.column)
                 })
                 .map(|c| (c.origin, format!("comment: {:?}", c.kind)))
         });
     let resp = if let Some((origin, marked_string)) = found {
         let hover = Hover {
             contents: HoverContents::Scalar(MarkedString::String(marked_string)),
-            range: Some(origin.into()),
+            range: Some(origin_to_lsp_range(origin)),
         };
         serde_json::to_value(&hover).map_err(|err| {
             io::Error::new(
@@ -341,7 +333,7 @@ fn did_open(state: &mut State, params: serde_json::Value) -> io::Result<Option<M
             .errors
             .iter()
             .map(|e| Diagnostic {
-                range: e.origin.into(),
+                range: origin_to_lsp_range(e.origin),
                 severity: Some(DiagnosticSeverity::ERROR),
                 code: None,
                 code_description: None,
@@ -396,7 +388,7 @@ fn did_change(state: &mut State, params: serde_json::Value) -> Result<Option<Mes
             .errors
             .iter()
             .map(|e| Diagnostic {
-                range: e.origin.into(),
+                range: origin_to_lsp_range(e.origin),
                 severity: Some(DiagnosticSeverity::ERROR),
                 code: None,
                 code_description: None,
