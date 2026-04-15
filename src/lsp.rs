@@ -124,8 +124,8 @@ pub enum Message {
     Notification(Notification),
 }
 
-impl From<Origin> for Position {
-    fn from(val: Origin) -> Self {
+impl From<Range> for Position {
+    fn from(val: Range) -> Self {
         Position {
             line: val.line - 1,
             character: val.column - 1,
@@ -133,8 +133,8 @@ impl From<Origin> for Position {
     }
 }
 
-impl From<Origin> for Range {
-    fn from(val: Origin) -> Self {
+impl From<Range> for Range {
+    fn from(val: Range) -> Self {
         Range {
             start: val.into(),
             end: Position {

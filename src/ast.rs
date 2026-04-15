@@ -224,7 +224,7 @@ impl<'a> Parser<'a> {
 
     fn peek(&self) -> Token {
         let mut cpy = Lexer {
-            origin: self.lexer.origin,
+            position: self.lexer.position,
             state: self.lexer.state,
             input: self.lexer.input,
             control_directives: Vec::new(),
@@ -238,7 +238,7 @@ impl<'a> Parser<'a> {
 
     fn peek_peek(&self) -> Token {
         let mut cpy = Lexer {
-            origin: self.lexer.origin,
+            position: self.lexer.position,
             state: self.lexer.state,
             input: self.lexer.input,
             control_directives: Vec::new(),
@@ -254,7 +254,7 @@ impl<'a> Parser<'a> {
     // Used to avoid an avalanche of errors for the same line.
     fn skip_to_next_line(&mut self) {
         // TODO: Could just in the lexer skip to the next '\n' char.
-        let current_line = self.lexer.origin.line;
+        let current_line = self.lexer.position.line;
 
         loop {
             match self.peek() {
@@ -1340,7 +1340,7 @@ impl<'a> Parser<'a> {
 
     // Best effort to find the closest token when doing error reporting.
     fn current_or_last_origin_for_err(&self) -> Origin {
-        self.lexer.origin
+        self.lexer.position
 
         //if self.tokens_consumed == self.tokens.len() {
         //    return self

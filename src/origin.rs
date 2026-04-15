@@ -4,20 +4,27 @@ use serde::Serialize;
 
 pub type FileId = u32;
 
-#[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone, PartialOrd, Ord)]
-pub enum OriginKind {
+#[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone, PartialOrd, Ord, Default)]
+pub enum PositionKind {
     File(FileId),
     Builtin,
+    #[default]
     Unknown, // Only used for the 'unknown' type.
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone, PartialOrd, Ord)]
-pub struct Origin {
+pub struct Position {
     pub line: u32,
     pub column: u32,
-    pub offset: u32,
-    pub len: u32,
-    pub kind: OriginKind,
+    pub byte_offset: u32,
+    pub kind: PositionKind,
+}
+
+#[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone, PartialOrd, Ord, Default)]
+pub struct Origin {
+    pub start: Position,
+    // Inclusive.
+    pub end: Position,
 }
 
 pub struct OriginFormatter<'a> {
@@ -25,27 +32,57 @@ pub struct OriginFormatter<'a> {
     file_name: Option<&'a str>,
 }
 
+impl Default for Position {
+    fn default() -> Self {
+        Self {
+            line: 1,
+            column: 1,
+            byte_offset: 0,
+            kind: Default::default(),
+        }
+    }
+}
+
+impl From<Origin> for std::ops::Range<usize> {
+    fn from(origin: Origin) -> Self {
+        origin.start.byte_offset as usize..origin.end.byte_offset as usize
+    }
+}
+
+impl From<Position> for Origin {
+    fn from(value: Position) -> Self {
+        // Length is 0.
+        Self {
+            start: value,
+            end: value,
+        }
+    }
+}
+
 impl<'a> Display for OriginFormatter<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.origin.kind {
-            OriginKind::File(_) => {
+        match self.origin.kind() {
+            PositionKind::File(_) => {
                 let file_name: &str = self.file_name.unwrap();
                 f.write_str(file_name)
             }
-            OriginKind::Builtin => f.write_str("builtin"),
-            OriginKind::Unknown => f.write_str("unknown"),
+            PositionKind::Builtin => f.write_str("builtin"),
+            PositionKind::Unknown => f.write_str("unknown"),
         }?;
         write!(
             f,
             ":{}:{}:{}",
-            self.origin.line, self.origin.column, self.origin.offset
+            self.origin.start.line, self.origin.start.column, self.origin.start.byte_offset
         )
     }
 }
 
-impl Default for Origin {
-    fn default() -> Self {
-        Origin::new_unknown()
+impl Position {
+    pub(crate) fn extend_to_inclusive(&self, to: Position) -> Origin {
+        Origin {
+            start: *self,
+            end: to,
+        }
     }
 }
 
@@ -56,7 +93,7 @@ impl Origin {
     ) -> OriginFormatter<'a> {
         OriginFormatter {
             origin: *self,
-            file_name: if let OriginKind::File(file_id) = self.kind {
+            file_name: if let PositionKind::File(file_id) = self.kind() {
                 file_id_to_name.get(&file_id).map(|s| s.as_str())
             } else {
                 None
@@ -64,63 +101,48 @@ impl Origin {
         }
     }
 
-    pub(crate) fn extend_to(&self, to: Option<Origin>) -> Origin {
-        if let Some(to) = to {
-            assert!(to.offset >= self.offset);
-
-            Origin {
-                len: to.offset + to.len - self.offset,
-                ..*self
-            }
-        } else {
-            *self
-        }
-    }
-
-    pub(crate) fn with_len(&self, len: usize) -> Origin {
+    pub(crate) fn forwards(&self, skip_bytes: usize) -> Origin {
+        let skip: u32 = skip_bytes.try_into().unwrap();
         Origin {
-            len: len.try_into().unwrap(),
+            start: Position {
+                byte_offset: self.start.byte_offset + skip,
+                column: self.start.column + skip,
+                // Assume that the line remains the same.
+                ..self.start
+            },
             ..*self
         }
     }
 
-    pub(crate) fn skip(&self, skip: usize) -> Origin {
-        let skip: u32 = skip.try_into().unwrap();
+    pub(crate) fn backwards(&self, skip_bytes: usize) -> Origin {
+        let skip: u32 = skip_bytes.try_into().unwrap();
         Origin {
-            offset: self.offset + skip,
-            len: self.len - skip,
-            column: self.column + skip,
+            end: Position {
+                byte_offset: self.end.byte_offset.checked_sub(skip).unwrap(),
+                column: self.end.column.checked_sub(skip).unwrap(),
+                // Assume that the line remains the same.
+                ..self.end
+            },
             ..*self
         }
     }
 
-    pub(crate) fn new(line: u32, column: u32, offset: u32, len: u32, file_id: FileId) -> Self {
-        Self {
-            line,
-            column,
-            offset,
-            len,
-            kind: OriginKind::File(file_id),
+    pub(crate) fn new_builtin() -> Origin {
+        Origin {
+            start: Position {
+                kind: PositionKind::Builtin,
+                ..Default::default()
+            },
+            end: Position {
+                kind: PositionKind::Builtin,
+                ..Default::default()
+            },
+            ..Default::default()
         }
     }
 
-    pub(crate) fn new_builtin() -> Self {
-        Origin {
-            line: 0,
-            column: 0,
-            offset: 0,
-            len: 0,
-            kind: OriginKind::Builtin,
-        }
-    }
-
-    pub(crate) fn new_unknown() -> Self {
-        Origin {
-            line: 0,
-            column: 0,
-            offset: 0,
-            len: 0,
-            kind: OriginKind::Unknown,
-        }
+    fn kind(&self) -> PositionKind {
+        assert_eq!(self.start.kind, self.end.kind);
+        self.start.kind
     }
 }
