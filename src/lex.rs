@@ -798,8 +798,9 @@ impl<'a> Lexer<'a> {
                     position = self.position;
                 }
                 Some(c) => {
-                    self.position.byte_offset += c.len_utf8() as u32;
-                    self.position.column += 1;
+                    let len = c.len_utf8() as u32;
+                    self.position.byte_offset += len;
+                    self.position.column += len;
                     self.chars_idx += 1;
                     position = self.position;
                 }
@@ -1122,7 +1123,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             (_, ':') => {
-                if let Some(next) = self.peek1()
+                if let Some(next) = self.peek2()
                     && next == '='
                 {
                     let start = self.position;
@@ -2571,6 +2572,20 @@ mod tests {
     }
 
     #[test]
+    fn test_origin_unicode_string_literal() {
+        // 18 Unicode characters, 52 UTF-8 bytes of content, 54 bytes total with quotes.
+        // column tracks UTF-8 byte offsets, so end.column = 55, not 21 (code-point count).
+        let input = r#""朝日新聞:朝日新聞社のニュースサイト""#;
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralString);
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(token.origin.start, pos(1, 1, 0));
+        assert_eq!(token.origin.end, pos(1, 55, 54));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
     fn test_origin_single_line_comment() {
         // Comment ends at newline (exclusive), next token follows.
         let input = "// hi\n+";
@@ -2643,5 +2658,289 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Eof);
         }
+    }
+
+    // SlashEq is declared in TokenKind but no arm in lex() ever produces it.
+
+    #[test]
+    fn test_lex_literal_number_decimal() {
+        let input = "42";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "42");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_unknown() {
+        let input = "\x01";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::Unknown(Some('\x01')));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_paren() {
+        let input = "()";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::LeftParen);
+        assert_eq!(lexer.lex().kind, TokenKind::RightParen);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_square_brackets() {
+        let input = "[]";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::LeftSquareBracket);
+        assert_eq!(lexer.lex().kind, TokenKind::RightSquareBracket);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_dot() {
+        let input = ".";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::Dot);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_dot_dot_dot() {
+        let input = "...";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::DotDotDot);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_tilde() {
+        let input = "~";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::Tilde);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_question() {
+        let input = "?";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::Question);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_eq() {
+        let input = "=";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::Eq);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_bang_operators() {
+        let input = "! !=";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::Bang);
+        assert_eq!(lexer.lex().kind, TokenKind::BangEq);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_plus_eq() {
+        let input = "+=";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::PlusEq);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_minus_operators() {
+        let input = "- -- -=";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::Minus);
+        assert_eq!(lexer.lex().kind, TokenKind::MinusMinus);
+        assert_eq!(lexer.lex().kind, TokenKind::MinusEq);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_star_operators() {
+        let input = "* *=";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        assert_eq!(lexer.lex().kind, TokenKind::Star);
+        assert_eq!(lexer.lex().kind, TokenKind::StarEq);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_percent_operators() {
+        let input = "% %=";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::Percent);
+        assert_eq!(lexer.lex().kind, TokenKind::PercentEq);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_caret_operators() {
+        let input = "^ ^^ ^=";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::Caret);
+        assert_eq!(lexer.lex().kind, TokenKind::CaretCaret);
+        assert_eq!(lexer.lex().kind, TokenKind::CaretEq);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_ampersand_operators() {
+        let input = "& && &=";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::Ampersand);
+        assert_eq!(lexer.lex().kind, TokenKind::AmpersandAmpersand);
+        assert_eq!(lexer.lex().kind, TokenKind::AmpersandEq);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_pipe_operators() {
+        let input = "| || |=";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::Pipe);
+        assert_eq!(lexer.lex().kind, TokenKind::PipePipe);
+        assert_eq!(lexer.lex().kind, TokenKind::PipeEq);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_comparison_operators() {
+        let input = "> >= >> < <= <<";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::Gt);
+        assert_eq!(lexer.lex().kind, TokenKind::GtEq);
+        assert_eq!(lexer.lex().kind, TokenKind::GtGt);
+        assert_eq!(lexer.lex().kind, TokenKind::Lt);
+        assert_eq!(lexer.lex().kind, TokenKind::LtEq);
+        assert_eq!(lexer.lex().kind, TokenKind::LtLt);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_colon_operators() {
+        let input = ": :=";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        assert_eq!(lexer.lex().kind, TokenKind::Colon);
+        assert_eq!(lexer.lex().kind, TokenKind::ColonEq);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_aggregation() {
+        let input = "@count @";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Aggregation);
+        assert_eq!(str_from_source(input, token.origin), "@count");
+        assert_eq!(lexer.lex().kind, TokenKind::Aggregation);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_macro_argument_reference_none() {
+        // Number overflows i32 → MacroArgumentReference(None).
+        let input = "$$99999999999";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        assert_eq!(lexer.lex().kind, TokenKind::MacroArgumentReference(None));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_keywords_type_declarators() {
+        assert_eq!(Lexer::new(FILE_ID, "auto").lex().kind, TokenKind::KeywordAuto);
+        assert_eq!(Lexer::new(FILE_ID, "char").lex().kind, TokenKind::KeywordChar);
+        assert_eq!(Lexer::new(FILE_ID, "const").lex().kind, TokenKind::KeywordConst);
+        assert_eq!(Lexer::new(FILE_ID, "double").lex().kind, TokenKind::KeywordDouble);
+        assert_eq!(Lexer::new(FILE_ID, "enum").lex().kind, TokenKind::KeywordEnum);
+        assert_eq!(Lexer::new(FILE_ID, "float").lex().kind, TokenKind::KeywordFloat);
+        assert_eq!(Lexer::new(FILE_ID, "int").lex().kind, TokenKind::KeywordInt);
+        assert_eq!(Lexer::new(FILE_ID, "long").lex().kind, TokenKind::KeywordLong);
+        assert_eq!(Lexer::new(FILE_ID, "short").lex().kind, TokenKind::KeywordShort);
+        assert_eq!(Lexer::new(FILE_ID, "signed").lex().kind, TokenKind::KeywordSigned);
+        assert_eq!(Lexer::new(FILE_ID, "struct").lex().kind, TokenKind::KeywordStruct);
+    }
+
+    #[test]
+    fn test_lex_keywords_storage_class() {
+        assert_eq!(Lexer::new(FILE_ID, "counter").lex().kind, TokenKind::KeywordCounter);
+        assert_eq!(Lexer::new(FILE_ID, "extern").lex().kind, TokenKind::KeywordExtern);
+        assert_eq!(Lexer::new(FILE_ID, "inline").lex().kind, TokenKind::KeywordInline);
+        assert_eq!(Lexer::new(FILE_ID, "register").lex().kind, TokenKind::KeywordRegister);
+        assert_eq!(Lexer::new(FILE_ID, "restrict").lex().kind, TokenKind::KeywordRestrict);
+        assert_eq!(Lexer::new(FILE_ID, "static").lex().kind, TokenKind::KeywordStatic);
+    }
+
+    #[test]
+    fn test_lex_keywords_dtrace_types() {
+        assert_eq!(Lexer::new(FILE_ID, "import").lex().kind, TokenKind::KeywordImport);
+        assert_eq!(Lexer::new(FILE_ID, "provider").lex().kind, TokenKind::KeywordProvider);
+        assert_eq!(Lexer::new(FILE_ID, "string").lex().kind, TokenKind::KeywordString);
+        assert_eq!(Lexer::new(FILE_ID, "translator").lex().kind, TokenKind::KeywordTranslator);
+    }
+
+    #[test]
+    fn test_lex_keywords_this() {
+        assert_eq!(Lexer::new(FILE_ID, "this").lex().kind, TokenKind::KeywordThis);
+    }
+
+    #[test]
+    fn test_lex_keywords_control_flow() {
+        let input = "break case continue default do else for goto if return switch while";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordBreak);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordCase);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordContinue);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordDefault);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordDo);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordElse);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordFor);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordGoto);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordIf);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordReturn);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordSwitch);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordWhile);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_keywords_type_qualifiers() {
+        let input = "offsetof sizeof typedef union unsigned userland void volatile";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordOffsetOf);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordSizeof);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordTypedef);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordUnion);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordUnsigned);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordUserland);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordVoid);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordVolatile);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_keywords_dtrace_expr() {
+        let input = "probe stringof xlate";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordProbe);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordStringof);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordXlate);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 }
