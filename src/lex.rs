@@ -357,7 +357,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_pragma_identifier(&mut self) -> Token {
-        let start_origin = self.position;
+        let start = self.position;
         let (first, _) = self.advance(1);
         let first = first.unwrap();
         assert!(!(first.is_ascii_whitespace() || first == '"'));
@@ -370,7 +370,7 @@ impl<'a> Lexer<'a> {
             self.advance(1);
         }
 
-        let origin = start_origin.extend_to_inclusive(self.position);
+        let origin = start.extend_to_inclusive(self.position);
 
         Token {
             kind: TokenKind::Identifier,
@@ -529,7 +529,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_probe_specifier(&mut self) -> Token {
-        let start_origin = self.position;
+        let start = self.position;
         let (first, _) = self.advance(1);
         let first = first.unwrap();
         assert!(is_character_probe_specifier_start(first));
@@ -561,7 +561,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let origin = start_origin.extend_to_inclusive(self.position);
+        let origin = start.extend_to_inclusive(self.position);
 
         Token {
             kind: TokenKind::ProbeSpecifier,
@@ -570,7 +570,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_literal_string(&mut self) -> Token {
-        let start_origin = self.position;
+        let start = self.position;
         let (first, _) = self.advance(1);
         assert_eq!(first, Some('"'));
 
@@ -590,7 +590,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let origin = start_origin.extend_to_inclusive(self.position);
+        let origin = start.extend_to_inclusive(self.position);
 
         Token {
             kind: TokenKind::LiteralString,
@@ -599,7 +599,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_literal_character(&mut self) -> Token {
-        let start_origin = self.position;
+        let start = self.position;
         let (first, _) = self.advance(1);
         assert_eq!(first, Some('\''));
 
@@ -707,12 +707,12 @@ impl<'a> Lexer<'a> {
 
         Token {
             kind: TokenKind::LiteralCharacter(c),
-            origin: start_origin.extend_to_inclusive(self.position),
+            origin: start.extend_to_inclusive(self.position),
         }
     }
 
     fn lex_literal_number(&mut self) -> Token {
-        let start_origin = self.position;
+        let start = self.position;
         let (first, _) = self.advance(1);
         let first = first.unwrap();
         assert!(first.is_ascii_digit());
@@ -756,7 +756,7 @@ impl<'a> Lexer<'a> {
                     }
                 }
             }
-            let len = self.position.byte_offset - start_origin.byte_offset;
+            let len = self.position.byte_offset - start.byte_offset;
             if first == '0' && len > 1 {
                 self.add_error(ErrorKind::InvalidLiteralNumber, self.position.into());
             }
@@ -772,7 +772,7 @@ impl<'a> Lexer<'a> {
             self.advance(1);
         }
 
-        let origin = start_origin.extend_to_inclusive(self.position);
+        let origin = start.extend_to_inclusive(self.position);
 
         Token {
             kind: TokenKind::LiteralNumber,
@@ -1999,7 +1999,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_aggregation(&mut self) -> Token {
-        let start_origin = self.position;
+        let start = self.position;
         let (first, _) = self.advance(1);
         assert_eq!(first, Some('@'));
 
@@ -2028,7 +2028,7 @@ impl<'a> Lexer<'a> {
 
         Token {
             kind: TokenKind::Aggregation,
-            origin: start_origin.extend_to_inclusive(self.position),
+            origin: start.extend_to_inclusive(self.position),
         }
     }
 
