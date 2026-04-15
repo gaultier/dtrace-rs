@@ -1513,7 +1513,7 @@ impl<'a> Lexer<'a> {
             (_, '\'') => self.lex_literal_character(),
             // Macro.
             (LexerState::InsideClauseAndExpr, '$')
-                if self.peek3() == (Some('$'), Some('$'), Some(c)) && c.is_ascii_digit() =>
+                if matches!(self.peek3(), (Some('$'), Some('$'), Some('0'..='9'))) =>
             {
                 let origin = self.origin;
                 self.advance(2);
