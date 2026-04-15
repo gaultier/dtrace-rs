@@ -826,20 +826,16 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn lex(&mut self) -> Token {
-        if self.peek1().is_none() {
-            return Token {
+        match (self.peek3(), &self.state) {
+            ((None, _, _), _) => Token {
                 kind: TokenKind::Eof,
                 origin: self.position.into(),
-            };
-        }
-        let c = self.peek1().unwrap();
-
-        match (&self.state, c) {
-            (_, '\n') => {
+            },
+            ((Some('\n'), _, _), _) => {
                 self.advance(1);
                 self.lex()
             }
-            (_, '#') if self.peek2() == Some('!') => {
+            ((Some('#'), Some('!'), _), _) => {
                 let prefix = &self.input[0..self.position.byte_offset as usize];
                 if prefix.find(|c: char| !c.is_ascii_whitespace()).is_some() {
                     self.add_error(
@@ -860,7 +856,7 @@ impl<'a> Lexer<'a> {
                 });
                 self.lex()
             }
-            (LexerState::ProgramOuterScope, '#') => {
+            ((Some('#'), _, _), LexerState::ProgramOuterScope) => {
                 self.state = LexerState::InsideControlDirective(self.position.line);
                 let start = self.position;
                 self.advance(1);
@@ -879,7 +875,7 @@ impl<'a> Lexer<'a> {
                 }
                 self.lex()
             }
-            (_, '-') if self.peek2() == Some('-') => {
+            ((Some('-'), Some('-'), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -887,7 +883,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '-') if self.peek2() == Some('=') => {
+            ((Some('-'), Some('='), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -895,7 +891,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '-') if self.peek2() == Some('>') => {
+            ((Some('-'), Some('>'), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -903,7 +899,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '-') => {
+            ((Some('-'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -911,7 +907,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '+') if self.peek2() == Some('+') => {
+            ((Some('+'), Some('+'), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -919,7 +915,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '+') if self.peek2() == Some('=') => {
+            ((Some('+'), Some('='), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -927,7 +923,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '+') => {
+            ((Some('+'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -935,9 +931,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (LexerState::ProgramOuterScope, '.')
-                if self.peek3() == (Some('.'), Some('.'), Some('.')) =>
-            {
+            ((Some('.'), Some('.'), Some('.')), LexerState::ProgramOuterScope) => {
                 let start = self.position;
                 self.advance(3);
                 Token {
@@ -945,7 +939,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '.') if self.peek2().map(|c| c.is_ascii_digit()).unwrap_or_default() => {
+            ((Some('.'), Some(d), _), _) if d.is_ascii_digit() => {
                 let start = self.position;
                 self.advance(2);
                 self.add_error(
@@ -957,8 +951,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-
-            (LexerState::ProgramOuterScope, '.') => {
+            ((Some('.'), _, _), LexerState::ProgramOuterScope) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -966,7 +959,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '.') => {
+            ((Some('.'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 self.add_error(
@@ -978,7 +971,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '*') if self.peek2() == Some('=') => {
+            ((Some('*'), Some('='), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -986,7 +979,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '*') => {
+            ((Some('*'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -994,7 +987,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '>') if self.peek2() == Some('>') => {
+            ((Some('>'), Some('>'), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -1002,7 +995,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '>') if self.peek2() == Some('=') => {
+            ((Some('>'), Some('='), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -1010,7 +1003,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '>') => {
+            ((Some('>'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1018,7 +1011,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '<') if self.peek2() == Some('<') => {
+            ((Some('<'), Some('<'), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -1026,7 +1019,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '<') if self.peek2() == Some('=') => {
+            ((Some('<'), Some('='), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -1034,7 +1027,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '<') => {
+            ((Some('<'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1042,7 +1035,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '^') if self.peek2() == Some('=') => {
+            ((Some('^'), Some('='), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -1050,7 +1043,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '^') if self.peek2() == Some('^') => {
+            ((Some('^'), Some('^'), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -1058,7 +1051,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '^') => {
+            ((Some('^'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1066,7 +1059,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '&') if self.peek2() == Some('=') => {
+            ((Some('&'), Some('='), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -1074,7 +1067,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '&') if self.peek2() == Some('&') => {
+            ((Some('&'), Some('&'), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -1082,7 +1075,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '&') => {
+            ((Some('&'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1090,7 +1083,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '?') => {
+            ((Some('?'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1098,7 +1091,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '|') if self.peek2() == Some('=') => {
+            ((Some('|'), Some('='), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -1106,7 +1099,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '|') if self.peek2() == Some('|') => {
+            ((Some('|'), Some('|'), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -1114,7 +1107,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '|') => {
+            ((Some('|'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1122,26 +1115,23 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, ':') => {
-                if let Some(next) = self.peek2()
-                    && next == '='
-                {
-                    let start = self.position;
-                    self.advance(2);
-                    Token {
-                        kind: TokenKind::ColonEq,
-                        origin: start.extend_to_inclusive(self.position),
-                    }
-                } else {
-                    let start = self.position;
-                    self.advance(1);
-                    Token {
-                        kind: TokenKind::Colon,
-                        origin: start.extend_to_inclusive(self.position),
-                    }
+            ((Some(':'), Some('='), _), _) => {
+                let start = self.position;
+                self.advance(2);
+                Token {
+                    kind: TokenKind::ColonEq,
+                    origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '!') if self.peek2() == Some('=') => {
+            ((Some(':'), _, _), _) => {
+                let start = self.position;
+                self.advance(1);
+                Token {
+                    kind: TokenKind::Colon,
+                    origin: start.extend_to_inclusive(self.position),
+                }
+            }
+            ((Some('!'), Some('='), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -1149,7 +1139,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '!') => {
+            ((Some('!'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1157,7 +1147,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '=') if self.peek2() == Some('=') => {
+            ((Some('='), Some('='), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -1165,7 +1155,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '=') => {
+            ((Some('='), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1173,15 +1163,15 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '/') if self.peek2() == Some('/') => {
+            ((Some('/'), Some('/'), _), _) => {
                 self.single_line_comment();
                 self.lex()
             }
-            (_, '/') if self.peek2() == Some('*') => {
+            ((Some('/'), Some('*'), _), _) => {
                 self.multi_line_comment();
                 self.lex()
             }
-            (LexerState::InsideClauseAndExpr, '/') => {
+            ((Some('/'), _, _), LexerState::InsideClauseAndExpr) => {
                 let start = self.position;
                 self.advance(1);
                 let end = self.position; // capture end before consuming lookahead whitespace
@@ -1212,7 +1202,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(end),
                 }
             }
-            (LexerState::ProgramOuterScope, '/') => {
+            ((Some('/'), _, _), LexerState::ProgramOuterScope) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1220,7 +1210,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '%') if self.peek2() == Some('=') => {
+            ((Some('%'), Some('='), _), _) => {
                 let start = self.position;
                 self.advance(2);
                 Token {
@@ -1228,7 +1218,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '%') => {
+            ((Some('%'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1236,7 +1226,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '~') => {
+            ((Some('~'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1244,10 +1234,9 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '{') => {
+            ((Some('{'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
-
                 if self.state == LexerState::ProgramOuterScope {
                     self.state = LexerState::InsideClauseAndExpr;
                 }
@@ -1256,10 +1245,9 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '}') => {
+            ((Some('}'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
-
                 if self.state == LexerState::InsideClauseAndExpr {
                     self.state = LexerState::ProgramOuterScope;
                 }
@@ -1268,7 +1256,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '(') => {
+            ((Some('('), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1276,7 +1264,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, ')') => {
+            ((Some(')'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1284,7 +1272,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, ',') => {
+            ((Some(','), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1292,7 +1280,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '[') => {
+            ((Some('['), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1300,7 +1288,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, ']') => {
+            ((Some(']'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1308,7 +1296,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, ';') => {
+            ((Some(';'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -1316,46 +1304,44 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            (_, '"') => self.lex_literal_string(),
-            (_, '\'') => self.lex_literal_character(),
+            ((Some('"'), _, _), _) => self.lex_literal_string(),
+            ((Some('\''), _, _), _) => self.lex_literal_character(),
             // Macro.
-            (LexerState::InsideClauseAndExpr, '$')
-                if matches!(self.peek3(), (Some('$'), Some('$'), Some('0'..='9'))) =>
-            {
+            ((Some('$'), Some('$'), Some('0'..='9')), LexerState::InsideClauseAndExpr) => {
                 let origin = self.position;
                 self.advance(2);
                 self.macro_argument_reference(origin)
             }
-            (LexerState::InsideClauseAndExpr, '$')
-                if self.peek2().map(|c| c.is_ascii_digit()).unwrap_or_default() =>
-            {
+            ((Some('$'), Some(d), _), LexerState::InsideClauseAndExpr) if d.is_ascii_digit() => {
                 let origin = self.position;
                 self.advance(1);
                 self.macro_argument_reference(origin)
             }
-            (LexerState::InsideClauseAndExpr, '@') => self.lex_aggregation(),
-            _ if c.is_ascii_digit() => self.lex_literal_number(),
-            _ if c.is_whitespace() => {
+            ((Some('@'), _, _), LexerState::InsideClauseAndExpr) => self.lex_aggregation(),
+            ((Some(c), _, _), _) if c.is_ascii_digit() => self.lex_literal_number(),
+            ((Some(c), _, _), _) if c.is_whitespace() => {
                 self.advance(1);
                 self.lex()
             }
-            (LexerState::InsideControlDirective(_), _)
-                if !(c.is_ascii_whitespace() || c == '"') =>
+            ((Some(c), _, _), LexerState::InsideControlDirective(_))
+                if !c.is_ascii_whitespace() && c != '"' =>
             {
                 self.lex_pragma_identifier()
             }
-            (LexerState::ProgramOuterScope, _) if is_character_probe_specifier_start(c) => {
+            ((Some(c), _, _), LexerState::ProgramOuterScope)
+                if is_character_probe_specifier_start(c) =>
+            {
                 // TODO: Handle ambiguity of '*'.
                 let token = self.lex_probe_specifier();
                 self.lex_convert_to_keyword(token)
             }
-            (LexerState::InsideClauseAndExpr | LexerState::ProgramOuterScope, _)
+            ((Some(c), _, _), LexerState::InsideClauseAndExpr | LexerState::ProgramOuterScope)
                 if self.is_identifier_character_leading(c) =>
             {
                 let token = self.lex_identifier();
                 self.lex_convert_to_keyword(token)
             }
-            _ => {
+            ((Some(c), _, _), _) => {
                 let start = self.position;
                 self.add_error(
                     ErrorKind::UnknownToken,
