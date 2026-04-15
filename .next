@@ -1,4 +1,3 @@
-- lex: macro arguments
 - ast: start + end origin
 - ast: translator definition
 - ast: provider definition
