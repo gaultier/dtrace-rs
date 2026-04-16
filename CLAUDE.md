@@ -1,0 +1,1 @@
+- Code comments are English sentences that start with an uppercase letter and end with a period. Code identifiers or snippets that appear in code comments must be enclused in backticks quotes.
