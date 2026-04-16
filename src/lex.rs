@@ -586,10 +586,13 @@ impl<'a> Lexer<'a> {
                 (Some('\\'), Some(c)) if c != '\n' => {
                     self.advance(2);
                 }
-
-                (Some('\\'), Some('\n')) | (Some('\n'), _) => {
+                (Some('\\'), Some('\n')) => {
                     self.add_error(ErrorKind::InvalidLiteralString, self.position.into());
-                    self.advance_newline();
+                    self.advance(2);
+                }
+                (Some('\n'), _) => {
+                    self.add_error(ErrorKind::InvalidLiteralString, self.position.into());
+                    self.advance(1);
                 }
                 (Some(_), _) => {
                     self.advance(1);
@@ -788,15 +791,6 @@ impl<'a> Lexer<'a> {
         Token {
             kind: TokenKind::LiteralNumber,
             origin,
-        }
-    }
-
-    pub(crate) fn advance_newline(&mut self) {
-        self.position = Position {
-            line: self.position.line + 1,
-            column: 1,
-            byte_offset: self.position.byte_offset + 1,
-            kind: self.position.kind,
         }
     }
 
@@ -2536,6 +2530,7 @@ mod tests {
         let token = lexer.lex();
         // Empty character literal produces an error and a None value token.
         assert_eq!(token.kind, TokenKind::LiteralCharacter(None));
+        assert_eq!(str_from_source(input, token.origin), "''");
         assert!(
             !lexer.errors.is_empty(),
             "expected an error for empty character literal"
@@ -2652,6 +2647,86 @@ mod tests {
         assert_eq!(str_from_source(input, token.origin), input);
         assert_eq!(token.origin.start, pos(1, 1, 0));
         assert_eq!(token.origin.end, pos(1, 55, 54));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_string_literal_multiline() {
+        // A literal newline inside a string is an error, but the lexer continues
+        // past it and recovers at the closing quote. Subsequent tokens lex correctly.
+        let input = "\"hello\nworld\" 42";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralString);
+            assert_eq!(str_from_source(input, token.origin), "\"hello\nworld\"");
+            assert_eq!(token.origin.start, pos(1, 1, 0));
+            assert_eq!(token.origin.end, pos(2, 7, 13));
+            assert_eq!(lexer.errors.len(), 1);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralNumber);
+            assert_eq!(str_from_source(input, token.origin), "42");
+            assert_eq!(token.origin.start, pos(2, 8, 14));
+            assert_eq!(token.origin.end, pos(2, 10, 16));
+        }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_string_literal_backslash_newline() {
+        // A backslash immediately followed by a newline inside a string is an error;
+        // both chars are consumed and lexing continues on the next line.
+        let input = "\"hello\\\nworld\" 42";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralString);
+            assert_eq!(str_from_source(input, token.origin), "\"hello\\\nworld\"");
+            assert_eq!(token.origin.start, pos(1, 1, 0));
+            assert_eq!(token.origin.end, pos(2, 7, 14));
+            assert_eq!(lexer.errors.len(), 1);
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralNumber);
+            assert_eq!(str_from_source(input, token.origin), "42");
+            assert_eq!(token.origin.start, pos(2, 8, 15));
+            assert_eq!(token.origin.end, pos(2, 10, 17));
+        }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_string_literal_unterminated() {
+        // EOF before the closing quote records an error. The token spans everything consumed.
+        let input = "\"hello";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralString);
+        assert_eq!(str_from_source(input, token.origin), "\"hello");
+        assert_eq!(token.origin.start, pos(1, 1, 0));
+        assert_eq!(token.origin.end, pos(1, 7, 6));
+        assert_eq!(lexer.errors.len(), 1);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_string_literal_escape_sequence() {
+        // A \n escape sequence (backslash then 'n', not a real newline) is valid — no error.
+        let input = r#""hello\nworld""#;
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralString);
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(token.origin.start, pos(1, 1, 0));
+        assert_eq!(token.origin.end, pos(1, 15, 14));
+        assert!(lexer.errors.is_empty());
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -3089,12 +3164,22 @@ mod tests {
 
     #[test]
     fn test_lex_keywords_type_declarators() {
-        for kw in [
-            "auto", "char", "const", "double", "enum", "float", "int", "long", "short", "signed",
-            "struct",
+        for (kw, kind) in [
+            ("auto", TokenKind::KeywordAuto),
+            ("char", TokenKind::KeywordChar),
+            ("const", TokenKind::KeywordConst),
+            ("double", TokenKind::KeywordDouble),
+            ("enum", TokenKind::KeywordEnum),
+            ("float", TokenKind::KeywordFloat),
+            ("int", TokenKind::KeywordInt),
+            ("long", TokenKind::KeywordLong),
+            ("short", TokenKind::KeywordShort),
+            ("signed", TokenKind::KeywordSigned),
+            ("struct", TokenKind::KeywordStruct),
         ] {
             let mut lexer = Lexer::new(FILE_ID, kw);
             let token = lexer.lex();
+            assert_eq!(token.kind, kind, "kind mismatch for keyword {kw}");
             assert_eq!(
                 str_from_source(kw, token.origin),
                 kw,
@@ -3102,57 +3187,22 @@ mod tests {
             );
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
         }
-        assert_eq!(
-            Lexer::new(FILE_ID, "auto").lex().kind,
-            TokenKind::KeywordAuto
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "char").lex().kind,
-            TokenKind::KeywordChar
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "const").lex().kind,
-            TokenKind::KeywordConst
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "double").lex().kind,
-            TokenKind::KeywordDouble
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "enum").lex().kind,
-            TokenKind::KeywordEnum
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "float").lex().kind,
-            TokenKind::KeywordFloat
-        );
-        assert_eq!(Lexer::new(FILE_ID, "int").lex().kind, TokenKind::KeywordInt);
-        assert_eq!(
-            Lexer::new(FILE_ID, "long").lex().kind,
-            TokenKind::KeywordLong
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "short").lex().kind,
-            TokenKind::KeywordShort
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "signed").lex().kind,
-            TokenKind::KeywordSigned
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "struct").lex().kind,
-            TokenKind::KeywordStruct
-        );
     }
 
     #[test]
     fn test_lex_keywords_storage_class() {
-        // All of these are recognized as keywords in ProgramOuterScope (S2).
-        for kw in [
-            "counter", "extern", "inline", "register", "restrict", "static",
+        // All recognized as keywords in ProgramOuterScope (S2).
+        for (kw, kind) in [
+            ("counter", TokenKind::KeywordCounter),
+            ("extern", TokenKind::KeywordExtern),
+            ("inline", TokenKind::KeywordInline),
+            ("register", TokenKind::KeywordRegister),
+            ("restrict", TokenKind::KeywordRestrict),
+            ("static", TokenKind::KeywordStatic),
         ] {
             let mut lexer = Lexer::new(FILE_ID, kw);
             let token = lexer.lex();
+            assert_eq!(token.kind, kind, "kind mismatch for keyword {kw}");
             assert_eq!(
                 str_from_source(kw, token.origin),
                 kw,
@@ -3160,30 +3210,6 @@ mod tests {
             );
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
         }
-        assert_eq!(
-            Lexer::new(FILE_ID, "counter").lex().kind,
-            TokenKind::KeywordCounter
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "extern").lex().kind,
-            TokenKind::KeywordExtern
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "inline").lex().kind,
-            TokenKind::KeywordInline
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "register").lex().kind,
-            TokenKind::KeywordRegister
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "restrict").lex().kind,
-            TokenKind::KeywordRestrict
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "static").lex().kind,
-            TokenKind::KeywordStatic
-        );
 
         // counter and inline are S2-only keywords; in InsideClauseAndExpr they are identifiers.
         for kw in ["counter", "inline"] {
@@ -3196,15 +3222,22 @@ mod tests {
                 "{kw} should be Identifier in InsideClauseAndExpr"
             );
             assert_eq!(str_from_source(kw, token.origin), kw);
+            assert_eq!(lexer.lex().kind, TokenKind::Eof);
         }
     }
 
     #[test]
     fn test_lex_keywords_dtrace_types() {
-        // All of these are recognized as keywords in ProgramOuterScope (S2).
-        for kw in ["import", "provider", "string", "translator"] {
+        // All recognized as keywords in ProgramOuterScope (S2).
+        for (kw, kind) in [
+            ("import", TokenKind::KeywordImport),
+            ("provider", TokenKind::KeywordProvider),
+            ("string", TokenKind::KeywordString),
+            ("translator", TokenKind::KeywordTranslator),
+        ] {
             let mut lexer = Lexer::new(FILE_ID, kw);
             let token = lexer.lex();
+            assert_eq!(token.kind, kind, "kind mismatch for keyword {kw}");
             assert_eq!(
                 str_from_source(kw, token.origin),
                 kw,
@@ -3212,22 +3245,6 @@ mod tests {
             );
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
         }
-        assert_eq!(
-            Lexer::new(FILE_ID, "import").lex().kind,
-            TokenKind::KeywordImport
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "provider").lex().kind,
-            TokenKind::KeywordProvider
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "string").lex().kind,
-            TokenKind::KeywordString
-        );
-        assert_eq!(
-            Lexer::new(FILE_ID, "translator").lex().kind,
-            TokenKind::KeywordTranslator
-        );
 
         // provider and translator are S2-only keywords; in InsideClauseAndExpr they are identifiers.
         for kw in ["provider", "translator"] {
@@ -3240,6 +3257,7 @@ mod tests {
                 "{kw} should be Identifier in InsideClauseAndExpr"
             );
             assert_eq!(str_from_source(kw, token.origin), kw);
+            assert_eq!(lexer.lex().kind, TokenKind::Eof);
         }
     }
 
