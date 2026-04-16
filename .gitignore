@@ -3,3 +3,4 @@ target/
 *.ts
 *.wasm
 hello.bin
+.claude/settings.local.json
