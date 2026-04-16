@@ -653,18 +653,22 @@ impl<'a> Lexer<'a> {
                     self.advance(2);
                     bytes.push(11);
                 }
-                // Octal sequence.
+                // Octal sequence. DTrace allows up to 3 octal digits (like C).
+                // The value is always truncated to 1 byte, matching C `char` semantics.
                 (Some('\\'), Some('0'..='7')) => {
                     self.advance(1);
                     let start = self.position.byte_offset as usize;
-                    while let Some('0'..='7') = self.peek1() {
-                        self.advance(1);
+                    for _ in 0..3 {
+                        if matches!(self.peek1(), Some('0'..='7')) {
+                            self.advance(1);
+                        } else {
+                            break;
+                        }
                     }
 
                     let s = &self.input[start..self.position.byte_offset as usize];
-
-                    let byte = u8::from_str_radix(s, 8).unwrap();
-                    bytes.push(byte);
+                    let v = u32::from_str_radix(s, 8).unwrap();
+                    bytes.push(v as u8); // always 1 byte, wraps like C `char`
                 }
                 // Hex sequence.
                 (Some('\\'), Some('x')) => {
@@ -708,10 +712,20 @@ impl<'a> Lexer<'a> {
                     self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
                     self.advance(2);
                 }
-                // Not an escape code.
+                // Known escapes that are not letters: produce 1 byte.
+                (Some('\\'), Some('"')) => {
+                    self.advance(2);
+                    bytes.push(b'"');
+                }
+                (Some('\\'), Some('\\')) => {
+                    self.advance(2);
+                    bytes.push(b'\\');
+                }
+                // Unknown escape: keep both the backslash and the character,
+                // matching the `default` case of the official `stresc2chr()`.
                 (Some('\\'), Some(c)) => {
                     self.advance(2);
-                    bytes.push('\\' as u8);
+                    bytes.push(b'\\');
                     bytes.push(c as u8);
                 }
                 (Some('\n'), _) => {
@@ -2504,11 +2518,54 @@ mod tests {
 
     #[test]
     fn test_lex_character_literal_escape_sequence_octal() {
-        let input = r#"'\0103'"#;
+        // 3-digit octal: \103 = 67 = 0x43
+        let input = r#"'\103'"#;
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralCharacter(0o103));
+            let s = str_from_source(input, token.origin);
+            assert_eq!(s, input);
+        }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_character_literal_escape_sequence_octal_overflow() {
+        // octal 400 = 256, truncated to u8 = 0, matching C `char` truncation.
+        let input = r#"'\400'"#;
+        let mut lexer = Lexer::new(1, input);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(0));
+            let s = str_from_source(input, token.origin);
+            assert_eq!(s, input);
+        }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_character_literal_unknown_escape() {
+        // \z is not a known escape: official `stresc2chr` default → 2 bytes: '\' (0x5C) + 'z' (0x7A).
+        let input = r#"'\z'"#;
+        let mut lexer = Lexer::new(1, input);
+        let token = lexer.lex();
+        let expected = isize::from_be_bytes([0, 0, 0, 0, 0, 0, 0x5c, 0x7a]);
+        assert_eq!(token.kind, TokenKind::LiteralCharacter(expected));
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_character_literal_octal_followed_by_literal_chars() {
+        // \010 (octal, 3-digit limit) = 8, then '3','3','3','3','3' as literal chars
+        // bytes = [8, 51, 51, 51, 51, 51] → 0x083333333333
+        let input = r#"'\01033333'"#;
+        let mut lexer = Lexer::new(1, input);
+        {
+            let token = lexer.lex();
+            let expected = isize::from_be_bytes([0, 0, 8, 51, 51, 51, 51, 51]);
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(expected));
             let s = str_from_source(input, token.origin);
             assert_eq!(s, input);
         }
@@ -2534,9 +2591,9 @@ mod tests {
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
-            // '\"\ba': '\"' is an unrecognized escape → raw bytes '\\' (92) and '"' (34);
-            // '\b' is backspace (8); 'a' is 97. Big-endian isize of [92, 34, 8, 97].
-            let expected = isize::from_be_bytes([0, 0, 0, 0, 92, 34, 8, 97]);
+            // '\"\ba': '\"' is a known escape → '"' (0x22); '\b' is backspace (0x08); 'a' is 0x61.
+            // DTrace confirms: `sudo dtrace -n 'BEGIN {this->c = '\"\ba'; print(this->c); exit(0);}'` → 0x220861.
+            let expected = isize::from_be_bytes([0, 0, 0, 0, 0, 0x22, 0x08, 0x61]);
             assert_eq!(token.kind, TokenKind::LiteralCharacter(expected));
             assert_eq!(
                 str_from_source(input, token.origin),
