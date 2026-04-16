@@ -5,9 +5,9 @@ use std::{
 
 use lsp_types::{
     Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidOpenTextDocumentParams, Hover,
-    HoverContents, HoverParams, HoverProviderCapability, MarkedString,
-    PositionEncodingKind, PublishDiagnosticsParams, ServerCapabilities,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions, Uri,
+    HoverContents, HoverParams, HoverProviderCapability, MarkedString, PositionEncodingKind,
+    PublishDiagnosticsParams, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TextDocumentSyncOptions, Uri,
 };
 use serde::{Deserialize, Serialize};
 
