@@ -1418,6 +1418,10 @@ impl<'a> Lexer<'a> {
 
                     // Now lex normally.
                     self.lex()
+                } else if let Some(attr) = self.lex_attribute() {
+                    // No terminating `;`, but `RGX_ATTR` still matches at column 1.
+                    self.attributes.push(attr);
+                    self.lex()
                 } else {
                     // It was not a real attribute after all, fall back to normal token lexing.
                     match self.state {
@@ -4886,6 +4890,20 @@ mod tests {
             "unexpected errors: {:?}",
             lexer.errors
         );
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_attribute_line_col1_no_semicolon() {
+        // `__attribute__((foo))` at column 1 without a terminating `;`:
+        // `lex_attribute_line` fails (requires `));`), but `lex_attribute`
+        // (the `RGX_ATTR` rule) must still match and consume it.
+        let input = "__attribute__((foo))+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.attributes.len(), 1);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
