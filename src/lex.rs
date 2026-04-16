@@ -2878,6 +2878,95 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_single_line_comment_nested_double_slash() {
+        // "//" inside a single-line comment is forbidden.
+        let input = "// hello // world\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(str_from_source(input, token.origin), "+");
+        assert_eq!(lexer.comments.len(), 1);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::NestedComment);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_single_line_comment_nested_block_open() {
+        // "/*" inside a single-line comment is forbidden.
+        let input = "// hello /* world\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(str_from_source(input, token.origin), "+");
+        assert_eq!(lexer.comments.len(), 1);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::NestedComment);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_single_line_comment_nested_block_close() {
+        // "*/" inside a single-line comment is forbidden.
+        let input = "// hello */ world\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(str_from_source(input, token.origin), "+");
+        assert_eq!(lexer.comments.len(), 1);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::NestedComment);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_single_line_comment_nested_block_open_and_close() {
+        // Both "/*" and "*/" inside a single-line comment each produce an error.
+        let input = "// hello /* */\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(str_from_source(input, token.origin), "+");
+        assert_eq!(lexer.comments.len(), 1);
+        assert_eq!(lexer.errors.len(), 2, "expected 2 errors");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::NestedComment);
+        assert_eq!(lexer.errors[1].kind, ErrorKind::NestedComment);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 2, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_multi_line_comment_nested_block_open() {
+        // "/*" inside a block comment is forbidden.
+        let input = "/* hello /* world */+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(str_from_source(input, token.origin), "+");
+        assert_eq!(lexer.comments.len(), 1);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::NestedComment);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_multi_line_comment_double_slash_allowed() {
+        // "//" inside a block comment is NOT an error (only "/*" is forbidden).
+        let input = "/* hello // world */+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(str_from_source(input, token.origin), "+");
+        assert_eq!(lexer.comments.len(), 1);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
     fn test_lex_macro_argument_reference() {
         let input = "BEGIN {print($$1) } ";
         let mut lexer = Lexer::new(1, input);
