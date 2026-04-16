@@ -123,7 +123,7 @@ pub enum NumberOrString {
 pub enum TokenKind {
     LiteralNumber,
     LiteralString,
-    LiteralCharacter(Option<i32>),
+    LiteralCharacter(isize),
     Identifier,
     ProbeSpecifier,
     Dot,
@@ -617,110 +617,128 @@ impl<'a> Lexer<'a> {
         let (first, _) = self.advance(1);
         assert_eq!(first, Some('\''));
 
-        let c = match self.peek3() {
-            // Escape sequence.
-            (Some('\\'), Some('a'), Some('\'')) => {
-                self.advance(3);
-                Some(7)
-            }
-            (Some('\\'), Some('b'), Some('\'')) => {
-                self.advance(3);
-                Some(8)
-            }
-            (Some('\\'), Some('f'), Some('\'')) => {
-                self.advance(3);
-                Some(12)
-            }
-            (Some('\\'), Some('n'), Some('\'')) => {
-                self.advance(3);
-                Some(10)
-            }
-            (Some('\\'), Some('r'), Some('\'')) => {
-                self.advance(3);
-                Some(13)
-            }
-            (Some('\\'), Some('t'), Some('\'')) => {
-                self.advance(3);
-                Some(9)
-            }
-            (Some('\\'), Some('v'), Some('\'')) => {
-                self.advance(3);
-                Some(11)
-            }
-            (Some('\\'), Some('"'), Some('\'')) => {
-                self.advance(3);
-                Some('"' as i32)
-            }
-            (Some('\\'), Some('\''), Some('\'')) => {
-                self.advance(3);
-                Some('\'' as i32)
-            }
-            (Some('\\'), Some('\\'), Some('\'')) => {
-                self.advance(3);
-                Some('\\' as i32)
-            }
-            // Octal sequence.
-            (Some('\\'), Some('0'..='7'), _) => 'octal: {
-                self.advance(1);
-                let start = self.position.byte_offset as usize;
-                while let Some('0'..='7') = self.peek1() {
+        let mut bytes = Vec::with_capacity(std::mem::size_of::<isize>());
+        loop {
+            match self.peek2() {
+                // End.
+                (Some('\''), _) => {
                     self.advance(1);
+                    break;
                 }
-                if let Some('\'') = self.peek1() {
+                (Some('\\'), Some('a')) => {
                     self.advance(1);
-                } else {
-                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
-                    break 'octal None;
+                    bytes.push(7);
                 }
-
-                let s = &self.input[start..self.position.byte_offset as usize - 1];
-
-                match i32::from_str_radix(s, 8) {
-                    Ok(c) => Some(c),
-                    Err(_) => {
-                        self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
-                        None
+                (Some('\\'), Some('b')) => {
+                    self.advance(3);
+                    bytes.push(8);
+                }
+                (Some('\\'), Some('f')) => {
+                    self.advance(3);
+                    bytes.push(12);
+                }
+                (Some('\\'), Some('n')) => {
+                    self.advance(3);
+                    bytes.push(10);
+                }
+                (Some('\\'), Some('r')) => {
+                    self.advance(3);
+                    bytes.push(13);
+                }
+                (Some('\\'), Some('t')) => {
+                    self.advance(3);
+                    bytes.push(9);
+                }
+                (Some('\\'), Some('v')) => {
+                    self.advance(3);
+                    bytes.push(11);
+                }
+                // Octal sequence.
+                (Some('\\'), Some('0'..='7')) => {
+                    self.advance(1);
+                    let start = self.position.byte_offset as usize;
+                    // At most 3 digits.
+                    for _ in 1..=3 {
+                        if let Some('0'..='7') = self.peek1() {
+                            self.advance(1);
+                        } else {
+                            break;
+                        }
                     }
-                }
-            }
-            // Hex sequence.
-            (Some('\\'), Some('x'), _) => 'hex: {
-                self.advance(2);
-                let start = self.position.byte_offset as usize;
-                while let Some('0'..='9' | 'a'..='z' | 'A'..='Z') = self.peek1() {
-                    self.advance(1);
-                }
-                if let Some('\'') = self.peek1() {
-                    self.advance(1);
-                } else {
-                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
-                    break 'hex None;
-                }
 
-                let s = &self.input[start..self.position.byte_offset as usize - 1];
+                    let s = &self.input[start..self.position.byte_offset as usize - 1];
 
-                match i32::from_str_radix(s, 16) {
-                    Ok(c) => Some(c),
-                    Err(_) => {
-                        self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
-                        None
+                    let byte = u8::from_str_radix(s, 8).unwrap();
+                    bytes.push(byte);
+                }
+                // Hex sequence.
+                (Some('\\'), Some('x')) => {
+                    // The official implementation neither checks for a maximum number of hex characters nor for overflow.
+                    // In case of overflow, we record an error. But all hex characters are still consumed.
+
+                    self.advance(2);
+                    let start = self.position.byte_offset as usize;
+
+                    while let Some('0'..='9' | 'a'..='z' | 'A'..='Z') = self.peek1() {
+                        self.advance(1);
                     }
+                    let s = &self.input[start..self.position.byte_offset as usize - 1];
+
+                    let byte = match u8::from_str_radix(s, 16) {
+                        Ok(c) => c,
+                        Err(_) => {
+                            self.add_error(
+                                ErrorKind::InvalidLiteralCharacter,
+                                self.position.into(),
+                            );
+                            0
+                        }
+                    };
+                    bytes.push(byte);
+                }
+                // Ordinary characters.
+                (Some(c), _) if !(c == '\'' || c == '\\' || c == '\n') => {
+                    self.advance(1);
+                    bytes.push(c as u8);
+                }
+                (Some('\\'), Some('\n')) => {
+                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
+                    self.advance(2);
+                }
+                // Not an escape code..
+                (Some('\\'), Some(c)) => {
+                    self.advance(2);
+                    bytes.push('\\' as u8);
+                    bytes.push(c as u8);
+                }
+                (Some('\n'), _) => {
+                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
+                    self.advance(1);
+                }
+                (Some(c), _) => {
+                    self.advance(1);
+                    bytes.push(c as u8);
+                }
+                (None, _) => {
+                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
+                    break;
                 }
             }
-            // Unescaped
-            (Some(c), Some('\''), _) => {
-                self.advance(2);
-                Some(c as i32)
-            }
-            _ => {
-                self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
-                self.skip_until_inclusive_or_newline('\'');
-                None
-            }
+        }
+
+        let bytes_8: [u8; 8] = if bytes.len() > 8 {
+            self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
+            [0; 8]
+        } else {
+            let mut bytes_8 = [0; 8];
+            bytes_8.copy_from_slice(bytes.as_slice());
+            bytes_8
         };
 
+        let value = isize::from_be_bytes(bytes_8);
+
         Token {
-            kind: TokenKind::LiteralCharacter(c),
+            kind: TokenKind::LiteralCharacter(value),
             origin: start.extend_to_inclusive(self.position),
         }
     }
@@ -2457,7 +2475,7 @@ mod tests {
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralCharacter(Some('r' as i32)));
+            assert_eq!(token.kind, TokenKind::LiteralCharacter('r' as isize));
             let s = str_from_source(input, token.origin);
             assert_eq!(s, input);
         }
@@ -2470,7 +2488,7 @@ mod tests {
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(13)));
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(13));
             let s = str_from_source(input, token.origin);
             assert_eq!(s, input);
         }
@@ -2483,7 +2501,7 @@ mod tests {
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(0o103)));
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(0o103));
             let s = str_from_source(input, token.origin);
             assert_eq!(s, input);
         }
@@ -2496,7 +2514,7 @@ mod tests {
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralCharacter(Some(0x4e)));
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(0x4e));
             let s = str_from_source(input, token.origin);
             assert_eq!(s, "'\\x4e'");
         }
@@ -2509,7 +2527,7 @@ mod tests {
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralCharacter(None));
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(0));
             assert_eq!(
                 str_from_source(input, token.origin),
                 &input[0..input.len() - 1]
@@ -2529,7 +2547,7 @@ mod tests {
         let mut lexer = Lexer::new(1, input);
         let token = lexer.lex();
         // Empty character literal produces an error and a None value token.
-        assert_eq!(token.kind, TokenKind::LiteralCharacter(None));
+        assert_eq!(token.kind, TokenKind::LiteralCharacter(0));
         assert_eq!(str_from_source(input, token.origin), "''");
         assert!(
             !lexer.errors.is_empty(),

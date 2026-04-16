@@ -83,7 +83,7 @@ pub(crate) enum NodeKind {
     ParamEllipsis,
     Parameters(Vec<NodeId>),
     ParameterDeclarationSpecifiers(Vec<NodeId>),
-    Character(Option<i32>),
+    Character(isize),
     InlineDefinition(NodeId, NodeId, NodeId),
     ParameterTypeList {
         params: Option<NodeId>,
