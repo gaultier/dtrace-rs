@@ -259,13 +259,13 @@ impl TryFrom<&str> for Class {
     }
 }
 
-pub(crate) fn str_from_source<'a>(src: &'a str, origin: Origin) -> &'a str {
+pub(crate) fn str_from_source(src: &str, origin: Origin) -> &str {
     &src[Range::from(origin)]
 }
 
-pub(crate) fn quoted_string_from_source<'a>(src: &'a str, origin: Origin) -> (&'a str, Origin) {
+pub(crate) fn quoted_string_from_source(src: &str, origin: Origin) -> (&str, Origin) {
     let s = str_from_source(src, origin);
-    assert_eq!(s.chars().nth(0).unwrap(), '"');
+    assert_eq!(s.chars().next().unwrap(), '"');
     assert_eq!(s.chars().nth(s.len() - 1).unwrap(), '"');
     (&s[1..s.len() - 1], origin.forwards(1).backwards(1))
 }
@@ -2073,7 +2073,7 @@ impl<'a> Lexer<'a> {
         let s = &self.input[start.byte_offset as usize..self.position.byte_offset as usize]
             .trim_start_matches('$');
         dbg!(s);
-        assert!(s.len() > 0);
+        assert!(!s.is_empty());
 
         let num: Option<u32> = match s.parse::<i32>() {
             Ok(n) => Some(n as u32),
