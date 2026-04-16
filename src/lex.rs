@@ -2213,9 +2213,8 @@ impl<'a> Lexer<'a> {
 
     fn lex_attribute_line(&mut self) -> Option<Attribute> {
         assert_eq!(self.position.column, 1);
-        assert_eq!(
-            &self.input[self.position.byte_offset as usize..],
-            "__attribute__"
+        assert!(
+            self.input[self.position.byte_offset as usize..].starts_with("__attribute__")
         );
 
         // For rollbacking.
@@ -4749,5 +4748,102 @@ mod tests {
         assert_eq!(lexer.control_directives.len(), 0);
         assert_eq!(lexer.errors.len(), 1, "expected 1 error");
         assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidControlDirective);
+    }
+
+    #[test]
+    fn test_lex_attribute_basic() {
+        // A bare `__attribute__((unused));` on its own line is silently skipped.
+        let input = "__attribute__((unused));\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.attributes.len(), 1);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_attribute_with_whitespace_before_parens() {
+        // Whitespace between `__attribute__` and `((` is allowed.
+        let input = "__attribute__   ((noreturn));\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.attributes.len(), 1);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_attribute_complex_content() {
+        // Content inside `(( ... ))` may be arbitrary (no newlines).
+        let input = "__attribute__((format(printf, 1, 2)));\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.attributes.len(), 1);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_attribute_followed_by_more_on_same_line() {
+        // Any tokens after `));` on the same line are skipped too
+        // (`skip_until_exclusive('\n')` discards them).
+        let input = "__attribute__((unused)); int x;\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.attributes.len(), 1);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_attribute_inside_clause() {
+        // The rule also fires in `InsideClauseAndExpr` state (column 1 required).
+        let input = "__attribute__((unused));\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.attributes.len(), 1);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_attribute_no_double_paren_falls_back() {
+        // `__attribute__` at column 1 but without `((` is not a valid attribute;
+        // the lexer rolls back and lexes it as a probe specifier instead.
+        let input = "__attribute__\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+        assert_eq!(str_from_source(input, token.origin), "__attribute__");
+        assert_eq!(lexer.attributes.len(), 0);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_attribute_unterminated_falls_back() {
+        // `__attribute__((` with no matching `));` before end-of-line: rollback,
+        // lex as a probe specifier.
+        let input = "__attribute__((no closing\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+        assert_eq!(lexer.attributes.len(), 0);
+    }
+
+    #[test]
+    fn test_lex_attribute_origin_spans_full_directive() {
+        // The stored `Attribute` origin covers from `__attribute__` through `));`.
+        let input = "__attribute__((unused));\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.lex();
+        assert_eq!(lexer.attributes.len(), 1);
+        let attr_src = str_from_source(input, lexer.attributes[0].origin);
+        assert_eq!(attr_src, "__attribute__((unused));");
     }
 }
