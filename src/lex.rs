@@ -682,6 +682,10 @@ impl<'a> Lexer<'a> {
                     if s.is_empty() {
                         self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
                     } else {
+                        // Small, but probably inconsequential difference with the official implementation:
+                        // the official implementation casts (truncates) the hex sequence to `char`,
+                        // which might be signed or unsigned depending on the platform.
+                        // We always use `u8`.
                         let byte = match u8::from_str_radix(s, 16) {
                             Ok(c) => c,
                             Err(_) => {
