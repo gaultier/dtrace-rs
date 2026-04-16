@@ -230,6 +230,7 @@ impl<'a> Parser<'a> {
             control_directives: Vec::new(),
             comments: Vec::new(),
             errors: Vec::new(),
+            attributes: Vec::new(),
             chars: self.lexer.chars.clone(),
             chars_idx: self.lexer.chars_idx,
         };
@@ -244,6 +245,7 @@ impl<'a> Parser<'a> {
             control_directives: Vec::new(),
             comments: Vec::new(),
             errors: Vec::new(),
+            attributes: Vec::new(),
             chars: self.lexer.chars.clone(),
             chars_idx: self.lexer.chars_idx,
         };

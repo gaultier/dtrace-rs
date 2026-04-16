@@ -25,7 +25,7 @@ pub(crate) enum LexerState {
 }
 
 #[derive(Debug, Serialize, PartialEq)]
-pub struct Attribute {
+pub struct PragmaAttribute {
     pub name: Option<Stability>,
     pub data: Option<Stability>,
     pub class: Option<Class>,
@@ -37,7 +37,10 @@ pub enum ControlDirectiveKind {
     PragmaError(String),
     PragmaBinding(Version, String),
     PragmaDependsOn(PragmaDependsOnKind, String),
-    PragmaAttributes { attribute: Attribute, name: String },
+    PragmaAttributes {
+        attribute: PragmaAttribute,
+        name: String,
+    },
     Ignored,
     PragmaOption(String, Option<String>),
     Shebang(String),
@@ -101,6 +104,11 @@ pub struct Comment {
     pub kind: CommentKind,
 }
 
+#[derive(Debug, Serialize, PartialEq)]
+pub struct Attribute {
+    pub origin: Origin,
+}
+
 #[derive(Debug)]
 pub struct Lexer<'a> {
     pub(crate) position: Position,
@@ -111,6 +119,7 @@ pub struct Lexer<'a> {
     pub comments: Vec<Comment>,
     pub(crate) chars: Vec<char>,
     pub(crate) chars_idx: usize,
+    pub(crate) attributes: Vec<Attribute>,
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Clone)]
@@ -309,6 +318,7 @@ impl<'a> Lexer<'a> {
             input,
             chars: input.chars().collect(),
             chars_idx: 0,
+            attributes: Vec::new(),
         }
     }
 
@@ -1392,6 +1402,31 @@ impl<'a> Lexer<'a> {
                 self.macro_argument_reference(origin)
             }
             ((Some('@'), _, _), LexerState::InsideClauseAndExpr) => self.lex_aggregation(),
+
+            // Skip: `__attribute__  (( ... )); ...`.
+            // ^"__attribute__"[\f\n\r\t\v ]*"(("[^\n]*"));"
+            (
+                (Some('_'), Some('_'), Some('a')),
+                LexerState::ProgramOuterScope | LexerState::InsideClauseAndExpr,
+            ) if self.position.column == 1
+                && self.input[self.position.byte_offset as usize + 3..]
+                    .starts_with("ttribute__") =>
+            {
+                if let Some(attr) = self.lex_attribute_line() {
+                    self.attributes.push(attr);
+                    self.skip_until_exclusive('\n');
+
+                    // Now lex normally.
+                    self.lex()
+                } else {
+                    // It was not a real attribute after all, fall back to normal token lexing.
+                    match self.state {
+                        LexerState::ProgramOuterScope => self.lex_probe_specifier(),
+                        LexerState::InsideControlDirective(_) => self.lex_pragma_identifier(),
+                        LexerState::InsideClauseAndExpr => self.lex_identifier(),
+                    }
+                }
+            }
             ((Some(c), _, _), _) if c.is_ascii_digit() => self.lex_literal_number(),
             ((Some(c), _, _), _) if c.is_whitespace() => {
                 self.advance(1);
@@ -1799,7 +1834,7 @@ impl<'a> Lexer<'a> {
                 })
             })
             .transpose()?;
-        let attribute = Attribute { name, data, class };
+        let attribute = PragmaAttribute { name, data, class };
 
         Ok(ControlDirective {
             kind: ControlDirectiveKind::PragmaAttributes {
@@ -2165,6 +2200,57 @@ impl<'a> Lexer<'a> {
 
         if let Some('f' | 'F' | 'l' | 'L') = self.peek1() {
             self.advance(1);
+        }
+    }
+
+    fn skip_whitespace(&mut self) {
+        while let Some(c) = self.peek1()
+            && c.is_ascii_whitespace()
+        {
+            self.advance(1);
+        }
+    }
+
+    fn lex_attribute_line(&mut self) -> Option<Attribute> {
+        assert_eq!(self.position.column, 1);
+        assert_eq!(
+            &self.input[self.position.byte_offset as usize..],
+            "__attribute__"
+        );
+
+        // For rollbacking.
+        let (bck_position, bck_chars_idx) = (self.position, self.chars_idx);
+
+        self.advance("__attribute__".len());
+        self.skip_whitespace();
+
+        if let (Some('('), Some('(')) = self.peek2() {
+        } else {
+            // Rollback.
+            self.position = bck_position;
+            self.chars_idx = bck_chars_idx;
+            return None;
+        }
+
+        loop {
+            match self.peek3() {
+                // End of attribute.
+                (Some(')'), Some(')'), Some(';')) => {
+                    self.advance(3);
+                    return Some(Attribute {
+                        origin: bck_position.extend_to_inclusive(self.position),
+                    });
+                }
+                (Some('\n'), _, _) | (None, _, _) => {
+                    // Rollback.
+                    self.position = bck_position;
+                    self.chars_idx = bck_chars_idx;
+                    return None;
+                }
+                (Some(_), _, _) => {
+                    self.advance(1);
+                }
+            }
         }
     }
 }
@@ -4088,10 +4174,17 @@ mod tests {
         assert_eq!(token.kind, TokenKind::LiteralNumber);
         assert_eq!(str_from_source(input, token.origin), "1.5e3");
         assert_eq!(lexer.errors.len(), 1);
-        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(
+            lexer.errors[0].kind,
+            ErrorKind::UnsupportedLiteralFloatNumber
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Plus);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+        assert_eq!(
+            lexer.errors.len(),
+            1,
+            "no new errors after remaining tokens"
+        );
     }
 
     #[test]
@@ -4104,10 +4197,17 @@ mod tests {
         assert_eq!(token.kind, TokenKind::LiteralNumber);
         assert_eq!(str_from_source(input, token.origin), "1.5e+3");
         assert_eq!(lexer.errors.len(), 1);
-        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(
+            lexer.errors[0].kind,
+            ErrorKind::UnsupportedLiteralFloatNumber
+        );
         assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+        assert_eq!(
+            lexer.errors.len(),
+            1,
+            "no new errors after remaining tokens"
+        );
     }
 
     #[test]
@@ -4120,10 +4220,17 @@ mod tests {
         assert_eq!(token.kind, TokenKind::LiteralNumber);
         assert_eq!(str_from_source(input, token.origin), "1.5e-3");
         assert_eq!(lexer.errors.len(), 1);
-        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(
+            lexer.errors[0].kind,
+            ErrorKind::UnsupportedLiteralFloatNumber
+        );
         assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+        assert_eq!(
+            lexer.errors.len(),
+            1,
+            "no new errors after remaining tokens"
+        );
     }
 
     #[test]
@@ -4136,10 +4243,17 @@ mod tests {
         assert_eq!(token.kind, TokenKind::LiteralNumber);
         assert_eq!(str_from_source(input, token.origin), "1.5f");
         assert_eq!(lexer.errors.len(), 1);
-        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(
+            lexer.errors[0].kind,
+            ErrorKind::UnsupportedLiteralFloatNumber
+        );
         assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+        assert_eq!(
+            lexer.errors.len(),
+            1,
+            "no new errors after remaining tokens"
+        );
     }
 
     #[test]
@@ -4152,10 +4266,17 @@ mod tests {
         assert_eq!(token.kind, TokenKind::LiteralNumber);
         assert_eq!(str_from_source(input, token.origin), "1.5L");
         assert_eq!(lexer.errors.len(), 1);
-        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(
+            lexer.errors[0].kind,
+            ErrorKind::UnsupportedLiteralFloatNumber
+        );
         assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+        assert_eq!(
+            lexer.errors.len(),
+            1,
+            "no new errors after remaining tokens"
+        );
     }
 
     #[test]
@@ -4168,10 +4289,17 @@ mod tests {
         assert_eq!(token.kind, TokenKind::LiteralNumber);
         assert_eq!(str_from_source(input, token.origin), "1.5e3f");
         assert_eq!(lexer.errors.len(), 1);
-        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(
+            lexer.errors[0].kind,
+            ErrorKind::UnsupportedLiteralFloatNumber
+        );
         assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+        assert_eq!(
+            lexer.errors.len(),
+            1,
+            "no new errors after remaining tokens"
+        );
     }
 
     #[test]
@@ -4184,10 +4312,17 @@ mod tests {
         assert_eq!(token.kind, TokenKind::LiteralNumber);
         assert_eq!(str_from_source(input, token.origin), "1.");
         assert_eq!(lexer.errors.len(), 1);
-        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(
+            lexer.errors[0].kind,
+            ErrorKind::UnsupportedLiteralFloatNumber
+        );
         assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+        assert_eq!(
+            lexer.errors.len(),
+            1,
+            "no new errors after remaining tokens"
+        );
     }
 
     #[test]
@@ -4200,10 +4335,17 @@ mod tests {
         assert_eq!(token.kind, TokenKind::LiteralNumber);
         assert_eq!(str_from_source(input, token.origin), "1.e5");
         assert_eq!(lexer.errors.len(), 1);
-        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(
+            lexer.errors[0].kind,
+            ErrorKind::UnsupportedLiteralFloatNumber
+        );
         assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+        assert_eq!(
+            lexer.errors.len(),
+            1,
+            "no new errors after remaining tokens"
+        );
     }
 
     #[test]
