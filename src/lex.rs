@@ -1427,6 +1427,26 @@ impl<'a> Lexer<'a> {
                     }
                 }
             }
+            // Skip: `__attribute__  (( ... ))`.
+            // "__attribute__"[\f\n\r\t\v ]*"(("[^\n]*"))"
+            (
+                (Some('_'), Some('_'), Some('a')),
+                LexerState::ProgramOuterScope | LexerState::InsideClauseAndExpr,
+            ) if self.input[self.position.byte_offset as usize + 3..].starts_with("ttribute__") => {
+                if let Some(attr) = self.lex_attribute() {
+                    self.attributes.push(attr);
+
+                    // Now lex normally.
+                    self.lex()
+                } else {
+                    // It was not a real attribute after all, fall back to normal token lexing.
+                    match self.state {
+                        LexerState::ProgramOuterScope => self.lex_probe_specifier(),
+                        LexerState::InsideControlDirective(_) => self.lex_pragma_identifier(),
+                        LexerState::InsideClauseAndExpr => self.lex_identifier(),
+                    }
+                }
+            }
             ((Some(c), _, _), _) if c.is_ascii_digit() => self.lex_literal_number(),
             ((Some(c), _, _), _) if c.is_whitespace() => {
                 self.advance(1);
@@ -2213,9 +2233,7 @@ impl<'a> Lexer<'a> {
 
     fn lex_attribute_line(&mut self) -> Option<Attribute> {
         assert_eq!(self.position.column, 1);
-        assert!(
-            self.input[self.position.byte_offset as usize..].starts_with("__attribute__")
-        );
+        assert!(self.input[self.position.byte_offset as usize..].starts_with("__attribute__"));
 
         // For rollbacking.
         let (bck_position, bck_chars_idx) = (self.position, self.chars_idx);
@@ -2247,6 +2265,45 @@ impl<'a> Lexer<'a> {
                     return None;
                 }
                 (Some(_), _, _) => {
+                    self.advance(1);
+                }
+            }
+        }
+    }
+
+    fn lex_attribute(&mut self) -> Option<Attribute> {
+        assert!(self.input[self.position.byte_offset as usize..].starts_with("__attribute__"));
+
+        // For rollbacking.
+        let (bck_position, bck_chars_idx) = (self.position, self.chars_idx);
+
+        self.advance("__attribute__".len());
+        self.skip_whitespace();
+
+        if let (Some('('), Some('(')) = self.peek2() {
+        } else {
+            // Rollback.
+            self.position = bck_position;
+            self.chars_idx = bck_chars_idx;
+            return None;
+        }
+
+        loop {
+            match self.peek2() {
+                // End of attribute.
+                (Some(')'), Some(')')) => {
+                    self.advance(2);
+                    return Some(Attribute {
+                        origin: bck_position.extend_to_inclusive(self.position),
+                    });
+                }
+                (Some('\n'), _) | (None, _) => {
+                    // Rollback.
+                    self.position = bck_position;
+                    self.chars_idx = bck_chars_idx;
+                    return None;
+                }
+                (Some(_), _) => {
                     self.advance(1);
                 }
             }
@@ -4758,7 +4815,11 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(lexer.attributes.len(), 1);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -4770,7 +4831,11 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(lexer.attributes.len(), 1);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -4782,7 +4847,11 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(lexer.attributes.len(), 1);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -4795,7 +4864,11 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(lexer.attributes.len(), 1);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -4808,7 +4881,11 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(lexer.attributes.len(), 1);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -4822,7 +4899,11 @@ mod tests {
         assert_eq!(token.kind, TokenKind::ProbeSpecifier);
         assert_eq!(str_from_source(input, token.origin), "__attribute__");
         assert_eq!(lexer.attributes.len(), 0);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
     }
 
     #[test]
@@ -4846,9 +4927,16 @@ mod tests {
         assert_eq!(token.kind, TokenKind::ProbeSpecifier);
         // `(` and `)` are valid probe-specifier characters, so the whole
         // `__attribute__((unused))` is consumed as one probe specifier token.
-        assert_eq!(str_from_source(input, token.origin), "__attribute__((unused))");
+        assert_eq!(
+            str_from_source(input, token.origin),
+            "__attribute__((unused))"
+        );
         assert_eq!(lexer.attributes.len(), 0);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
     }
 
     #[test]
