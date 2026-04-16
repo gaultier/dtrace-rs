@@ -156,7 +156,6 @@ pub enum TokenKind {
     Comma,
     SemiColon,
     Colon,
-    ColonEq,
     Gt,
     Lt,
     Eof,
@@ -405,7 +404,6 @@ impl<'a> Lexer<'a> {
                 self.state = LexerState::InsideClauseAndExpr;
                 TokenKind::KeywordCounter
             }
-            (LexerState::InsideClauseAndExpr, "counter") => TokenKind::KeywordCounter,
             (LexerState::InsideClauseAndExpr, "default") => TokenKind::KeywordDefault,
             (LexerState::InsideClauseAndExpr, "do") => TokenKind::KeywordDo,
             (LexerState::ProgramOuterScope, "double") => {
@@ -441,7 +439,6 @@ impl<'a> Lexer<'a> {
                 self.state = LexerState::InsideClauseAndExpr;
                 TokenKind::KeywordInline
             }
-            (LexerState::InsideClauseAndExpr, "inline") => TokenKind::KeywordInline,
             (LexerState::ProgramOuterScope, "int") => {
                 self.state = LexerState::InsideClauseAndExpr;
                 TokenKind::KeywordInt
@@ -458,7 +455,6 @@ impl<'a> Lexer<'a> {
                 self.state = LexerState::InsideClauseAndExpr;
                 TokenKind::KeywordProvider
             }
-            (LexerState::InsideClauseAndExpr, "provider") => TokenKind::KeywordProvider,
             (LexerState::ProgramOuterScope, "register") => {
                 self.state = LexerState::InsideClauseAndExpr;
                 TokenKind::KeywordRegister
@@ -512,7 +508,6 @@ impl<'a> Lexer<'a> {
                 self.state = LexerState::InsideClauseAndExpr;
                 TokenKind::KeywordTranslator
             }
-            (LexerState::InsideClauseAndExpr, "translator") => TokenKind::KeywordTranslator,
             (LexerState::InsideClauseAndExpr, "typedef") => TokenKind::KeywordTypedef,
             (LexerState::InsideClauseAndExpr, "union") => TokenKind::KeywordUnion,
             (LexerState::InsideClauseAndExpr, "unsigned") => TokenKind::KeywordUnsigned,
@@ -1130,14 +1125,6 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Pipe,
-                    origin: start.extend_to_inclusive(self.position),
-                }
-            }
-            ((Some(':'), Some('='), _), _) => {
-                let start = self.position;
-                self.advance(2);
-                Token {
-                    kind: TokenKind::ColonEq,
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
@@ -3006,10 +2993,16 @@ mod tests {
             assert_eq!(token.kind, TokenKind::Colon);
             assert_eq!(str_from_source(input, token.origin), ":");
         }
+        // ':=' is not a DTrace operator; tokenizes as ':' followed by '='
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::ColonEq);
-            assert_eq!(str_from_source(input, token.origin), ":=");
+            assert_eq!(token.kind, TokenKind::Colon);
+            assert_eq!(str_from_source(input, token.origin), ":");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Eq);
+            assert_eq!(str_from_source(input, token.origin), "=");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
@@ -3067,6 +3060,7 @@ mod tests {
 
     #[test]
     fn test_lex_keywords_storage_class() {
+        // All of these are recognized as keywords in ProgramOuterScope (S2).
         for kw in ["counter", "extern", "inline", "register", "restrict", "static"] {
             let mut lexer = Lexer::new(FILE_ID, kw);
             let token = lexer.lex();
@@ -3079,10 +3073,20 @@ mod tests {
         assert_eq!(Lexer::new(FILE_ID, "register").lex().kind, TokenKind::KeywordRegister);
         assert_eq!(Lexer::new(FILE_ID, "restrict").lex().kind, TokenKind::KeywordRestrict);
         assert_eq!(Lexer::new(FILE_ID, "static").lex().kind, TokenKind::KeywordStatic);
+
+        // counter and inline are S2-only keywords; in InsideClauseAndExpr they are identifiers.
+        for kw in ["counter", "inline"] {
+            let mut lexer = Lexer::new(FILE_ID, kw);
+            lexer.begin(LexerState::InsideClauseAndExpr);
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Identifier, "{kw} should be Identifier in InsideClauseAndExpr");
+            assert_eq!(str_from_source(kw, token.origin), kw);
+        }
     }
 
     #[test]
     fn test_lex_keywords_dtrace_types() {
+        // All of these are recognized as keywords in ProgramOuterScope (S2).
         for kw in ["import", "provider", "string", "translator"] {
             let mut lexer = Lexer::new(FILE_ID, kw);
             let token = lexer.lex();
@@ -3093,6 +3097,15 @@ mod tests {
         assert_eq!(Lexer::new(FILE_ID, "provider").lex().kind, TokenKind::KeywordProvider);
         assert_eq!(Lexer::new(FILE_ID, "string").lex().kind, TokenKind::KeywordString);
         assert_eq!(Lexer::new(FILE_ID, "translator").lex().kind, TokenKind::KeywordTranslator);
+
+        // provider and translator are S2-only keywords; in InsideClauseAndExpr they are identifiers.
+        for kw in ["provider", "translator"] {
+            let mut lexer = Lexer::new(FILE_ID, kw);
+            lexer.begin(LexerState::InsideClauseAndExpr);
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Identifier, "{kw} should be Identifier in InsideClauseAndExpr");
+            assert_eq!(str_from_source(kw, token.origin), kw);
+        }
     }
 
     #[test]
