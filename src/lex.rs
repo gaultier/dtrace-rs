@@ -820,6 +820,16 @@ impl<'a> Lexer<'a> {
                     }
                 }
             }
+            // Check for an exponent without a dot (e.g. `1e5`, `1E+3`):
+            // these are float literals per `RGX_FP` in the official lexer.
+            if let Some('e' | 'E') = self.peek1() {
+                self.add_error(
+                    ErrorKind::UnsupportedLiteralFloatNumber,
+                    self.position.into(),
+                );
+                self.skip_until_end_of_float();
+            }
+
             let len = self.position.byte_offset - start.byte_offset;
             if first == '0' && len > 1 {
                 self.add_error(ErrorKind::InvalidLiteralNumber, self.position.into());
@@ -4903,7 +4913,11 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(lexer.attributes.len(), 1);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -4946,7 +4960,11 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(lexer.attributes.len(), 1);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -4958,7 +4976,11 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(lexer.attributes.len(), 1);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -4972,7 +4994,11 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(lexer.attributes.len(), 1);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -4985,7 +5011,11 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(lexer.attributes.len(), 1);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -4999,7 +5029,11 @@ mod tests {
         assert_eq!(token.kind, TokenKind::Identifier);
         assert_eq!(str_from_source(input, token.origin), "__attribute__");
         assert_eq!(lexer.attributes.len(), 0);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
     }
 
     #[test]
@@ -5038,7 +5072,11 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::SemiColon);
         assert_eq!(lexer.attributes.len(), 1);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
     }
 
     #[test]
@@ -5062,7 +5100,11 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(lexer.control_directives.len(), 1);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -5081,18 +5123,43 @@ mod tests {
 
     #[test]
     fn test_lex_exponent_only_float() {
-        // `1e5` has no dot, so the Rust lexer does not detect it as a float.
-        // It lexes as integer `1` followed by identifier `e5`.
+        // `1e5` matches `RGX_FP` in the official lexer (exponent without dot).
+        // The whole `1e5` is a single `LiteralNumber` token with an error.
         let input = "1e5";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::LiteralNumber);
-        assert_eq!(str_from_source(input, token.origin), "1");
-        let token2 = lexer.lex();
-        assert_eq!(token2.kind, TokenKind::Identifier);
-        assert_eq!(str_from_source(input, token2.origin), "e5");
+        assert_eq!(str_from_source(input, token.origin), "1e5");
+        assert_eq!(lexer.errors.len(), 1);
+        assert_eq!(
+            lexer.errors[0].kind,
+            ErrorKind::UnsupportedLiteralFloatNumber
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_exponent_float_uppercase() {
+        // `1E+3` — uppercase `E` with explicit positive sign.
+        let input = "1E+3;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "1E+3");
+        assert_eq!(lexer.errors.len(), 1);
+        assert_eq!(
+            lexer.errors[0].kind,
+            ErrorKind::UnsupportedLiteralFloatNumber
+        );
+        assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(
+            lexer.errors.len(),
+            1,
+            "no new errors after remaining tokens"
+        );
     }
 }
