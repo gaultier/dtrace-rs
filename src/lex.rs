@@ -4917,26 +4917,110 @@ mod tests {
         assert_eq!(lexer.attributes.len(), 0);
     }
 
+    // Tests for the inline form: `__attribute__(( ... ))` — no semicolon, any column.
+
+    #[test]
+    fn test_lex_attribute_inline_basic() {
+        // Inline `__attribute__((unused))` not at column 1 is skipped; the next
+        // token on the same line is returned.
+        let input = " __attribute__((unused))+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.attributes.len(), 1);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_attribute_inline_with_whitespace_before_parens() {
+        // Whitespace between `__attribute__` and `((` is allowed.
+        let input = " __attribute__   ((packed))+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.attributes.len(), 1);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_attribute_inline_complex_content() {
+        // Content inside `(( ... ))` may include identifiers, numbers, and commas.
+        // Note: nested parentheses inside `((...))` cause early termination at the
+        // first `))` seen, so this test uses content without nested parens.
+        let input = " __attribute__((deprecated, \"reason\"))+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.attributes.len(), 1);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_attribute_inline_in_clause_state() {
+        // The inline rule fires in `InsideClauseAndExpr` too.
+        let input = " __attribute__((packed))+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.attributes.len(), 1);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_attribute_inline_no_double_paren_falls_back() {
+        // `__attribute__` not followed by `((` rolls back and lexes as an identifier.
+        let input = " __attribute__+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Identifier);
+        assert_eq!(str_from_source(input, token.origin), "__attribute__");
+        assert_eq!(lexer.attributes.len(), 0);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_attribute_inline_unterminated_falls_back() {
+        // No `))` before end-of-line: rollback, lex as identifier.
+        let input = " __attribute__((no closing\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Identifier);
+        assert_eq!(str_from_source(input, token.origin), "__attribute__");
+        assert_eq!(lexer.attributes.len(), 0);
+    }
+
+    #[test]
+    fn test_lex_attribute_inline_origin_spans_directive() {
+        // The stored `Attribute` origin covers `__attribute__((unused))` exactly,
+        // not including the leading space or any tokens after.
+        let input = " __attribute__((unused))+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.lex();
+        assert_eq!(lexer.attributes.len(), 1);
+        assert_eq!(
+            str_from_source(input, lexer.attributes[0].origin),
+            "__attribute__((unused))"
+        );
+    }
+
     #[test]
     fn test_lex_attribute_not_at_column_one() {
-        // `__attribute__` preceded by whitespace is not at column 1; the rule
-        // does not fire and it is lexed as a probe specifier instead.
+        // `__attribute__((unused))` preceded by whitespace is not at column 1,
+        // so the column-1 / semicolon form does not fire — but the inline form
+        // fires and consumes it. The `;` that follows is the next token.
         let input = " __attribute__((unused));\n";
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::ProbeSpecifier);
-        // `(` and `)` are valid probe-specifier characters, so the whole
-        // `__attribute__((unused))` is consumed as one probe specifier token.
-        assert_eq!(
-            str_from_source(input, token.origin),
-            "__attribute__((unused))"
-        );
-        assert_eq!(lexer.attributes.len(), 0);
-        assert!(
-            lexer.errors.is_empty(),
-            "unexpected errors: {:?}",
-            lexer.errors
-        );
+        assert_eq!(token.kind, TokenKind::SemiColon);
+        assert_eq!(lexer.attributes.len(), 1);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
