@@ -2282,6 +2282,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
 #[cfg(test)]
 mod tests {
     use crate::{
+        error::ErrorKind,
         lex::{Lexer, LexerState, TokenKind, str_from_source},
         origin::{Position, PositionKind},
     };
@@ -2315,6 +2316,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "}");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2363,6 +2365,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "}");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2411,6 +2414,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "}");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2475,6 +2479,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "}");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2488,6 +2493,7 @@ mod tests {
             assert_eq!(s, "0xcafebabe");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2501,6 +2507,7 @@ mod tests {
             assert_eq!(s, input);
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2514,6 +2521,7 @@ mod tests {
             assert_eq!(s, input);
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2528,6 +2536,7 @@ mod tests {
             assert_eq!(s, input);
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2542,6 +2551,7 @@ mod tests {
             assert_eq!(s, input);
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2554,6 +2564,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::LiteralCharacter(expected));
         assert_eq!(str_from_source(input, token.origin), input);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2570,6 +2581,7 @@ mod tests {
             assert_eq!(s, input);
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2583,6 +2595,7 @@ mod tests {
             assert_eq!(s, "'\\x4e'");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2606,6 +2619,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), ";");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2616,11 +2630,10 @@ mod tests {
         // Empty character literal produces an error and a None value token.
         assert_eq!(token.kind, TokenKind::LiteralCharacter(0));
         assert_eq!(str_from_source(input, token.origin), "''");
-        assert!(
-            !lexer.errors.is_empty(),
-            "expected an error for empty character literal"
-        );
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error(s)");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error(s), no new error");
     }
 
     #[test]
@@ -2637,6 +2650,7 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Eof);
         }
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2648,6 +2662,7 @@ mod tests {
         assert_eq!(token.origin.start, pos(1, 1, 0));
         assert_eq!(token.origin.end, pos(1, 2, 1));
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2659,6 +2674,7 @@ mod tests {
         assert_eq!(token.origin.start, pos(1, 1, 0));
         assert_eq!(token.origin.end, pos(1, 3, 2));
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2670,6 +2686,7 @@ mod tests {
         assert_eq!(token.origin.start, pos(1, 4, 3));
         assert_eq!(token.origin.end, pos(1, 5, 4));
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2681,6 +2698,7 @@ mod tests {
         assert_eq!(token.origin.start, pos(2, 1, 1));
         assert_eq!(token.origin.end, pos(2, 2, 2));
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2694,6 +2712,7 @@ mod tests {
         assert_eq!(lexer.lex().kind, TokenKind::LeftCurly);
         assert_eq!(lexer.lex().kind, TokenKind::RightCurly);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2707,6 +2726,7 @@ mod tests {
         assert_eq!(lexer.lex().kind, TokenKind::LeftCurly);
         assert_eq!(lexer.lex().kind, TokenKind::RightCurly);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2719,6 +2739,7 @@ mod tests {
         assert_eq!(token.origin.start, pos(1, 1, 0));
         assert_eq!(token.origin.end, pos(1, 8, 7));
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2733,6 +2754,7 @@ mod tests {
         assert_eq!(token.origin.start, pos(1, 1, 0));
         assert_eq!(token.origin.end, pos(1, 55, 54));
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2748,7 +2770,8 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "\"hello\nworld\"");
             assert_eq!(token.origin.start, pos(1, 1, 0));
             assert_eq!(token.origin.end, pos(2, 7, 13));
-            assert_eq!(lexer.errors.len(), 1);
+            assert_eq!(lexer.errors.len(), 1, "expected 1 error(s)");
+            assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralString);
         }
         {
             let token = lexer.lex();
@@ -2756,8 +2779,10 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "42");
             assert_eq!(token.origin.start, pos(2, 8, 14));
             assert_eq!(token.origin.end, pos(2, 10, 16));
+            assert_eq!(lexer.errors.len(), 1, "expected 1 error(s), no new error");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error(s), no new error");
     }
 
     #[test]
@@ -2773,7 +2798,8 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "\"hello\\\nworld\"");
             assert_eq!(token.origin.start, pos(1, 1, 0));
             assert_eq!(token.origin.end, pos(2, 7, 14));
-            assert_eq!(lexer.errors.len(), 1);
+            assert_eq!(lexer.errors.len(), 1, "expected 1 error(s)");
+            assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralString);
         }
         {
             let token = lexer.lex();
@@ -2781,8 +2807,10 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "42");
             assert_eq!(token.origin.start, pos(2, 8, 15));
             assert_eq!(token.origin.end, pos(2, 10, 17));
+            assert_eq!(lexer.errors.len(), 1, "expected 1 error(s), no new error");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error(s), no new error");
     }
 
     #[test]
@@ -2796,8 +2824,10 @@ mod tests {
         assert_eq!(str_from_source(input, token.origin), "\"hello");
         assert_eq!(token.origin.start, pos(1, 1, 0));
         assert_eq!(token.origin.end, pos(1, 7, 6));
-        assert_eq!(lexer.errors.len(), 1);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error(s)");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralString);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error(s), no new error");
     }
 
     #[test]
@@ -2811,7 +2841,7 @@ mod tests {
         assert_eq!(str_from_source(input, token.origin), input);
         assert_eq!(token.origin.start, pos(1, 1, 0));
         assert_eq!(token.origin.end, pos(1, 15, 14));
-        assert!(lexer.errors.is_empty());
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 
@@ -2828,6 +2858,7 @@ mod tests {
         assert_eq!(comment.origin.start, pos(1, 1, 0));
         assert_eq!(comment.origin.end, pos(1, 6, 5));
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2843,6 +2874,7 @@ mod tests {
         // After consuming "/* hi\nworld */": line=2, column=9, byte_offset=14
         assert_eq!(comment.origin.end, pos(2, 9, 14));
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2890,6 +2922,7 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::Eof);
         }
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2900,6 +2933,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::LiteralNumber);
         assert_eq!(str_from_source(input, token.origin), "42");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2909,7 +2943,10 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Unknown(Some('\x01')));
         assert_eq!(str_from_source(input, token.origin), "\x01");
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error(s)");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::UnknownToken);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error(s), no new error");
     }
 
     #[test]
@@ -2927,6 +2964,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), ")");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2944,6 +2982,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "]");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2954,6 +2993,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::Dot);
         assert_eq!(str_from_source(input, token.origin), ".");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2964,6 +3004,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::DotDotDot);
         assert_eq!(str_from_source(input, token.origin), "...");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2974,6 +3015,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::Tilde);
         assert_eq!(str_from_source(input, token.origin), "~");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2984,6 +3026,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::Question);
         assert_eq!(str_from_source(input, token.origin), "?");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -2994,6 +3037,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::Eq);
         assert_eq!(str_from_source(input, token.origin), "=");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3011,6 +3055,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "!=");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3021,6 +3066,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::PlusEq);
         assert_eq!(str_from_source(input, token.origin), "+=");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3043,6 +3089,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "-=");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3061,6 +3108,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "*=");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3078,6 +3126,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "%=");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3100,6 +3149,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "^=");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3122,6 +3172,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "&=");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3144,6 +3195,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "|=");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3191,6 +3243,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "<<");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3215,6 +3268,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "=");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3233,6 +3287,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), "@");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3245,6 +3300,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::MacroArgumentReference(None));
         assert_eq!(str_from_source(input, token.origin), "$$99999999999");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3271,6 +3327,7 @@ mod tests {
                 "origin mismatch for keyword {kw}"
             );
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
+            assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
         }
     }
 
@@ -3294,6 +3351,7 @@ mod tests {
                 "origin mismatch for keyword {kw}"
             );
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
+            assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
         }
 
         // counter and inline are S2-only keywords; in InsideClauseAndExpr they are identifiers.
@@ -3308,6 +3366,7 @@ mod tests {
             );
             assert_eq!(str_from_source(kw, token.origin), kw);
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
+            assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
         }
     }
 
@@ -3329,6 +3388,7 @@ mod tests {
                 "origin mismatch for keyword {kw}"
             );
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
+            assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
         }
 
         // provider and translator are S2-only keywords; in InsideClauseAndExpr they are identifiers.
@@ -3343,6 +3403,7 @@ mod tests {
             );
             assert_eq!(str_from_source(kw, token.origin), kw);
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
+            assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
         }
     }
 
@@ -3353,6 +3414,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::KeywordThis);
         assert_eq!(str_from_source("this", token.origin), "this");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3379,6 +3441,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), text);
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3401,6 +3464,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), text);
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3418,6 +3482,7 @@ mod tests {
             assert_eq!(str_from_source(input, token.origin), text);
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3430,6 +3495,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::SlashEq);
         assert_eq!(str_from_source(input, token.origin), "/=");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3443,6 +3509,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::Identifier);
         assert_eq!(str_from_source(input, token.origin), "`foo");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3455,6 +3522,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::Identifier);
         assert_eq!(str_from_source(input, token.origin), "foo`bar");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -3473,5 +3541,6 @@ mod tests {
         assert_eq!(lexer.lex().kind, TokenKind::LeftCurly);
         assert_eq!(lexer.lex().kind, TokenKind::RightCurly);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
     }
 }
