@@ -4837,6 +4837,21 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_attribute_not_at_column_one() {
+        // `__attribute__` preceded by whitespace is not at column 1; the rule
+        // does not fire and it is lexed as a probe specifier instead.
+        let input = " __attribute__((unused));\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+        // `(` and `)` are valid probe-specifier characters, so the whole
+        // `__attribute__((unused))` is consumed as one probe specifier token.
+        assert_eq!(str_from_source(input, token.origin), "__attribute__((unused))");
+        assert_eq!(lexer.attributes.len(), 0);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
     fn test_lex_attribute_origin_spans_full_directive() {
         // The stored `Attribute` origin covers from `__attribute__` through `));`.
         let input = "__attribute__((unused));\n";
