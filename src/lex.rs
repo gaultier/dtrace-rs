@@ -216,10 +216,12 @@ pub enum TokenKind {
     MinusEq,
     PlusEq,
     LtLt,
+    LtLtEq,
     Question,
     GtEq,
     LtEq,
     GtGt,
+    GtGtEq,
     ClosePredicateDelimiter,
     Aggregation,
     MacroArgumentReference(Option<u32>),
@@ -291,7 +293,7 @@ fn is_character_probe_specifier_start(c: char) -> bool {
 
 fn is_character_probe_specifier_rest(c: char) -> bool {
     matches!(c ,
-   '-' | '<' | '>' | '+' | '$' | ':' | '0'..='9' | 'a'..='z'  |  'A'..='Z' | '_' | '.' | '?' | '*' | '\\' | '[' | ']' | '!' | '(' | ')' )
+   '-' | '<' | '>' | '+' | '$' | ':' | '0'..='9' | 'a'..='z'  |  'A'..='Z' | '_' | '`' | '.' | '?' | '*' | '\\' | '[' | ']' | '!' | '(' | ')' )
 }
 
 impl<'a> Lexer<'a> {
@@ -318,7 +320,7 @@ impl<'a> Lexer<'a> {
     fn is_identifier_character_trailing(&self, c: char) -> bool {
         match self.state {
             LexerState::ProgramOuterScope | LexerState::InsideClauseAndExpr => {
-                c.is_alphanumeric() || c == '_'
+                c.is_alphanumeric() || c == '_' || c == '`'
             }
             LexerState::InsideControlDirective(_) => !(c.is_whitespace() || c == '"'),
         }
@@ -327,7 +329,7 @@ impl<'a> Lexer<'a> {
     fn is_identifier_character_leading(&self, c: char) -> bool {
         match self.state {
             LexerState::ProgramOuterScope | LexerState::InsideClauseAndExpr => {
-                c.is_alphanumeric() || c == '_' || c == '@'
+                c.is_alphanumeric() || c == '_' || c == '@' || c == '`'
             }
             LexerState::InsideControlDirective(_) => !(c.is_whitespace() || c == '"'),
         }
@@ -987,6 +989,14 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
+            ((Some('>'), Some('>'), Some('=')), _) => {
+                let start = self.position;
+                self.advance(3);
+                Token {
+                    kind: TokenKind::GtGtEq,
+                    origin: start.extend_to_inclusive(self.position),
+                }
+            }
             ((Some('>'), Some('>'), _), _) => {
                 let start = self.position;
                 self.advance(2);
@@ -1008,6 +1018,14 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Gt,
+                    origin: start.extend_to_inclusive(self.position),
+                }
+            }
+            ((Some('<'), Some('<'), Some('=')), _) => {
+                let start = self.position;
+                self.advance(3);
+                Token {
+                    kind: TokenKind::LtLtEq,
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
@@ -1160,6 +1178,14 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Eq,
+                    origin: start.extend_to_inclusive(self.position),
+                }
+            }
+            ((Some('/'), Some('='), _), _) => {
+                let start = self.position;
+                self.advance(2);
+                Token {
+                    kind: TokenKind::SlashEq,
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
@@ -2669,8 +2695,6 @@ mod tests {
         }
     }
 
-    // SlashEq is declared in TokenKind but no arm in lex() ever produces it.
-
     #[test]
     fn test_lex_literal_number_decimal() {
         let input = "42";
@@ -2927,7 +2951,7 @@ mod tests {
 
     #[test]
     fn test_lex_comparison_operators() {
-        let input = "> >= >> < <= <<";
+        let input = "> >= >>= >> < <= <<= <<";
         let mut lexer = Lexer::new(FILE_ID, input);
         {
             let token = lexer.lex();
@@ -2938,6 +2962,11 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::GtEq);
             assert_eq!(str_from_source(input, token.origin), ">=");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::GtGtEq);
+            assert_eq!(str_from_source(input, token.origin), ">>=");
         }
         {
             let token = lexer.lex();
@@ -2953,6 +2982,11 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LtEq);
             assert_eq!(str_from_source(input, token.origin), "<=");
+        }
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LtLtEq);
+            assert_eq!(str_from_source(input, token.origin), "<<=");
         }
         {
             let token = lexer.lex();
@@ -3132,6 +3166,58 @@ mod tests {
             assert_eq!(token.kind, kind);
             assert_eq!(str_from_source(input, token.origin), text);
         }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_slash_eq() {
+        // /= must be lexed in InsideClauseAndExpr so '/' is not a predicate delimiter.
+        let input = "/=";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::SlashEq);
+        assert_eq!(str_from_source(input, token.origin), "/=");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_identifier_backtick() {
+        // Backtick is valid in kernel type names such as `int or struct `foo.
+        // In ProgramOuterScope, backtick-led names are not probe specifier starts,
+        // so they lex as Identifier.
+        let input = "`foo";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Identifier);
+        assert_eq!(str_from_source(input, token.origin), "`foo");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_identifier_backtick_in_clause() {
+        // In InsideClauseAndExpr backtick forms part of an identifier.
+        let input = "foo`bar";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Identifier);
+        assert_eq!(str_from_source(input, token.origin), "foo`bar");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_probe_specifier_backtick() {
+        // Backtick in probe specifier continuation (e.g. kernel`malloc).
+        let input = "fbt:kernel`module:malloc:entry {}";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        {
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+            assert_eq!(str_from_source(input, token.origin), "fbt:kernel`module:malloc:entry");
+        }
+        assert_eq!(lexer.lex().kind, TokenKind::LeftCurly);
+        assert_eq!(lexer.lex().kind, TokenKind::RightCurly);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
     }
 }
