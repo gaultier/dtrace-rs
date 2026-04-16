@@ -137,7 +137,6 @@ impl Origin {
                 kind: PositionKind::Builtin,
                 ..Default::default()
             },
-            ..Default::default()
         }
     }
 
