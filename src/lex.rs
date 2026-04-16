@@ -4062,23 +4062,148 @@ mod tests {
 
     #[test]
     fn test_lex_literal_number_float() {
+        // `skip_until_end_of_float` consumes the fractional digits too;
+        // the whole "1.5" is a single `LiteralNumber` token.
         let input = "1.5";
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::LiteralNumber);
-        assert_eq!(str_from_source(input, token.origin), "1.");
+        assert_eq!(str_from_source(input, token.origin), "1.5");
         assert_eq!(lexer.errors.len(), 1, "expected 1 error");
         assert_eq!(
             lexer.errors[0].kind,
             ErrorKind::UnsupportedLiteralFloatNumber
         );
-        // '5' is lexed as a separate number token.
-        let token2 = lexer.lex();
-        assert_eq!(token2.kind, TokenKind::LiteralNumber);
-        assert_eq!(str_from_source(input, token2.origin), "5");
-        assert_eq!(lexer.errors.len(), 1, "no new errors");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_float_with_exponent() {
+        // `1.5e3` — fraction + exponent, no sign.
+        let input = "1.5e3+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "1.5e3");
+        assert_eq!(lexer.errors.len(), 1);
+        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(lexer.lex().kind, TokenKind::Plus);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+    }
+
+    #[test]
+    fn test_lex_float_with_positive_exponent() {
+        // `1.5e+3` — fraction + exponent with explicit positive sign.
+        let input = "1.5e+3;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "1.5e+3");
+        assert_eq!(lexer.errors.len(), 1);
+        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+    }
+
+    #[test]
+    fn test_lex_float_with_negative_exponent() {
+        // `1.5e-3` — fraction + exponent with negative sign.
+        let input = "1.5e-3;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "1.5e-3");
+        assert_eq!(lexer.errors.len(), 1);
+        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+    }
+
+    #[test]
+    fn test_lex_float_with_suffix_f() {
+        // `1.5f` — fraction + `f` type suffix, no exponent.
+        let input = "1.5f;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "1.5f");
+        assert_eq!(lexer.errors.len(), 1);
+        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+    }
+
+    #[test]
+    fn test_lex_float_with_suffix_l() {
+        // `1.5L` — fraction + `L` type suffix, no exponent.
+        let input = "1.5L;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "1.5L");
+        assert_eq!(lexer.errors.len(), 1);
+        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+    }
+
+    #[test]
+    fn test_lex_float_with_exponent_and_suffix() {
+        // `1.5e3f` — fraction + exponent + suffix.
+        let input = "1.5e3f;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "1.5e3f");
+        assert_eq!(lexer.errors.len(), 1);
+        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+    }
+
+    #[test]
+    fn test_lex_float_trailing_dot_only() {
+        // `1.` — trailing dot with no fraction, exponent, or suffix.
+        let input = "1.;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "1.");
+        assert_eq!(lexer.errors.len(), 1);
+        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
+    }
+
+    #[test]
+    fn test_lex_float_dot_with_exponent_only() {
+        // `1.e5` — dot immediately followed by exponent, no fractional digits.
+        let input = "1.e5;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "1.e5");
+        assert_eq!(lexer.errors.len(), 1);
+        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after remaining tokens");
     }
 
     #[test]
