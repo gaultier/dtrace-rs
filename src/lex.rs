@@ -626,54 +626,49 @@ impl<'a> Lexer<'a> {
                     break;
                 }
                 (Some('\\'), Some('a')) => {
-                    self.advance(1);
+                    self.advance(2);
                     bytes.push(7);
                 }
                 (Some('\\'), Some('b')) => {
-                    self.advance(3);
+                    self.advance(2);
                     bytes.push(8);
                 }
                 (Some('\\'), Some('f')) => {
-                    self.advance(3);
+                    self.advance(2);
                     bytes.push(12);
                 }
                 (Some('\\'), Some('n')) => {
-                    self.advance(3);
+                    self.advance(2);
                     bytes.push(10);
                 }
                 (Some('\\'), Some('r')) => {
-                    self.advance(3);
+                    self.advance(2);
                     bytes.push(13);
                 }
                 (Some('\\'), Some('t')) => {
-                    self.advance(3);
+                    self.advance(2);
                     bytes.push(9);
                 }
                 (Some('\\'), Some('v')) => {
-                    self.advance(3);
+                    self.advance(2);
                     bytes.push(11);
                 }
                 // Octal sequence.
                 (Some('\\'), Some('0'..='7')) => {
                     self.advance(1);
                     let start = self.position.byte_offset as usize;
-                    // At most 3 digits.
-                    for _ in 1..=3 {
-                        if let Some('0'..='7') = self.peek1() {
-                            self.advance(1);
-                        } else {
-                            break;
-                        }
+                    while let Some('0'..='7') = self.peek1() {
+                        self.advance(1);
                     }
 
-                    let s = &self.input[start..self.position.byte_offset as usize - 1];
+                    let s = &self.input[start..self.position.byte_offset as usize];
 
                     let byte = u8::from_str_radix(s, 8).unwrap();
                     bytes.push(byte);
                 }
                 // Hex sequence.
                 (Some('\\'), Some('x')) => {
-                    // The official implementation neither checks for a minimum (1) number of hex characters nor for a maximum, nor for overflow.
+                    // The official implementation neither checks for a minimum (1) number of hex characters nor for a maximum (2), nor for overflow.
                     // In case of no characters or overflow, we record an error. But all hex characters are still consumed to match the official behavior.
 
                     self.advance(2);
@@ -682,9 +677,9 @@ impl<'a> Lexer<'a> {
                     while let Some('0'..='9' | 'a'..='z' | 'A'..='Z') = self.peek1() {
                         self.advance(1);
                     }
-                    let s = &self.input[start..self.position.byte_offset as usize - 1];
+                    let s = &self.input[start..self.position.byte_offset as usize];
 
-                    if s.len() == 0 {
+                    if s.is_empty() {
                         self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
                     } else {
                         let byte = match u8::from_str_radix(s, 16) {
@@ -730,12 +725,16 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        if bytes.is_empty() {
+            self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
+        }
+
         let bytes_8: [u8; 8] = if bytes.len() > 8 {
             self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
             [0; 8]
         } else {
-            let mut bytes_8 = [0; 8];
-            bytes_8.copy_from_slice(bytes.as_slice());
+            let mut bytes_8 = [0u8; 8];
+            bytes_8[8 - bytes.len()..].copy_from_slice(bytes.as_slice());
             bytes_8
         };
 
@@ -2531,7 +2530,10 @@ mod tests {
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralCharacter(0));
+            // '\"\ba': '\"' is an unrecognized escape → raw bytes '\\' (92) and '"' (34);
+            // '\b' is backspace (8); 'a' is 97. Big-endian isize of [92, 34, 8, 97].
+            let expected = isize::from_be_bytes([0, 0, 0, 0, 92, 34, 8, 97]);
+            assert_eq!(token.kind, TokenKind::LiteralCharacter(expected));
             assert_eq!(
                 str_from_source(input, token.origin),
                 &input[0..input.len() - 1]
