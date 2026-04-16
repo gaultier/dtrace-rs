@@ -572,17 +572,31 @@ impl<'a> Lexer<'a> {
         assert_eq!(first, Some('"'));
 
         loop {
-            match self.peek1() {
-                Some('"') => {
+            match self.peek2() {
+                // End.
+                (Some('"'), _) => {
                     self.advance(1);
                     break;
                 }
-                Some('\n') | None => {
+                // Ordinary characters.
+                (Some(c), _) if !(c == '"' || c == '\\' || c == '\n') => {
+                    self.advance(1);
+                }
+                // Escaped.
+                (Some('\\'), Some(c)) if c != '\n' => {
+                    self.advance(2);
+                }
+
+                (Some('\\'), Some('\n')) | (Some('\n'), _) => {
+                    self.add_error(ErrorKind::InvalidLiteralString, self.position.into());
+                    self.advance_newline();
+                }
+                (Some(_), _) => {
+                    self.advance(1);
+                }
+                (None, _) => {
                     self.add_error(ErrorKind::InvalidLiteralString, self.position.into());
                     break;
-                }
-                Some(_) => {
-                    self.advance(1);
                 }
             }
         }
@@ -774,6 +788,15 @@ impl<'a> Lexer<'a> {
         Token {
             kind: TokenKind::LiteralNumber,
             origin,
+        }
+    }
+
+    pub(crate) fn advance_newline(&mut self) {
+        self.position = Position {
+            line: self.position.line + 1,
+            column: 1,
+            byte_offset: self.position.byte_offset + 1,
+            kind: self.position.kind,
         }
     }
 
