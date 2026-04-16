@@ -2494,6 +2494,17 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_character_literal_empty() {
+        let input = "''";
+        let mut lexer = Lexer::new(1, input);
+        let token = lexer.lex();
+        // Empty character literal produces an error and a None value token.
+        assert_eq!(token.kind, TokenKind::LiteralCharacter(None));
+        assert!(!lexer.errors.is_empty(), "expected an error for empty character literal");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
     fn test_lex_probe_specifier_with_macro_argument_reference() {
         let input = "BEG$$1 ";
         let mut lexer = Lexer::new(1, input);
