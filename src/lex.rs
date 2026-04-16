@@ -24,14 +24,14 @@ pub(crate) enum LexerState {
     InsideClauseAndExpr,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq)]
 pub struct Attribute {
     pub name: Option<Stability>,
     pub data: Option<Stability>,
     pub class: Option<Class>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq)]
 pub enum ControlDirectiveKind {
     Line(usize, Option<String>, Option<usize>),
     PragmaError(String),
@@ -43,7 +43,7 @@ pub enum ControlDirectiveKind {
     Shebang(String),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq)]
 pub enum Stability {
     Internal,
     Private,
@@ -55,7 +55,7 @@ pub enum Stability {
     Standard,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq)]
 pub enum Class {
     Cpu,
     Platform,
@@ -64,7 +64,7 @@ pub enum Class {
     Common,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq)]
 pub enum PragmaDependsOnKind {
     Provider,
     Module,
@@ -82,7 +82,7 @@ impl ControlDirective {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq)]
 pub struct Version {
     pub major: u8,
     pub minor: u16,
@@ -2283,7 +2283,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
 mod tests {
     use crate::{
         error::ErrorKind,
-        lex::{Lexer, LexerState, TokenKind, str_from_source},
+        lex::{ControlDirectiveKind, Lexer, LexerState, PragmaDependsOnKind, TokenKind, str_from_source},
         origin::{Position, PositionKind},
     };
 
@@ -3631,5 +3631,496 @@ mod tests {
         assert_eq!(lexer.lex().kind, TokenKind::RightCurly);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_character_literal_escape_a() {
+        let input = r#"'\a'"#;
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralCharacter(7)); // \a = BEL
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_character_literal_escape_f() {
+        let input = r#"'\f'"#;
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralCharacter(12)); // \f = FF
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_character_literal_escape_n() {
+        let input = r#"'\n'"#;
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralCharacter(10)); // \n = LF
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_character_literal_escape_t() {
+        let input = r#"'\t'"#;
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralCharacter(9)); // \t = TAB
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_character_literal_escape_v() {
+        let input = r#"'\v'"#;
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralCharacter(11)); // \v = VT
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_character_literal_escape_backslash() {
+        let input = r#"'\\'"#;
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralCharacter(92)); // '\\' = backslash = 0x5C
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_character_literal_literal_newline() {
+        // A bare newline inside a char literal is an error; lexing recovers and collects 'a'.
+        let input = "'\na'";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralCharacter('a' as isize));
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_character_literal_backslash_newline() {
+        // A backslash+newline inside a char literal is an error; lexing recovers and collects 'a'.
+        let input = "'\\\na'";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralCharacter('a' as isize));
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_character_literal_unterminated() {
+        let input = "'a";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralCharacter('a' as isize));
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_character_literal_too_long() {
+        // 9 bytes exceeds the 8-byte limit; an error is recorded and value is 0.
+        let input = "'abcdefghi'";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralCharacter(0));
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_literal_number_hex_empty() {
+        let input = "0x";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "0x");
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralNumber);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_literal_number_float() {
+        let input = "1.5";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "1.");
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        // '5' is lexed as a separate number token.
+        let token2 = lexer.lex();
+        assert_eq!(token2.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token2.origin), "5");
+        assert_eq!(lexer.errors.len(), 1, "no new errors");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_literal_number_leading_zero() {
+        let input = "05";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "05");
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralNumber);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_literal_number_suffix_u() {
+        for input in ["42u", "42U"] {
+            let mut lexer = Lexer::new(FILE_ID, input);
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralNumber, "input={input}");
+            assert_eq!(str_from_source(input, token.origin), input, "input={input}");
+            assert_eq!(lexer.lex().kind, TokenKind::Eof);
+            assert!(lexer.errors.is_empty(), "unexpected errors for {input}: {:?}", lexer.errors);
+        }
+    }
+
+    #[test]
+    fn test_lex_literal_number_suffix_ul() {
+        for input in ["42ul", "42UL", "42uL", "42Ul"] {
+            let mut lexer = Lexer::new(FILE_ID, input);
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralNumber, "input={input}");
+            assert_eq!(str_from_source(input, token.origin), input, "input={input}");
+            assert_eq!(lexer.lex().kind, TokenKind::Eof);
+            assert!(lexer.errors.is_empty(), "unexpected errors for {input}: {:?}", lexer.errors);
+        }
+    }
+
+    #[test]
+    fn test_lex_literal_number_suffix_ull() {
+        for input in ["42ull", "42ULL", "42uLL", "42lL", "42LL"] {
+            let mut lexer = Lexer::new(FILE_ID, input);
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::LiteralNumber, "input={input}");
+            assert_eq!(str_from_source(input, token.origin), input, "input={input}");
+            assert_eq!(lexer.lex().kind, TokenKind::Eof);
+            assert!(lexer.errors.is_empty(), "unexpected errors for {input}: {:?}", lexer.errors);
+        }
+    }
+
+    #[test]
+    fn test_lex_string_literal_backslash_at_eof() {
+        // Backslash immediately before EOF (no closing quote): the backslash hits the
+        // catch-all arm, then EOF fires the unterminated-string error.
+        let input = "\"hello\\";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralString);
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralString);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_shebang() {
+        let input = "#!/usr/bin/dtrace\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex(); // Shebang is consumed; lexer recurses and returns '+'.
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.control_directives.len(), 1);
+        // The `#!` prefix is stripped; only the interpreter path is stored.
+        assert_eq!(
+            lexer.control_directives[0].kind,
+            ControlDirectiveKind::Shebang(String::from("/usr/bin/dtrace"))
+        );
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_shebang_not_first() {
+        let input = "a\n#!/usr/bin/dtrace\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let _a = lexer.lex(); // 'a' probe specifier.
+        let token = lexer.lex(); // Shebang, but not first.
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::ShebangMustComeFirst);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_float_dot_start() {
+        // ".5" is a float literal starting with a dot, which is unsupported.
+        let input = ".5";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), ".5");
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::UnsupportedLiteralFloatNumber);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_dot_in_clause() {
+        // A bare '.' in expression context is an `UnexpectedPeriod` error.
+        let input = ".";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Dot);
+        assert_eq!(str_from_source(input, token.origin), ".");
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::UnexpectedPeriod);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_slash_in_outer_scope() {
+        // A lone '/' in outer scope produces a `Slash` token (used as predicate delimiter).
+        let input = "/";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Slash);
+        assert_eq!(str_from_source(input, token.origin), "/");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_macro_argument_reference_single_dollar() {
+        let input = "$1";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::MacroArgumentReference(Some(1)));
+        assert_eq!(str_from_source(input, token.origin), "$1");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_character_literal_escape_r() {
+        // '\r' is carriage return (0x0D = 13).
+        let input = r#"'\r'"#;
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralCharacter(13));
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_character_literal_escape_hex_empty() {
+        // '\x' with no hex digits is an error; the char literal is also empty so a second error fires.
+        let input = r#"'\x'"#;
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralCharacter(0));
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.errors.len(), 2, "expected 2 errors");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
+        assert_eq!(lexer.errors[1].kind, ErrorKind::InvalidLiteralCharacter);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 2, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_character_literal_escape_hex_overflow() {
+        // '\xfff' has 3 hex digits; `u8::from_str_radix("fff", 16)` fails → error, value 0.
+        let input = r#"'\xfff'"#;
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralCharacter(0));
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_literal_number_hex_trailing_nonhex() {
+        // "0x1a+" — the '+' is not a hex digit, so the hex loop breaks normally.
+        let input = "0x1a+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "0x1a");
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        let token2 = lexer.lex();
+        assert_eq!(token2.kind, TokenKind::Plus);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_control_directive_pragma_option() {
+        // `#pragma D option quiet` — key only, no value.
+        let input = "#pragma D option quiet\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex(); // Directive is consumed; lexer recurses and returns '+'.
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.control_directives.len(), 1);
+        assert_eq!(
+            lexer.control_directives[0].kind,
+            ControlDirectiveKind::PragmaOption(String::from("quiet"), None)
+        );
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_control_directive_pragma_option_key_value() {
+        // `#pragma D option bufsize=4m` — key=value pair.
+        let input = "#pragma D option bufsize=4m\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.lex(); // Directive consumed, returns Eof.
+        assert_eq!(lexer.control_directives.len(), 1);
+        assert_eq!(
+            lexer.control_directives[0].kind,
+            ControlDirectiveKind::PragmaOption(
+                String::from("bufsize"),
+                Some(String::from("4m"))
+            )
+        );
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_control_directive_pragma_error() {
+        // `#pragma D error some message` — records a `PragmaError`.
+        let input = "#pragma D error something went wrong\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.lex();
+        assert_eq!(lexer.control_directives.len(), 1);
+        assert!(
+            matches!(
+                &lexer.control_directives[0].kind,
+                ControlDirectiveKind::PragmaError(_)
+            ),
+            "expected PragmaError, got {:?}",
+            lexer.control_directives[0].kind
+        );
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_control_directive_line_number() {
+        // `#line 42` — sets the source line to 42.
+        let input = "#line 42\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.lex();
+        assert_eq!(lexer.control_directives.len(), 1);
+        assert_eq!(
+            lexer.control_directives[0].kind,
+            ControlDirectiveKind::Line(42, None, None)
+        );
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_control_directive_line_number_with_file() {
+        // `#line 10 "foo.d"` — sets line and filename.
+        let input = "#line 10 \"foo.d\"\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.lex();
+        assert_eq!(lexer.control_directives.len(), 1);
+        assert_eq!(
+            lexer.control_directives[0].kind,
+            ControlDirectiveKind::Line(10, Some(String::from("foo.d")), None)
+        );
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_control_directive_pragma_depends_on() {
+        // `#pragma D depends_on provider dtrace` — records a `PragmaDependsOn`.
+        let input = "#pragma D depends_on provider dtrace\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.lex();
+        assert_eq!(lexer.control_directives.len(), 1);
+        assert_eq!(
+            lexer.control_directives[0].kind,
+            ControlDirectiveKind::PragmaDependsOn(
+                PragmaDependsOnKind::Provider,
+                String::from("dtrace")
+            )
+        );
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_control_directive_ignored() {
+        // A bare `#pragma` with no further tokens is silently ignored.
+        let input = "#pragma\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.lex();
+        assert_eq!(lexer.control_directives.len(), 1);
+        assert_eq!(
+            lexer.control_directives[0].kind,
+            ControlDirectiveKind::Ignored
+        );
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_control_directive_null_directive() {
+        // A bare `#` with no tokens is a null directive and is silently ignored (K&R A12.9).
+        let input = "#\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.lex();
+        assert_eq!(lexer.control_directives.len(), 1);
+        assert_eq!(
+            lexer.control_directives[0].kind,
+            ControlDirectiveKind::Ignored
+        );
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_control_directive_invalid() {
+        // An unrecognised directive keyword produces an `InvalidControlDirective` error.
+        let input = "#badkeyword\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.lex();
+        assert_eq!(lexer.control_directives.len(), 0);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidControlDirective);
     }
 }
