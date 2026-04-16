@@ -5051,4 +5051,48 @@ mod tests {
         let attr_src = str_from_source(input, lexer.attributes[0].origin);
         assert_eq!(attr_src, "__attribute__((unused));");
     }
+
+    #[test]
+    fn test_lex_shebang_leading_whitespace() {
+        // The official `RGX_INTERP` allows leading horizontal whitespace before
+        // `#!`. The Rust lexer checks that all previous characters on the same
+        // line are whitespace, so `\t#!/usr/bin/dtrace` should be accepted.
+        let input = "\t#!/usr/bin/dtrace\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Plus);
+        assert_eq!(lexer.control_directives.len(), 1);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_nul_byte() {
+        // In Rust, `\0` is a valid `char`; it does NOT terminate the input.
+        // It falls through to the `Unknown` arm, unlike C where NUL ends a string.
+        let input = "\0+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Unknown(Some('\0')));
+        assert_eq!(lexer.lex().kind, TokenKind::Plus);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_lex_exponent_only_float() {
+        // `1e5` has no dot, so the Rust lexer does not detect it as a float.
+        // It lexes as integer `1` followed by identifier `e5`.
+        let input = "1e5";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(str_from_source(input, token.origin), "1");
+        let token2 = lexer.lex();
+        assert_eq!(token2.kind, TokenKind::Identifier);
+        assert_eq!(str_from_source(input, token2.origin), "e5");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
 }
