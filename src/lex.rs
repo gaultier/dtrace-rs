@@ -673,8 +673,8 @@ impl<'a> Lexer<'a> {
                 }
                 // Hex sequence.
                 (Some('\\'), Some('x')) => {
-                    // The official implementation neither checks for a maximum number of hex characters nor for overflow.
-                    // In case of overflow, we record an error. But all hex characters are still consumed.
+                    // The official implementation neither checks for a minimum (1) number of hex characters nor for a maximum, nor for overflow.
+                    // In case of no characters or overflow, we record an error. But all hex characters are still consumed to match the official behavior.
 
                     self.advance(2);
                     let start = self.position.byte_offset as usize;
@@ -684,17 +684,21 @@ impl<'a> Lexer<'a> {
                     }
                     let s = &self.input[start..self.position.byte_offset as usize - 1];
 
-                    let byte = match u8::from_str_radix(s, 16) {
-                        Ok(c) => c,
-                        Err(_) => {
-                            self.add_error(
-                                ErrorKind::InvalidLiteralCharacter,
-                                self.position.into(),
-                            );
-                            0
-                        }
-                    };
-                    bytes.push(byte);
+                    if s.len() == 0 {
+                        self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
+                    } else {
+                        let byte = match u8::from_str_radix(s, 16) {
+                            Ok(c) => c,
+                            Err(_) => {
+                                self.add_error(
+                                    ErrorKind::InvalidLiteralCharacter,
+                                    self.position.into(),
+                                );
+                                0
+                            }
+                        };
+                        bytes.push(byte);
+                    }
                 }
                 // Ordinary characters.
                 (Some(c), _) if !(c == '\'' || c == '\\' || c == '\n') => {
@@ -705,7 +709,7 @@ impl<'a> Lexer<'a> {
                     self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
                     self.advance(2);
                 }
-                // Not an escape code..
+                // Not an escape code.
                 (Some('\\'), Some(c)) => {
                     self.advance(2);
                     bytes.push('\\' as u8);
