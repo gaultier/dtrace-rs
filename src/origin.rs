@@ -87,10 +87,7 @@ impl Position {
 }
 
 impl Origin {
-    pub(crate) fn display<'a>(
-        &self,
-        file_id_to_name: &'a HashMap<FileId, String>,
-    ) -> OriginFormatter<'a> {
+    pub fn display<'a>(&self, file_id_to_name: &'a HashMap<FileId, String>) -> OriginFormatter<'a> {
         OriginFormatter {
             origin: *self,
             file_name: if let PositionKind::File(file_id) = self.kind() {

@@ -81,7 +81,11 @@ pub struct ControlDirective {
 }
 impl ControlDirective {
     pub fn log(&self, file_id_to_name: &std::collections::HashMap<u32, String>) {
-        info!("{}: {:?}", self.origin.display(file_id_to_name), self.kind);
+        info!(
+            "{}: control directive {:?}",
+            self.origin.display(file_id_to_name),
+            self.kind
+        );
     }
 }
 
@@ -102,6 +106,15 @@ pub enum CommentKind {
 pub struct Comment {
     pub origin: Origin,
     pub kind: CommentKind,
+}
+impl Comment {
+    pub fn log(&self, file_id_to_name: &std::collections::HashMap<u32, String>) {
+        info!(
+            "{}: comment {:?}",
+            self.origin.display(file_id_to_name),
+            self.kind
+        );
+    }
 }
 
 #[derive(Debug, Serialize, PartialEq)]

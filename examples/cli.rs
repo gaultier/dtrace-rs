@@ -41,10 +41,16 @@ fn main() {
                     .unwrap();
                 eprintln!()
             }
+            for ctrl in &compiled.control_directives {
+                ctrl.log(&file_id_to_name);
+            }
+            for comm in &compiled.comments {
+                comm.log(&file_id_to_name);
+            }
+            for attr in &compiled.attributes {
+                info!("{}: attribute", attr.origin.display(&file_id_to_name));
+            }
             if let Some(root) = compiled.ast_root {
-                for ctrl in compiled.control_directives {
-                    ctrl.log(&file_id_to_name);
-                }
                 compiler_rs_lib::ast::log(&compiled.ast_nodes, root, 0, &file_id_to_name);
             } else {
                 info!("no root node, nothing to log: {:#?}", &compiled);
