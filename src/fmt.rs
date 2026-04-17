@@ -262,3 +262,112 @@ pub fn format<W: Write>(
 ) -> std::io::Result<()> {
     Formatter { w, nodes, input }.fmt(node_id, 0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        ast::{NodeId, Parser},
+        lex::Lexer,
+    };
+
+    const FILE_ID: u32 = 1;
+
+    fn parse_program(input: &'static str) -> (Parser<'static>, NodeId) {
+        let lexer = Lexer::new(FILE_ID, input);
+        let mut parser = Parser::new(lexer);
+        let root_id = parser.parse().unwrap();
+        (parser, root_id)
+    }
+
+    fn fmt(input: &'static str) -> String {
+        let (parser, root_id) = parse_program(input);
+        let mut out = Vec::new();
+        format(&mut out, root_id, &parser.nodes, input).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn test_probe_no_pred_no_body() {
+        let input = "syscall::open:entry {}";
+        assert_eq!(
+            fmt(input),
+            "syscall::open:entry
+{
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_probe_with_predicate() {
+        let input = "syscall::open:entry / pid == 42 / {}";
+        assert_eq!(
+            fmt(input),
+            "syscall::open:entry
+/ pid == 42 /
+{
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_probe_with_body() {
+        let input = "syscall::open:entry { x = 1; }";
+        assert_eq!(
+            fmt(input),
+            "syscall::open:entry
+{
+  x = 1;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_multiple_statements_in_body() {
+        let input = "syscall::open:entry { x = 1; y = 2; }";
+        assert_eq!(
+            fmt(input),
+            "syscall::open:entry
+{
+  x = 1;
+  y = 2;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_if_with_block_body() {
+        let input = "syscall::open:entry { if (x == 1) { y = 2; } }";
+        assert_eq!(
+            fmt(input),
+            "syscall::open:entry
+{
+  if (x == 1) {
+    y = 2;
+  }
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_multiple_probes() {
+        let input = "syscall::open:entry { x = 1; } syscall::close:entry { x = 2; }";
+        assert_eq!(
+            fmt(input),
+            "syscall::open:entry
+{
+  x = 1;
+}
+syscall::close:entry
+{
+  x = 2;
+}
+"
+        );
+    }
+}
