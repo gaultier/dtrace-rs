@@ -944,8 +944,8 @@ impl<'a> Lexer<'a> {
             }
             // Check for an exponent without a dot (e.g. `1e5`, `1E+3`):
             // these are float literals per `RGX_FP` in the official lexer.
-            if !is_float {
-                if let Some('e' | 'E') = self.peek1() {
+            if !is_float
+                && let Some('e' | 'E') = self.peek1() {
                     self.add_error(
                         ErrorKind::UnsupportedLiteralFloatNumber,
                         self.position.into(),
@@ -954,7 +954,6 @@ impl<'a> Lexer<'a> {
                     self.skip_until_end_of_float();
                     is_float = true;
                 }
-            }
             if is_float {
                 value = 0;
             } else {
