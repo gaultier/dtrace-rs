@@ -306,7 +306,7 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
                 })
                 .map(|x| (x.origin, format!("comment: {:?}", x.kind))),
         )
-        .min_by(|(a, _): &(Origin, _), (b, _): &(Origin, _)| (&a.len()).cmp(&b.len()));
+        .min_by(|(a, _): &(Origin, _), (b, _): &(Origin, _)| a.len().cmp(&b.len()));
     let resp = if let Some((origin, marked_string)) = found {
         let hover = Hover {
             contents: HoverContents::Scalar(MarkedString::String(marked_string)),
