@@ -1386,15 +1386,24 @@ impl<'a> Parser<'a> {
 
         let tok = self.lexer.lex();
         let src = lex::str_from_source(self.lexer.input, tok.origin);
-        let num: u64 = str::parse(src)
-            .map_err(|err: ParseIntError| {
-                self.add_error_with_explanation(
-                    ErrorKind::InvalidLiteralNumber,
-                    tok.origin,
-                    err.to_string(),
-                );
-            })
-            .ok()?;
+        // Strip optional suffix (`u`, `U`, `l`, `L`, `ll`, `LL`).
+        let digits = src.trim_end_matches(['u', 'U', 'l', 'L']);
+        let num: u64 = if let Some(hex) = digits.strip_prefix("0x").or_else(|| digits.strip_prefix("0X")) {
+            u64::from_str_radix(hex, 16)
+        } else if digits.len() > 1 && digits.starts_with('0') {
+            // Leading zero means octal (C convention).
+            u64::from_str_radix(&digits[1..], 8)
+        } else {
+            u64::from_str_radix(digits, 10)
+        }
+        .map_err(|err: ParseIntError| {
+            self.add_error_with_explanation(
+                ErrorKind::InvalidLiteralNumber,
+                tok.origin,
+                err.to_string(),
+            );
+        })
+        .ok()?;
 
         let node_id = self.new_node(Node {
             kind: NodeKind::Number(num),

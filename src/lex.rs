@@ -322,8 +322,8 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn add_error(&mut self, kind: ErrorKind, origin: Origin) {
-        self.errors.push(Error::new(kind, origin, String::new()));
+    fn add_error(&mut self, kind: ErrorKind, origin: Origin, explanation: &str) {
+        self.errors.push(Error::new(kind, origin, explanation.to_owned()));
     }
 
     fn is_identifier_character_trailing(&self, c: char) -> bool {
@@ -597,18 +597,18 @@ impl<'a> Lexer<'a> {
                     self.advance(2);
                 }
                 (Some('\\'), Some('\n')) => {
-                    self.add_error(ErrorKind::InvalidLiteralString, self.position.into());
+                    self.add_error(ErrorKind::InvalidLiteralString, self.position.into(), "backslash-newline is not allowed inside a string literal");
                     self.advance(2);
                 }
                 (Some('\n'), _) => {
-                    self.add_error(ErrorKind::InvalidLiteralString, self.position.into());
+                    self.add_error(ErrorKind::InvalidLiteralString, self.position.into(), "newline is not allowed inside a string literal");
                     self.advance(1);
                 }
                 (Some(_), _) => {
                     self.advance(1);
                 }
                 (None, _) => {
-                    self.add_error(ErrorKind::InvalidLiteralString, self.position.into());
+                    self.add_error(ErrorKind::InvalidLiteralString, self.position.into(), "unterminated string literal");
                     break;
                 }
             }
@@ -694,7 +694,7 @@ impl<'a> Lexer<'a> {
                     let s = &self.input[start..self.position.byte_offset as usize];
 
                     if s.is_empty() {
-                        self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
+                        self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into(), "hex escape sequence requires at least one hex digit");
                     } else {
                         // Small, but probably inconsequential difference with the official implementation:
                         // the official implementation casts (truncates) the hex sequence to `char`,
@@ -706,6 +706,7 @@ impl<'a> Lexer<'a> {
                                 self.add_error(
                                     ErrorKind::InvalidLiteralCharacter,
                                     self.position.into(),
+                                    "hex escape sequence value does not fit in a byte (maximum 0xFF)",
                                 );
                                 0
                             }
@@ -719,7 +720,7 @@ impl<'a> Lexer<'a> {
                     bytes.push(c as u8);
                 }
                 (Some('\\'), Some('\n')) => {
-                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
+                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into(), "backslash-newline is not allowed inside a character literal");
                     self.advance(2);
                 }
                 // Known escapes that are not letters: produce 1 byte.
@@ -739,7 +740,7 @@ impl<'a> Lexer<'a> {
                     bytes.push(c as u8);
                 }
                 (Some('\n'), _) => {
-                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
+                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into(), "newline is not allowed inside a character literal");
                     self.advance(1);
                 }
                 (Some(c), _) => {
@@ -747,18 +748,18 @@ impl<'a> Lexer<'a> {
                     bytes.push(c as u8);
                 }
                 (None, _) => {
-                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
+                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into(), "unterminated character literal");
                     break;
                 }
             }
         }
 
         if bytes.is_empty() {
-            self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
+            self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into(), "empty character literal");
         }
 
         let bytes_8: [u8; 8] = if bytes.len() > 8 {
-            self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into());
+            self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into(), "character literal is too long (maximum 8 bytes)");
             [0; 8]
         } else {
             let mut bytes_8 = [0u8; 8];
@@ -798,7 +799,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             if count == 0 {
-                self.add_error(ErrorKind::InvalidLiteralNumber, self.position.into());
+                self.add_error(ErrorKind::InvalidLiteralNumber, self.position.into(), "hex literal requires at least one hex digit after '0x'");
             }
         } else {
             while let Some(c) = self.peek1() {
@@ -810,6 +811,7 @@ impl<'a> Lexer<'a> {
                         self.add_error(
                             ErrorKind::UnsupportedLiteralFloatNumber,
                             self.position.into(),
+                            "floating-point literals are not supported",
                         );
                         self.advance(1);
                         self.skip_until_end_of_float();
@@ -826,13 +828,9 @@ impl<'a> Lexer<'a> {
                 self.add_error(
                     ErrorKind::UnsupportedLiteralFloatNumber,
                     self.position.into(),
+                    "floating-point literals are not supported",
                 );
                 self.skip_until_end_of_float();
-            }
-
-            let len = self.position.byte_offset - start.byte_offset;
-            if first == '0' && len > 1 {
-                self.add_error(ErrorKind::InvalidLiteralNumber, self.position.into());
             }
         }
 
@@ -913,11 +911,17 @@ impl<'a> Lexer<'a> {
                 self.lex()
             }
             ((Some('#'), Some('!'), _), _) => {
-                let prefix = &self.input[0..self.position.byte_offset as usize];
-                if prefix.find(|c: char| !c.is_ascii_whitespace()).is_some() {
+                // The official rule `^[\f\t\v ]*#!.*` requires that only
+                // horizontal whitespace precedes `#!` on the same line.
+                let line_start = self.input[..self.position.byte_offset as usize]
+                    .rfind('\n')
+                    .map_or(0, |i| i + 1);
+                let prefix_on_line = &self.input[line_start..self.position.byte_offset as usize];
+                if prefix_on_line.bytes().any(|b| !matches!(b, b'\t' | b'\x0C' | b'\x0B' | b' ')) {
                     self.add_error(
                         ErrorKind::ShebangMustComeFirst,
                         Position::default().extend_to_inclusive(self.position),
+                        "only horizontal whitespace (space, tab, form feed, vertical tab) is allowed before #! on the same line",
                     );
                 }
                 let start = self.position;
@@ -1022,6 +1026,7 @@ impl<'a> Lexer<'a> {
                 self.add_error(
                     ErrorKind::UnsupportedLiteralFloatNumber,
                     start.extend_to_inclusive(self.position),
+                    "floating-point literals are not supported",
                 );
                 Token {
                     kind: TokenKind::LiteralNumber,
@@ -1042,6 +1047,7 @@ impl<'a> Lexer<'a> {
                 self.add_error(
                     ErrorKind::UnexpectedPeriod,
                     start.extend_to_inclusive(self.position),
+                    "unexpected '.'; did you mean '->' for pointer member access?",
                 );
                 Token {
                     kind: TokenKind::Dot,
@@ -1486,10 +1492,11 @@ impl<'a> Lexer<'a> {
             }
             ((Some(c), _, _), _) => {
                 let start = self.position;
-                self.add_error(
+                self.errors.push(Error::new(
                     ErrorKind::UnknownToken,
                     start.extend_to_inclusive(self.position),
-                );
+                    format!("unexpected character '{c}'"),
+                ));
                 self.advance(1);
                 Token {
                     kind: TokenKind::Unknown(Some(c)),
@@ -4420,15 +4427,15 @@ mod tests {
 
     #[test]
     fn test_lex_literal_number_leading_zero() {
+        // Leading zeros in decimal literals are allowed per `RGX_INT`.
         let input = "05";
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::LiteralNumber);
         assert_eq!(str_from_source(input, token.origin), "05");
-        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
-        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralNumber);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+        assert!(lexer.errors.is_empty(), "unexpected errors after Eof: {:?}", lexer.errors);
     }
 
     #[test]
@@ -4517,10 +4524,12 @@ mod tests {
 
     #[test]
     fn test_lex_shebang_not_first() {
-        let input = "a\n#!/usr/bin/dtrace\n+";
+        // Non-horizontal-whitespace before `#!` on the same line triggers an error.
+        // A shebang on a later line (with nothing before it on that line) is fine.
+        let input = "foo#!/usr/bin/dtrace\n+";
         let mut lexer = Lexer::new(FILE_ID, input);
-        let _a = lexer.lex(); // 'a' probe specifier.
-        let token = lexer.lex(); // Shebang, but not first.
+        let _foo = lexer.lex(); // `foo` is lexed first as a probe specifier token.
+        let token = lexer.lex(); // `#!` triggers error, shebang is consumed, lexer recurses to '+'.
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(lexer.errors.len(), 1, "expected 1 error");
         assert_eq!(lexer.errors[0].kind, ErrorKind::ShebangMustComeFirst);
