@@ -1,7 +1,6 @@
 
-BEGIN {
-  print($1a);
+BEGIN, END {
+a = 1, 2;
+  print(a);
 }
 
-END {
-}

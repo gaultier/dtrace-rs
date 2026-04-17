@@ -135,8 +135,21 @@ impl<'a, W: Write> Formatter<'a, W> {
                 }
                 self.w.write_all(b")")?;
             }
-            NodeKind::ProbeSpecifiers(_node_ids) | NodeKind::CommaExpr(_node_ids) => {
-                todo!()
+            NodeKind::ProbeSpecifiers(node_ids) => {
+                for (i, node_id) in node_ids.iter().enumerate() {
+                    self.fmt(*node_id, indent)?;
+                    if i != node_ids.len() - 1 {
+                        self.w.write_all(b",\n")?;
+                    }
+                }
+            }
+            NodeKind::CommaExpr(node_ids) => {
+                for (i, node_id) in node_ids.iter().enumerate() {
+                    self.fmt(*node_id, indent)?;
+                    if i != node_ids.len() - 1 {
+                        self.w.write_all(b", ")?;
+                    }
+                }
             }
             NodeKind::SizeofType(_) => {
                 todo!()
