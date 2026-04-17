@@ -2,14 +2,6 @@
 
 ## 2. Backslash–newline (line continuation) not discarded
 
-Official (`<S0>` only):
-```
-<S0>"\\"\n   ;   /* discard */
-```
-A `\` immediately followed by a newline is silently consumed (C-style line
-continuation). In the Rust lexer, `\` falls through to the `Unknown` arm and
-produces an error token.
-
 ## 3. Named macro variable references not recognised
 
 Official:

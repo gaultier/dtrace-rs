@@ -5475,6 +5475,63 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_backslash_newline_discarded() {
+        // A `\` immediately followed by a newline is silently consumed in expression
+        // context (`InsideClauseAndExpr`), matching the official `<S0>"\\"\n ; /* discard */`.
+        // The token after the continuation is returned directly.
+        let input = "42\\\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        assert_eq!(
+            lexer.lex().kind,
+            TokenKind::LiteralNumber(42, NumberSuffix::NONE)
+        );
+        assert_eq!(lexer.lex().kind, TokenKind::Plus);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_backslash_newline_multiple() {
+        // Multiple consecutive `\` + newline sequences are all discarded.
+        let input = "\\\n\\\n42";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        assert_eq!(
+            lexer.lex().kind,
+            TokenKind::LiteralNumber(42, NumberSuffix::NONE)
+        );
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_backslash_newline_at_eof() {
+        // A `\` + newline at EOF is consumed; the next call returns `Eof`.
+        let input = "\\\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+    }
+
+    #[test]
+    fn test_lex_backslash_newline_not_in_outer_scope() {
+        // In `ProgramOuterScope` (S2), `\` + newline is not a line continuation.
+        // `\` is a valid probe-specifier character, so it is tokenized as a
+        // `ProbeSpecifier` (the newline terminates the specifier as whitespace).
+        let input = "\\\n+";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        // Default state is ProgramOuterScope.
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+        assert_eq!(str_from_source(input, token.origin), "\\");
+        // The newline is skipped as whitespace; `+` is not a valid token in outer
+        // scope but is still produced by the lexer (known divergence from official).
+        assert_eq!(lexer.errors.is_empty(), true);
+    }
+
+    #[test]
     fn test_lex_number_decimal_value() {
         // Plain decimal literal: `42` → value 42.
         let input = "42";
