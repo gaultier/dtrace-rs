@@ -151,8 +151,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                     }
                 }
             }
-            NodeKind::SizeofType(_) => {
-                todo!()
+            NodeKind::SizeofType(node_id) => {
+                self.w.write_all(b"sizeof(")?;
+                self.fmt(node_id, indent)?;
+                self.w.write_all(b")")?;
             }
             NodeKind::SizeofExpr(_node_id) => todo!(),
             NodeKind::StringofExpr(_node_id) => todo!(),

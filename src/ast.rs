@@ -34,7 +34,7 @@ pub enum NodeKind {
     ArgumentsExpr(Vec<NodeId>),
     ArgumentsDeclaration(Option<NodeId>),
     CommaExpr(Vec<NodeId>),
-    SizeofType(String),
+    SizeofType(NodeId),
     SizeofExpr(NodeId),
     StringofExpr(NodeId),
     TranslationUnit(Vec<NodeId>),
@@ -226,6 +226,7 @@ impl<'a> Parser<'a> {
 
     fn match_kind(&mut self, kind: TokenKind) -> Option<Token> {
         let t = self.peek1();
+        dbg!(t);
         if t.kind == kind {
             return Some(self.lexer.lex());
         }
@@ -542,11 +543,15 @@ impl<'a> Parser<'a> {
             } => {
                 let op = self.lexer.lex();
 
-                if self.match_kind(TokenKind::LeftParen).is_some() {
-                    let typename = self
-                        .expect_token_one(TokenKind::Identifier, "type name for sizeof")
-                        .map(|t| lex::str_from_source(self.lexer.input, t.origin).to_owned())
-                        .unwrap_or_default();
+                if let Some(left_paren) = self.match_kind(TokenKind::LeftParen) {
+                    let typename = self.parse_type_name().unwrap_or_else(|| {
+                        self.add_error_with_explanation(
+                            ErrorKind::MissingTypeName,
+                            left_paren.origin,
+                            String::from("expected type name after `sizeof(`"),
+                        );
+                        self.new_node_unknown()
+                    });
                     let right_paren = self
                         .expect_token_one(TokenKind::RightParen, "matching parenthesis for sizeof");
                     let end_origin = right_paren.map(|t| t.origin).unwrap_or(op.origin);
