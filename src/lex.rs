@@ -4017,6 +4017,31 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_macro_argument_reference_numerical_followed_by_identifier() {
+        // `$1a` looks like it could be an identifier-style reference, but the digit
+        // after `$` triggers the numerical arm, which stops at the first non-digit.
+        // The trailing `a` is then lexed as a separate identifier.
+        let input = "$1a";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(
+            token.kind,
+            TokenKind::MacroArgumentReferenceNumerical(Some(1))
+        );
+        assert_eq!(str_from_source(input, token.origin), "$1");
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Identifier);
+        assert_eq!(str_from_source(input, token.origin), "a");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
+    }
+
+    #[test]
     fn test_lex_macro_argument_reference_identifier_underscore() {
         // Identifiers may start with `_` and contain digits after the first char.
         let input = "$_my_var2";

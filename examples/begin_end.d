@@ -1,7 +1,6 @@
 
 BEGIN {
-  print($pid);
-  print($$ppid);
+  print($1a);
 }
 
 END {
