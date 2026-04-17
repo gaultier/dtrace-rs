@@ -1,6 +1,6 @@
 BEGIN {
-  print(1 + \
-      2
+  print($bar);
+  print($$foo);
 }
 
 END {

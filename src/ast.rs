@@ -344,7 +344,9 @@ impl<'a> Parser<'a> {
                     TokenKind::LiteralString
                     | TokenKind::KeywordSelf
                     | TokenKind::KeywordThis
-                    | TokenKind::MacroArgumentReference(_), /* Addition to avoid resolving macro argument references. */
+                    // Addition to avoid resolving macro argument references.
+                    | TokenKind::MacroArgumentReferenceNumerical(_)
+                    | TokenKind::MacroArgumentReferenceIdentifier,
                 ..
             } => {
                 let tok = self.lexer.lex();

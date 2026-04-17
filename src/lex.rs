@@ -232,7 +232,8 @@ pub enum TokenKind {
     GtGtEq,
     ClosePredicateDelimiter,
     Aggregation,
-    MacroArgumentReference(Option<u32>),
+    MacroArgumentReferenceNumerical(Option<u32>),
+    MacroArgumentReferenceIdentifier,
 }
 
 /// Type-suffix flags on an integer literal, recording `u`/`U`, `l`/`L`, and `ll`/`LL`.
@@ -944,16 +945,15 @@ impl<'a> Lexer<'a> {
             }
             // Check for an exponent without a dot (e.g. `1e5`, `1E+3`):
             // these are float literals per `RGX_FP` in the official lexer.
-            if !is_float
-                && let Some('e' | 'E') = self.peek1() {
-                    self.add_error(
-                        ErrorKind::UnsupportedLiteralFloatNumber,
-                        self.position.into(),
-                        "floating-point literals are not supported",
-                    );
-                    self.skip_until_end_of_float();
-                    is_float = true;
-                }
+            if !is_float && let Some('e' | 'E') = self.peek1() {
+                self.add_error(
+                    ErrorKind::UnsupportedLiteralFloatNumber,
+                    self.position.into(),
+                    "floating-point literals are not supported",
+                );
+                self.skip_until_end_of_float();
+                is_float = true;
+            }
             if is_float {
                 value = 0;
             } else {
@@ -1577,12 +1577,26 @@ impl<'a> Lexer<'a> {
             ((Some('$'), Some('$'), Some('0'..='9')), LexerState::InsideClauseAndExpr) => {
                 let origin = self.position;
                 self.advance(2);
-                self.macro_argument_reference(origin)
+                self.macro_argument_reference_numerical(origin, 2)
             }
             ((Some('$'), Some(d), _), LexerState::InsideClauseAndExpr) if d.is_ascii_digit() => {
                 let origin = self.position;
                 self.advance(1);
-                self.macro_argument_reference(origin)
+                self.macro_argument_reference_numerical(origin, 1)
+            }
+            ((Some('$'), Some(c), _), LexerState::InsideClauseAndExpr)
+                if self.is_identifier_character_leading(c) =>
+            {
+                let origin = self.position;
+                self.advance(1);
+                self.macro_argument_reference_identifier(origin, 1)
+            }
+            ((Some('$'), Some('$'), Some(c)), LexerState::InsideClauseAndExpr)
+                if self.is_identifier_character_leading(c) =>
+            {
+                let origin = self.position;
+                self.advance(2);
+                self.macro_argument_reference_identifier(origin, 2)
             }
             ((Some('@'), _, _), LexerState::InsideClauseAndExpr) => self.lex_aggregation(),
 
@@ -2339,15 +2353,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn skip_until_inclusive_or_newline(&mut self, arg: char) {
-        while let Some(c) = self.peek1() {
-            self.advance(1);
-            if c == arg || c == '\n' {
-                break;
-            }
-        }
-    }
-
     fn skip_until_exclusive(&mut self, arg: char) {
         while let Some(c) = self.peek1() {
             if c == arg {
@@ -2361,7 +2366,11 @@ impl<'a> Lexer<'a> {
         self.state = state;
     }
 
-    fn macro_argument_reference(&mut self, start: Position) -> Token {
+    fn macro_argument_reference_numerical(
+        &mut self,
+        start: Position,
+        leading_dollar_sign_count: usize,
+    ) -> Token {
         while let Some(c) = self.peek1() {
             if c.is_ascii_digit() {
                 self.advance(1);
@@ -2370,9 +2379,8 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let s = &self.input[start.byte_offset as usize..self.position.byte_offset as usize]
-            .trim_start_matches('$');
-        dbg!(s);
+        let s = &self.input[start.byte_offset as usize + leading_dollar_sign_count
+            ..self.position.byte_offset as usize];
         assert!(!s.is_empty());
 
         let num: Option<u32> = match s.parse::<i32>() {
@@ -2381,7 +2389,33 @@ impl<'a> Lexer<'a> {
         };
 
         Token {
-            kind: TokenKind::MacroArgumentReference(num),
+            kind: TokenKind::MacroArgumentReferenceNumerical(num),
+            origin: start.extend_to_inclusive(self.position),
+        }
+    }
+
+    fn macro_argument_reference_identifier(
+        &mut self,
+        start: Position,
+        leading_dollar_sign_count: usize,
+    ) -> Token {
+        let (first, _) = self.advance(1);
+        assert!(self.is_identifier_character_leading(first.unwrap()));
+
+        while let Some(c) = self.peek1() {
+            if self.is_identifier_character_trailing(c) {
+                self.advance(1);
+            } else {
+                break;
+            }
+        }
+
+        let s = &self.input[start.byte_offset as usize + leading_dollar_sign_count
+            ..self.position.byte_offset as usize];
+        assert!(!s.is_empty());
+
+        Token {
+            kind: TokenKind::MacroArgumentReferenceIdentifier,
             origin: start.extend_to_inclusive(self.position),
         }
     }
@@ -3463,7 +3497,10 @@ mod tests {
         }
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::MacroArgumentReference(Some(1)));
+            assert_eq!(
+                token.kind,
+                TokenKind::MacroArgumentReferenceNumerical(Some(1))
+            );
             assert_eq!(str_from_source(input, token.origin), "$$1");
         }
         {
@@ -3935,7 +3972,7 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::MacroArgumentReference(None));
+        assert_eq!(token.kind, TokenKind::MacroArgumentReferenceNumerical(None));
         assert_eq!(str_from_source(input, token.origin), "$$99999999999");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(
@@ -4890,7 +4927,10 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::MacroArgumentReference(Some(1)));
+        assert_eq!(
+            token.kind,
+            TokenKind::MacroArgumentReferenceNumerical(Some(1))
+        );
         assert_eq!(str_from_source(input, token.origin), "$1");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(
@@ -5487,7 +5527,11 @@ mod tests {
         );
         assert_eq!(lexer.lex().kind, TokenKind::Plus);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
     }
 
     #[test]
@@ -5501,7 +5545,11 @@ mod tests {
             TokenKind::LiteralNumber(42, NumberSuffix::NONE)
         );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
     }
 
     #[test]
@@ -5511,7 +5559,11 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
     }
 
     #[test]
