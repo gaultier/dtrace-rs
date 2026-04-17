@@ -1,6 +1,8 @@
+int a, b;
 
 BEGIN, END {
-a = 1, 2;
+a, b = 1, 2;
   print(a);
+  print(b);
 }
 

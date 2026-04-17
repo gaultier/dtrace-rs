@@ -368,6 +368,73 @@ mod tests {
     }
 
     #[test]
+    fn test_multiple_probe_specifiers() {
+        let input = "BEGIN, END {}";
+        assert_eq!(
+            fmt(input),
+            "BEGIN,
+END
+{
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_comma_expr() {
+        let input = "BEGIN { a = 1, 2; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  a = 1, 2;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_function_call_no_args() {
+        let input = "BEGIN { print(); }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  print();
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_function_call_single_arg() {
+        let input = "BEGIN { print(a); }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  print(a);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_multiple_probe_specifiers_with_body() {
+        let input = "BEGIN, END { a = 1, 2; print(a); }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN,
+END
+{
+  a = 1, 2;
+  print(a);
+}
+"
+        );
+    }
+
+    #[test]
     fn test_multiple_probes() {
         let input = "syscall::open:entry { x = 1; } syscall::close:entry { x = 2; }";
         assert_eq!(
