@@ -56,7 +56,7 @@ pub fn format<W: Write>(
             }
             w.write_all(b"\n")?;
         }
-        NodeKind::Number(_) | NodeKind::Identifier(_) | NodeKind::ProbeSpecifier(_) => {
+        NodeKind::Number(..) | NodeKind::Identifier(_) | NodeKind::ProbeSpecifier(_) => {
             let src = lex::str_from_source(input, node.origin);
             w.write_all(src.as_bytes())?;
         }

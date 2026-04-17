@@ -140,7 +140,7 @@ pub fn check_node(
                 check_node(*decl, nodes, errs, node_to_type, name_to_def);
             }
         }
-        NodeKind::Number(_) => {
+        NodeKind::Number(..) => {
             assert!(matches!(
                 *node_to_type.get(&node_id).unwrap().kind,
                 TypeKind::Number

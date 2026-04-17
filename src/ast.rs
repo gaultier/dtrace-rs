@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     error::{Error, ErrorKind},
-    lex::{self, Lexer, Token, TokenKind},
+    lex::{self, Lexer, NumberSuffix, Token, TokenKind},
     origin::{FileId, Origin},
     type_checker::Type,
 };
@@ -20,8 +20,7 @@ pub struct NodeId(pub(crate) usize);
 #[derive(Serialize, Clone, PartialEq, Eq, Debug)]
 pub(crate) enum NodeKind {
     Unknown,
-    // TODO: Should we just use 'Block'?
-    Number(u64),
+    Number(u64, NumberSuffix),
     PrimaryToken(TokenKind),
     Cast(String, NodeId),
     ProbeSpecifier(String),
@@ -1384,12 +1383,12 @@ impl<'a> Parser<'a> {
         }
 
         let tok = self.lexer.lex();
-        let TokenKind::LiteralNumber(num, _suffix) = tok.kind else {
+        let TokenKind::LiteralNumber(num, suffix) = tok.kind else {
             unreachable!("parse_literal_number called on non-number token");
         };
 
         let node_id = self.new_node(Node {
-            kind: NodeKind::Number(num),
+            kind: NodeKind::Number(num, suffix),
             origin: tok.origin,
         });
         self.node_to_type.insert(node_id, Type::new_int());
@@ -1767,7 +1766,7 @@ impl<'a> Parser<'a> {
                     Self::resolve_node(*actions, nodes, errors, name_to_def);
                 }
             }
-            NodeKind::Number(_) | NodeKind::ProbeSpecifier(_) => {}
+            NodeKind::Number(..) | NodeKind::ProbeSpecifier(_) => {}
             NodeKind::Unary(_, expr) => {
                 Self::resolve_node(*expr, nodes, errors, name_to_def);
             }
@@ -2806,7 +2805,7 @@ pub fn log(
                 log(nodes, *actions, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::Number(_) | NodeKind::Identifier(_) | NodeKind::ProbeSpecifier(_) => {}
+        NodeKind::Number(..) | NodeKind::Identifier(_) | NodeKind::ProbeSpecifier(_) => {}
         NodeKind::Assignment(lhs, _, rhs) | NodeKind::BinaryOp(lhs, _, rhs) => {
             log(nodes, *lhs, indent + 2, file_id_to_name);
             log(nodes, *rhs, indent + 2, file_id_to_name);
@@ -3117,5 +3116,4 @@ mod tests {
     //        _ => panic!("Expected Add"),
     //    }
     //}
-
 }
