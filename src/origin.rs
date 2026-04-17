@@ -149,8 +149,12 @@ impl Origin {
         }
     }
 
-    fn kind(&self) -> PositionKind {
+    pub fn kind(&self) -> PositionKind {
         assert_eq!(self.start.kind, self.end.kind);
         self.start.kind
+    }
+
+    pub fn len(&self) -> usize {
+        self.end.byte_offset as usize - self.start.byte_offset as usize
     }
 }

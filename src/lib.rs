@@ -11,7 +11,7 @@ use serde::Serialize;
 use crate::{
     ast::{Node, NodeId, Parser},
     error::Error,
-    lex::{Comment, ControlDirective, Lexer},
+    lex::{Attribute, Comment, ControlDirective, Lexer},
     origin::FileId,
 };
 
@@ -158,6 +158,7 @@ mod wasm32 {
 pub struct CompileResult {
     pub errors: Vec<Error>,
     pub control_directives: Vec<ControlDirective>,
+    pub attributes: Vec<Attribute>,
     pub comments: Vec<Comment>,
     pub ast_nodes: Vec<Node>,
     pub ast_root: Option<NodeId>,
@@ -172,6 +173,7 @@ pub fn compile(input: &str, file_id: FileId) -> CompileResult {
     if !parser.lexer.errors.is_empty() {
         return CompileResult {
             comments: parser.lexer.comments,
+            attributes: parser.lexer.attributes,
             control_directives: parser.lexer.control_directives,
             ast_nodes: parser.nodes,
             errors: parser.lexer.errors,
@@ -183,6 +185,7 @@ pub fn compile(input: &str, file_id: FileId) -> CompileResult {
 
     CompileResult {
         comments: parser.lexer.comments,
+        attributes: parser.lexer.attributes,
         control_directives: parser.lexer.control_directives,
         ast_nodes: parser.nodes,
         errors: parser.lexer.errors,

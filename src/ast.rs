@@ -3005,6 +3005,26 @@ mod tests {
     }
 
     #[test]
+    fn test_binary_op_modulo_origin() {
+        let input = "3%2";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert_eq!(origin_str(input, &parser, root_id), "3%2");
+    }
+
+    #[test]
+    fn test_binary_op_nested_precedence_origin() {
+        // `1+3%2` parses as `1+(3%2)`, so the rhs `3%2` should start at column 3.
+        let input = "1+3%2";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert_eq!(origin_str(input, &parser, root_id), "1+3%2");
+        if let NodeKind::BinaryOp(_, _, rhs) = parser.nodes[root_id].kind {
+            assert_eq!(origin_str(input, &parser, rhs), "3%2");
+        }
+    }
+
+    #[test]
     fn test_binary_op_equality_origin() {
         let input = "x == y";
         let (parser, root_id) = parse_expr_input(input);
@@ -3233,5 +3253,58 @@ mod tests {
         // The semicolon after `y = 1` is consumed as a separate `EmptyStmt` in the
         // outer block, so the `if` node's origin ends at the end of its body expression.
         assert_eq!(origin_str(input, &parser, if_id), "if (x) y = 1");
+    }
+
+    #[test]
+    fn test_assignment_in_probe_body_origin() {
+        // Regression test: the Assignment node's origin must start at `a`, not at `=`.
+        let input = "BEGIN { a = 1; }";
+        let (parser, root_id) = parse_program_input(input);
+        let NodeKind::TranslationUnit(ref decls) = parser.nodes[root_id].kind else {
+            panic!("expected TranslationUnit");
+        };
+        let NodeKind::ProbeDefinition(_, _, Some(block_id)) = parser.nodes[decls[0]].kind else {
+            panic!("expected ProbeDefinition with block");
+        };
+        let NodeKind::Block(ref stmts) = parser.nodes[block_id].kind else {
+            panic!("expected Block");
+        };
+        // The first statement is `a = 1;` wrapped in an ExprStmt.
+        let NodeKind::ExprStmt(assign_id) = parser.nodes[stmts[0]].kind else {
+            panic!("expected ExprStmt");
+        };
+        assert!(matches!(
+            parser.nodes[assign_id].kind,
+            NodeKind::Assignment(..)
+        ));
+        assert_eq!(origin_str(input, &parser, assign_id), "a = 1");
+    }
+
+    #[test]
+    fn test_assignment_in_probe_body_multiline_origin() {
+        // Regression test: the Assignment node's origin must start at `a` (column 3),
+        // not at `=` (column 5), even when the probe body is on multiple lines.
+        let input = "BEGIN {\n  a = 1;\n}";
+        let (parser, root_id) = parse_program_input(input);
+        let NodeKind::TranslationUnit(ref decls) = parser.nodes[root_id].kind else {
+            panic!("expected TranslationUnit");
+        };
+        let NodeKind::ProbeDefinition(_, _, Some(block_id)) = parser.nodes[decls[0]].kind else {
+            panic!("expected ProbeDefinition with block");
+        };
+        let NodeKind::Block(ref stmts) = parser.nodes[block_id].kind else {
+            panic!("expected Block");
+        };
+        let NodeKind::ExprStmt(assign_id) = parser.nodes[stmts[0]].kind else {
+            panic!("expected ExprStmt");
+        };
+        assert!(matches!(
+            parser.nodes[assign_id].kind,
+            NodeKind::Assignment(..)
+        ));
+        assert_eq!(origin_str(input, &parser, assign_id), "a = 1");
+        // `a` is at line 2, column 3.
+        assert_eq!(parser.nodes[assign_id].origin.start.line, 2);
+        assert_eq!(parser.nodes[assign_id].origin.start.column, 3);
     }
 }

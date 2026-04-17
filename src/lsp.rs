@@ -250,7 +250,7 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
             format!("invalid params: {}", err),
         )
     })?;
-    let (_, compiled) = docs
+    let (text, compiled) = docs
         .get(&params.text_document_position_params.text_document.uri)
         .ok_or(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -258,37 +258,55 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
         ))?;
 
     let pos = params.text_document_position_params.position;
+    // LSP positions are (line, character) where `character` is a UTF-8 byte offset
+    // within the line (since we negotiate UTF-8 encoding). Convert to a file-level
+    // byte offset so it can be compared against `Origin::byte_offset`.
+    let line_start_byte: u32 = text
+        .split('\n')
+        .take(pos.line as usize)
+        .map(|l| l.len() as u32 + 1) // +1 for the '\n'
+        .sum();
+    let cursor_byte = line_start_byte + pos.character;
+    // FIXME: No need to allocate all the strings before we have picked the most specific (i.e.
+    // inner-most) element.
     let found = compiled
         .ast_nodes
         .iter()
-        .find(|n| {
-            n.origin.start.line == pos.line + 1
-                && n.origin.start.column <= pos.character + 1
-                && ((pos.character + 1) < n.origin.end.column)
+        .filter(|x| {
+            x.origin.start.byte_offset <= cursor_byte && cursor_byte < x.origin.end.byte_offset
         })
-        .map(|n| (n.origin, format!("ast node: {:?}", n.kind)))
-        .or_else(|| {
+        .map(|x| (x.origin, format!("ast node: {:?}", x.kind)))
+        .chain(
             compiled
                 .control_directives
                 .iter()
-                .find(|ctrl| {
-                    ctrl.origin.start.line == pos.line + 1
-                        && ctrl.origin.start.column <= pos.character + 1
-                        && ((pos.character + 1) < ctrl.origin.end.column)
+                .filter(|x| {
+                    x.origin.start.byte_offset <= cursor_byte
+                        && cursor_byte < x.origin.end.byte_offset
                 })
-                .map(|ctrl| (ctrl.origin, format!("control directive: {:?}", ctrl.kind)))
-        })
-        .or_else(|| {
+                .map(|x| (x.origin, format!("control directive: {:?}", x.kind))),
+        )
+        .chain(
+            compiled
+                .attributes
+                .iter()
+                .filter(|x| {
+                    x.origin.start.byte_offset <= cursor_byte
+                        && cursor_byte < x.origin.end.byte_offset
+                })
+                .map(|x| (x.origin, String::from("attribute"))),
+        )
+        .chain(
             compiled
                 .comments
                 .iter()
-                .find(|c| {
-                    c.origin.start.line == pos.line + 1
-                        && c.origin.start.column <= pos.character + 1
-                        && ((pos.character + 1) < c.origin.end.column)
+                .filter(|x| {
+                    x.origin.start.byte_offset <= cursor_byte
+                        && cursor_byte < x.origin.end.byte_offset
                 })
-                .map(|c| (c.origin, format!("comment: {:?}", c.kind)))
-        });
+                .map(|x| (x.origin, format!("comment: {:?}", x.kind))),
+        )
+        .min_by(|(a, _): &(Origin, _), (b, _): &(Origin, _)| (&a.len()).cmp(&b.len()));
     let resp = if let Some((origin, marked_string)) = found {
         let hover = Hover {
             contents: HoverContents::Scalar(MarkedString::String(marked_string)),
