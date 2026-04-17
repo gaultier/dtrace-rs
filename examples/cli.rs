@@ -81,16 +81,8 @@ fn main() {
             };
             if let Some(root) = compiled.ast_root {
                 let mut stdout = std::io::stdout().lock();
-                compiler_rs_lib::fmt::format(
-                    &mut stdout,
-                    root,
-                    &compiled.ast_nodes,
-                    &file_content,
-                    0,
-                    true,
-                    true,
-                )
-                .unwrap();
+                compiler_rs_lib::fmt::format(&mut stdout, root, &compiled.ast_nodes, &file_content)
+                    .unwrap();
                 stdout.flush().unwrap();
             }
         }
