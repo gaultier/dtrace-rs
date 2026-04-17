@@ -282,12 +282,12 @@ impl std::fmt::Debug for NumberSuffix {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match (self.is_unsigned(), self.is_long_long(), self.is_long()) {
             (false, false, false) => f.write_str("NumberSuffix::NONE"),
-            (true,  false, false) => f.write_str("NumberSuffix::UNSIGNED"),
-            (false, false, true)  => f.write_str("NumberSuffix::LONG"),
-            (true,  false, true)  => f.write_str("NumberSuffix::UNSIGNED|LONG"),
-            (false, true,  false) => f.write_str("NumberSuffix::LONG_LONG"),
-            (true,  true,  false) => f.write_str("NumberSuffix::UNSIGNED|LONG_LONG"),
-            _                     => write!(f, "NumberSuffix({:#b})", self.0),
+            (true, false, false) => f.write_str("NumberSuffix::UNSIGNED"),
+            (false, false, true) => f.write_str("NumberSuffix::LONG"),
+            (true, false, true) => f.write_str("NumberSuffix::UNSIGNED|LONG"),
+            (false, true, false) => f.write_str("NumberSuffix::LONG_LONG"),
+            (true, true, false) => f.write_str("NumberSuffix::UNSIGNED|LONG_LONG"),
+            _ => write!(f, "NumberSuffix({:#b})", self.0),
         }
     }
 }
@@ -380,7 +380,8 @@ impl<'a> Lexer<'a> {
     }
 
     fn add_error(&mut self, kind: ErrorKind, origin: Origin, explanation: &str) {
-        self.errors.push(Error::new(kind, origin, explanation.to_owned()));
+        self.errors
+            .push(Error::new(kind, origin, explanation.to_owned()));
     }
 
     fn is_identifier_character_trailing(&self, c: char) -> bool {
@@ -654,18 +655,30 @@ impl<'a> Lexer<'a> {
                     self.advance(2);
                 }
                 (Some('\\'), Some('\n')) => {
-                    self.add_error(ErrorKind::InvalidLiteralString, self.position.into(), "backslash-newline is not allowed inside a string literal");
+                    self.add_error(
+                        ErrorKind::InvalidLiteralString,
+                        self.position.into(),
+                        "backslash-newline is not allowed inside a string literal",
+                    );
                     self.advance(2);
                 }
                 (Some('\n'), _) => {
-                    self.add_error(ErrorKind::InvalidLiteralString, self.position.into(), "newline is not allowed inside a string literal");
+                    self.add_error(
+                        ErrorKind::InvalidLiteralString,
+                        self.position.into(),
+                        "newline is not allowed inside a string literal",
+                    );
                     self.advance(1);
                 }
                 (Some(_), _) => {
                     self.advance(1);
                 }
                 (None, _) => {
-                    self.add_error(ErrorKind::InvalidLiteralString, self.position.into(), "unterminated string literal");
+                    self.add_error(
+                        ErrorKind::InvalidLiteralString,
+                        self.position.into(),
+                        "unterminated string literal",
+                    );
                     break;
                 }
             }
@@ -751,7 +764,11 @@ impl<'a> Lexer<'a> {
                     let s = &self.input[start..self.position.byte_offset as usize];
 
                     if s.is_empty() {
-                        self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into(), "hex escape sequence requires at least one hex digit");
+                        self.add_error(
+                            ErrorKind::InvalidLiteralCharacter,
+                            self.position.into(),
+                            "hex escape sequence requires at least one hex digit",
+                        );
                     } else {
                         // Small, but probably inconsequential difference with the official implementation:
                         // the official implementation casts (truncates) the hex sequence to `char`,
@@ -777,7 +794,11 @@ impl<'a> Lexer<'a> {
                     bytes.push(c as u8);
                 }
                 (Some('\\'), Some('\n')) => {
-                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into(), "backslash-newline is not allowed inside a character literal");
+                    self.add_error(
+                        ErrorKind::InvalidLiteralCharacter,
+                        self.position.into(),
+                        "backslash-newline is not allowed inside a character literal",
+                    );
                     self.advance(2);
                 }
                 // Known escapes that are not letters: produce 1 byte.
@@ -797,7 +818,11 @@ impl<'a> Lexer<'a> {
                     bytes.push(c as u8);
                 }
                 (Some('\n'), _) => {
-                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into(), "newline is not allowed inside a character literal");
+                    self.add_error(
+                        ErrorKind::InvalidLiteralCharacter,
+                        self.position.into(),
+                        "newline is not allowed inside a character literal",
+                    );
                     self.advance(1);
                 }
                 (Some(c), _) => {
@@ -805,18 +830,30 @@ impl<'a> Lexer<'a> {
                     bytes.push(c as u8);
                 }
                 (None, _) => {
-                    self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into(), "unterminated character literal");
+                    self.add_error(
+                        ErrorKind::InvalidLiteralCharacter,
+                        self.position.into(),
+                        "unterminated character literal",
+                    );
                     break;
                 }
             }
         }
 
         if bytes.is_empty() {
-            self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into(), "empty character literal");
+            self.add_error(
+                ErrorKind::InvalidLiteralCharacter,
+                self.position.into(),
+                "empty character literal",
+            );
         }
 
         let bytes_8: [u8; 8] = if bytes.len() > 8 {
-            self.add_error(ErrorKind::InvalidLiteralCharacter, self.position.into(), "character literal is too long (maximum 8 bytes)");
+            self.add_error(
+                ErrorKind::InvalidLiteralCharacter,
+                self.position.into(),
+                "character literal is too long (maximum 8 bytes)",
+            );
             [0; 8]
         } else {
             let mut bytes_8 = [0u8; 8];
@@ -860,11 +897,25 @@ impl<'a> Lexer<'a> {
                 }
             }
             if count == 0 {
-                self.add_error(ErrorKind::InvalidLiteralNumber, self.position.into(), "hex literal requires at least one hex digit after '0x'");
+                self.add_error(
+                    ErrorKind::InvalidLiteralNumber,
+                    self.position.into(),
+                    "hex literal requires at least one hex digit after '0x'",
+                );
                 value = 0;
             } else {
                 let hex_digits = &self.input[hex_start..self.position.byte_offset as usize];
-                value = u64::from_str_radix(hex_digits, 16).unwrap_or(0);
+                value = match u64::from_str_radix(hex_digits, 16) {
+                    Ok(c) => c,
+                    Err(err) => {
+                        self.add_error(
+                            ErrorKind::InvalidLiteralCharacter,
+                            self.position.into(),
+                            &format!("hex literal cannot be parsed: {}", err),
+                        );
+                        0
+                    }
+                };
             }
         } else {
             // Decimal or octal literal.
@@ -910,9 +961,29 @@ impl<'a> Lexer<'a> {
                 let digits = &self.input[digits_start..self.position.byte_offset as usize];
                 // A leading `0` with more digits means octal (C convention).
                 if digits.len() > 1 && digits.starts_with('0') {
-                    value = u64::from_str_radix(&digits[1..], 8).unwrap_or(0);
+                    value = match u64::from_str_radix(&digits[1..], 8) {
+                        Ok(c) => c,
+                        Err(err) => {
+                            self.add_error(
+                                ErrorKind::InvalidLiteralCharacter,
+                                self.position.into(),
+                                &format!("octal literal cannot be parsed: {}", err),
+                            );
+                            0
+                        }
+                    };
                 } else {
-                    value = u64::from_str_radix(digits, 10).unwrap_or(0);
+                    value = match u64::from_str_radix(digits, 10) {
+                        Ok(c) => c,
+                        Err(err) => {
+                            self.add_error(
+                                ErrorKind::InvalidLiteralCharacter,
+                                self.position.into(),
+                                &format!("decimal literal cannot be parsed: {}", err),
+                            );
+                            0
+                        }
+                    };
                 }
             }
         }
@@ -1006,7 +1077,10 @@ impl<'a> Lexer<'a> {
                     .rfind('\n')
                     .map_or(0, |i| i + 1);
                 let prefix_on_line = &self.input[line_start..self.position.byte_offset as usize];
-                if prefix_on_line.bytes().any(|b| !matches!(b, b'\t' | b'\x0C' | b'\x0B' | b' ')) {
+                if prefix_on_line
+                    .bytes()
+                    .any(|b| !matches!(b, b'\t' | b'\x0C' | b'\x0B' | b' '))
+                {
                     self.add_error(
                         ErrorKind::ShebangMustComeFirst,
                         Position::default().extend_to_inclusive(self.position),
@@ -2753,7 +2827,10 @@ mod tests {
         }
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber(102429, NumberSuffix::NONE));
+            assert_eq!(
+                token.kind,
+                TokenKind::LiteralNumber(102429, NumberSuffix::NONE)
+            );
             assert_eq!(str_from_source(input, token.origin), "102429");
         }
         {
@@ -2785,7 +2862,10 @@ mod tests {
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber(0xcafe_babe, NumberSuffix::NONE));
+            assert_eq!(
+                token.kind,
+                TokenKind::LiteralNumber(0xcafe_babe, NumberSuffix::NONE)
+            );
             let s = str_from_source(input, token.origin);
             assert_eq!(s, "0xcafebabe");
         }
@@ -4522,9 +4602,17 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::LiteralNumber(5, NumberSuffix::NONE));
         assert_eq!(str_from_source(input, token.origin), "05");
-        assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert!(lexer.errors.is_empty(), "unexpected errors after Eof: {:?}", lexer.errors);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors after Eof: {:?}",
+            lexer.errors
+        );
     }
 
     #[test]
@@ -4532,7 +4620,11 @@ mod tests {
         for input in ["42u", "42U"] {
             let mut lexer = Lexer::new(FILE_ID, input);
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber(42, NumberSuffix::UNSIGNED), "input={input}");
+            assert_eq!(
+                token.kind,
+                TokenKind::LiteralNumber(42, NumberSuffix::UNSIGNED),
+                "input={input}"
+            );
             assert_eq!(str_from_source(input, token.origin), input, "input={input}");
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
             assert!(
@@ -4548,7 +4640,11 @@ mod tests {
         for input in ["42l", "42L"] {
             let mut lexer = Lexer::new(FILE_ID, input);
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber(42, NumberSuffix::LONG), "input={input}");
+            assert_eq!(
+                token.kind,
+                TokenKind::LiteralNumber(42, NumberSuffix::LONG),
+                "input={input}"
+            );
             assert_eq!(str_from_source(input, token.origin), input, "input={input}");
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
             assert!(
@@ -4564,7 +4660,11 @@ mod tests {
         for input in ["42ul", "42UL", "42uL", "42Ul"] {
             let mut lexer = Lexer::new(FILE_ID, input);
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber(42, NumberSuffix::UNSIGNED | NumberSuffix::LONG), "input={input}");
+            assert_eq!(
+                token.kind,
+                TokenKind::LiteralNumber(42, NumberSuffix::UNSIGNED | NumberSuffix::LONG),
+                "input={input}"
+            );
             assert_eq!(str_from_source(input, token.origin), input, "input={input}");
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
             assert!(
@@ -4580,7 +4680,11 @@ mod tests {
         for input in ["42ll", "42lL", "42LL"] {
             let mut lexer = Lexer::new(FILE_ID, input);
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber(42, NumberSuffix::LONG_LONG), "input={input}");
+            assert_eq!(
+                token.kind,
+                TokenKind::LiteralNumber(42, NumberSuffix::LONG_LONG),
+                "input={input}"
+            );
             assert_eq!(str_from_source(input, token.origin), input, "input={input}");
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
             assert!(
@@ -4596,7 +4700,11 @@ mod tests {
         for input in ["42ull", "42ULL", "42uLL"] {
             let mut lexer = Lexer::new(FILE_ID, input);
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber(42, NumberSuffix::UNSIGNED | NumberSuffix::LONG_LONG), "input={input}");
+            assert_eq!(
+                token.kind,
+                TokenKind::LiteralNumber(42, NumberSuffix::UNSIGNED | NumberSuffix::LONG_LONG),
+                "input={input}"
+            );
             assert_eq!(str_from_source(input, token.origin), input, "input={input}");
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
             assert!(
@@ -4775,7 +4883,10 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber(0x1a, NumberSuffix::NONE));
+        assert_eq!(
+            token.kind,
+            TokenKind::LiteralNumber(0x1a, NumberSuffix::NONE)
+        );
         assert_eq!(str_from_source(input, token.origin), "0x1a");
         assert!(
             lexer.errors.is_empty(),
@@ -5298,7 +5409,10 @@ mod tests {
         // Plain decimal literal: `42` → value 42.
         let input = "42";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::LiteralNumber(42, NumberSuffix::NONE));
+        assert_eq!(
+            lexer.lex().kind,
+            TokenKind::LiteralNumber(42, NumberSuffix::NONE)
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(lexer.errors.is_empty());
     }
@@ -5309,7 +5423,10 @@ mod tests {
         // `034` = 3*8 + 4 = 28 decimal.
         let input = "034";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::LiteralNumber(28, NumberSuffix::NONE));
+        assert_eq!(
+            lexer.lex().kind,
+            TokenKind::LiteralNumber(28, NumberSuffix::NONE)
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(lexer.errors.is_empty());
     }
@@ -5319,7 +5436,10 @@ mod tests {
         // `0400` = 256 decimal.
         let input = "0400";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::LiteralNumber(256, NumberSuffix::NONE));
+        assert_eq!(
+            lexer.lex().kind,
+            TokenKind::LiteralNumber(256, NumberSuffix::NONE)
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(lexer.errors.is_empty());
     }
@@ -5329,7 +5449,10 @@ mod tests {
         // Bare `0` is decimal zero, not treated as octal (no further digits).
         let input = "0";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::LiteralNumber(0, NumberSuffix::NONE));
+        assert_eq!(
+            lexer.lex().kind,
+            TokenKind::LiteralNumber(0, NumberSuffix::NONE)
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(lexer.errors.is_empty());
     }
@@ -5339,7 +5462,10 @@ mod tests {
         // `0x1c` = 28 decimal.
         let input = "0x1c";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::LiteralNumber(0x1c, NumberSuffix::NONE));
+        assert_eq!(
+            lexer.lex().kind,
+            TokenKind::LiteralNumber(0x1c, NumberSuffix::NONE)
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(lexer.errors.is_empty());
     }
@@ -5349,7 +5475,10 @@ mod tests {
         // `0X1C` — uppercase `X` prefix is also accepted.
         let input = "0X1C";
         let mut lexer = Lexer::new(FILE_ID, input);
-        assert_eq!(lexer.lex().kind, TokenKind::LiteralNumber(0x1c, NumberSuffix::NONE));
+        assert_eq!(
+            lexer.lex().kind,
+            TokenKind::LiteralNumber(0x1c, NumberSuffix::NONE)
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(lexer.errors.is_empty());
     }
@@ -5358,11 +5487,11 @@ mod tests {
     fn test_lex_number_suffix_strips_value() {
         // Suffixes are consumed and do not affect the numeric value, only the suffix flags.
         for (input, expected_value, expected_suffix) in [
-            ("42u",   42u64, NumberSuffix::UNSIGNED),
-            ("42U",   42,    NumberSuffix::UNSIGNED),
-            ("100UL", 100,   NumberSuffix::UNSIGNED | NumberSuffix::LONG),
-            ("7ll",   7,     NumberSuffix::LONG_LONG),
-            ("7LL",   7,     NumberSuffix::LONG_LONG),
+            ("42u", 42u64, NumberSuffix::UNSIGNED),
+            ("42U", 42, NumberSuffix::UNSIGNED),
+            ("100UL", 100, NumberSuffix::UNSIGNED | NumberSuffix::LONG),
+            ("7ll", 7, NumberSuffix::LONG_LONG),
+            ("7LL", 7, NumberSuffix::LONG_LONG),
         ] {
             let mut lexer = Lexer::new(FILE_ID, input);
             assert_eq!(
