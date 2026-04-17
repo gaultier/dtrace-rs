@@ -18,7 +18,7 @@ use serde::Serialize;
 pub struct NodeId(pub(crate) usize);
 
 #[derive(Serialize, Clone, PartialEq, Eq, Debug)]
-pub(crate) enum NodeKind {
+pub enum NodeKind {
     Unknown,
     Number(u64, NumberSuffix),
     PrimaryToken(TokenKind),

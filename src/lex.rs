@@ -972,7 +972,7 @@ impl<'a> Lexer<'a> {
                         }
                     };
                 } else {
-                    value = match u64::from_str_radix(digits, 10) {
+                    value = match digits.parse::<u64>() {
                         Ok(c) => c,
                         Err(err) => {
                             self.add_error(
