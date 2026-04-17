@@ -3168,6 +3168,53 @@ mod tests {
     }
 
     #[test]
+    fn test_field_access_mixed_arrow_dot() {
+        // `a->b->c.d` is `((a->b)->c).d`: two arrow dereferences followed by
+        // a dot access on a struct value (not a pointer). All three must parse
+        // without errors and the outermost node must span the full expression.
+        let input = "curthread->last_processor->runq.count";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(
+            parser.lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            parser.lexer.errors
+        );
+        // Outermost node: `.count` dot access.
+        let NodeKind::FieldAccess(arrow_runq, dot, _) = parser.nodes[root_id].kind else {
+            panic!(
+                "expected FieldAccess at root, got {:?}",
+                parser.nodes[root_id].kind
+            );
+        };
+        assert_eq!(dot, TokenKind::Dot);
+        assert_eq!(
+            origin_str(input, &parser, root_id),
+            "curthread->last_processor->runq.count"
+        );
+
+        // Middle node: `->runq` arrow access.
+        let NodeKind::FieldAccess(arrow_last_processor, arrow, _) = parser.nodes[arrow_runq].kind
+        else {
+            panic!("expected FieldAccess for ->runq");
+        };
+        assert_eq!(arrow, TokenKind::Arrow);
+        assert_eq!(
+            origin_str(input, &parser, arrow_runq),
+            "curthread->last_processor->runq"
+        );
+
+        // Innermost node: `->last_processor` arrow access.
+        assert!(matches!(
+            parser.nodes[arrow_last_processor].kind,
+            NodeKind::FieldAccess(..)
+        ));
+        assert_eq!(
+            origin_str(input, &parser, arrow_last_processor),
+            "curthread->last_processor"
+        );
+    }
+
+    #[test]
     fn test_sizeof_type_origin() {
         // `mytype` is lexed as an `Identifier` (not a keyword), matching what the
         // `sizeof` parser expects.

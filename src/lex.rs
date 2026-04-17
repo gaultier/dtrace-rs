@@ -1213,7 +1213,7 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            ((Some('.'), _, _), LexerState::ProgramOuterScope) => {
+            ((Some('.'), _, _), LexerState::InsideClauseAndExpr) => {
                 let start = self.position;
                 self.advance(1);
                 Token {
@@ -3618,8 +3618,11 @@ mod tests {
 
     #[test]
     fn test_lex_dot() {
+        // In expression context (S0 in the official lexer), `.` is a valid
+        // member-access operator and produces `Dot` with no error.
         let input = ".";
         let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Dot);
         assert_eq!(str_from_source(input, token.origin), ".");
@@ -4988,17 +4991,19 @@ mod tests {
 
     #[test]
     fn test_lex_dot_in_clause() {
-        // A bare '.' in expression context is an `UnexpectedPeriod` error.
+        // `.` is valid in expression context for struct member access (e.g. `s.field`).
         let input = ".";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Dot);
         assert_eq!(str_from_source(input, token.origin), ".");
-        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
-        assert_eq!(lexer.errors[0].kind, ErrorKind::UnexpectedPeriod);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
     }
 
     #[test]
