@@ -1221,19 +1221,6 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            ((Some('.'), _, _), _) => {
-                let start = self.position;
-                self.advance(1);
-                self.add_error(
-                    ErrorKind::UnexpectedPeriod,
-                    start.extend_to_inclusive(self.position),
-                    "unexpected '.'; did you mean '->' for pointer member access?",
-                );
-                Token {
-                    kind: TokenKind::Dot,
-                    origin: start.extend_to_inclusive(self.position),
-                }
-            }
             ((Some('*'), Some('='), _), _) => {
                 let start = self.position;
                 self.advance(2);
