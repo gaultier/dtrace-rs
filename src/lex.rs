@@ -2330,7 +2330,7 @@ impl<'a> Lexer<'a> {
 
         let second = self.peek1();
         match second {
-            Some('a'..'z' | 'A'..'Z' | '_') => {
+            Some('a'..='z' | 'A'..='Z' | '_') => {
                 self.advance(1);
             }
             _ => {

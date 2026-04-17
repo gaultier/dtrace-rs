@@ -127,73 +127,12 @@ impl Index<NodeId> for Vec<Node> {
     }
 }
 
-#[derive(Debug)]
-pub struct NameToDef {
-    scopes: Vec<HashMap<String, NodeId>>,
-    definitive: HashMap<String, NodeId>,
-}
-
 pub struct Parser<'a> {
     pub(crate) lexer: Lexer<'a>,
     pub(crate) nodes: Vec<Node>,
     pub(crate) node_to_type: HashMap<NodeId, Type>,
-    pub(crate) name_to_def: NameToDef,
     pub(crate) typenames: HashSet<String>,
     error_mode: bool,
-}
-
-#[derive(PartialEq, Eq, Debug)]
-pub(crate) enum ScopeResolution {
-    Current,
-    Ancestor,
-}
-
-impl NameToDef {
-    fn new() -> Self {
-        Self {
-            scopes: Vec::new(),
-            definitive: HashMap::new(),
-        }
-    }
-
-    pub(crate) fn get_scoped(&self, name: &str) -> Option<(&NodeId, ScopeResolution)> {
-        self.scopes.iter().rev().enumerate().find_map(|(i, scope)| {
-            scope.get(name).map(|node_id| {
-                let scope = if i == 0 {
-                    ScopeResolution::Current
-                } else {
-                    ScopeResolution::Ancestor
-                };
-                (node_id, scope)
-            })
-        })
-    }
-
-    pub(crate) fn get_definitive(&self, name: &str) -> Option<&NodeId> {
-        self.definitive.get(name)
-    }
-
-    pub(crate) fn insert(&mut self, name: String, node_id: NodeId) {
-        // Technically, a variable cannot be redeclared inside the same block, so
-        // we could panic if there is already an entry.
-        // However, we in this case:
-        // 1. Record the error
-        // 2. Override the existing entry
-        // 3. Keep going to report further errors
-        self.scopes
-            .last_mut()
-            .unwrap()
-            .insert(name.to_owned(), node_id);
-        self.definitive.insert(name, node_id);
-    }
-
-    fn enter(&mut self) {
-        self.scopes.push(HashMap::new());
-    }
-
-    fn leave(&mut self) {
-        self.scopes.pop();
-    }
 }
 
 impl<'a> Parser<'a> {
@@ -201,7 +140,6 @@ impl<'a> Parser<'a> {
         Self {
             nodes: Vec::new(),
             node_to_type: HashMap::new(),
-            name_to_def: NameToDef::new(),
             typenames: HashSet::new(),
             lexer,
             error_mode: false,
@@ -1748,160 +1686,6 @@ impl<'a> Parser<'a> {
         // self.resolve_nodes();
 
         self.parse_program()
-    }
-
-    fn resolve_node(
-        node_id: NodeId,
-        nodes: &[Node],
-        errors: &mut Vec<Error>,
-        name_to_def: &mut NameToDef,
-    ) {
-        let node = &nodes[node_id];
-
-        match &node.kind {
-            NodeKind::ProbeDefinition(probe, pred, actions) => {
-                Self::resolve_node(*probe, nodes, errors, name_to_def);
-                if let Some(pred) = pred {
-                    Self::resolve_node(*pred, nodes, errors, name_to_def);
-                }
-                if let Some(actions) = actions {
-                    Self::resolve_node(*actions, nodes, errors, name_to_def);
-                }
-            }
-            NodeKind::Number(..) | NodeKind::ProbeSpecifier(_) => {}
-            NodeKind::Unary(_, expr) => {
-                Self::resolve_node(*expr, nodes, errors, name_to_def);
-            }
-            NodeKind::Assignment(lhs, _, rhs) => {
-                Self::resolve_node(*lhs, nodes, errors, name_to_def);
-                Self::resolve_node(*rhs, nodes, errors, name_to_def);
-            }
-            NodeKind::Identifier(name) => {
-                let def_id = if let Some((def_id, _)) = name_to_def.get_scoped(name) {
-                    def_id
-                } else {
-                    errors.push(Error::new(
-                        ErrorKind::UnknownIdentifier,
-                        node.origin,
-                        format!("unknown identifier: {}", name),
-                    ));
-                    return;
-                };
-
-                let def = &nodes[*def_id];
-
-                match def.kind {
-                    NodeKind::Identifier(_) => {}
-                    _ => {
-                        panic!("identifier refers to invalid node: {:?}", def);
-                    }
-                }
-            }
-            NodeKind::BinaryOp(lhs, _, rhs) => {
-                Self::resolve_node(*lhs, nodes, errors, name_to_def);
-                Self::resolve_node(*rhs, nodes, errors, name_to_def);
-            }
-            NodeKind::ArgumentsDeclaration(args) => {
-                if let Some(args) = args {
-                    Self::resolve_node(*args, nodes, errors, name_to_def);
-                }
-            }
-            NodeKind::Block(stmts) => {
-                name_to_def.enter();
-
-                for op in stmts {
-                    Self::resolve_node(*op, nodes, errors, name_to_def);
-                }
-
-                name_to_def.leave();
-            }
-            NodeKind::If {
-                cond,
-                then_block,
-                else_block,
-            } => {
-                Self::resolve_node(*cond, nodes, errors, name_to_def);
-                Self::resolve_node(*then_block, nodes, errors, name_to_def);
-                if let Some(else_block) = else_block {
-                    Self::resolve_node(*else_block, nodes, errors, name_to_def);
-                }
-            }
-            NodeKind::TranslationUnit(decls) => {
-                for decl in decls {
-                    Self::resolve_node(*decl, nodes, errors, name_to_def);
-                }
-            }
-            NodeKind::Unknown => {}
-            NodeKind::PrimaryToken(_) => {}
-            NodeKind::Cast(_, _) => {}
-            NodeKind::Aggregation(_) => {}
-            NodeKind::CommaExpr(_node_ids) => {}
-            NodeKind::SizeofType(_) => {}
-            NodeKind::SizeofExpr(_node_id) => {}
-            NodeKind::StringofExpr(_node_id) => {}
-            NodeKind::PostfixIncDecrement(_node_id, _token_kind) => {}
-            NodeKind::ExprStmt(_node_id) => {}
-            NodeKind::EmptyStmt => {}
-            NodeKind::PostfixArguments(_, _node_id) => {}
-            NodeKind::TernaryExpr(_node_id, _node_id1, _node_id2) => {}
-            NodeKind::PostfixArrayAccess(_node_id, _node_id1) => {}
-            NodeKind::FieldAccess(_node_id, _token_kind, _token) => {}
-            NodeKind::ProbeSpecifiers(_node_ids) => {}
-            NodeKind::TypeName(_node_id, _node_id1) => {}
-            NodeKind::OffsetOf(_node_id, _token) => {}
-            NodeKind::Declaration(_node_id, _node_id1) => {}
-            NodeKind::DeclarationSpecifiers(_tokens) => {}
-            NodeKind::DirectDeclarator(_, _) => {}
-            NodeKind::Declarator(_node_id, _node_id1) => {}
-            NodeKind::InitDeclarators(_node_ids) => {}
-            NodeKind::TypeQualifier(_token_kind) => {}
-            NodeKind::DStorageClassSpecifier(_token_kind) => {}
-            NodeKind::StorageClassSpecifier(_token_kind) => {}
-            NodeKind::TypeSpecifier(_token_kind) => {}
-            NodeKind::EnumDeclaration(_name, _node_id) => {}
-            NodeKind::EnumeratorDeclaration(_name, _node_id) => {}
-            NodeKind::EnumeratorsDeclaration(_node_ids) => {}
-            NodeKind::StructDeclaration(_, _node_id) => {}
-            NodeKind::StructFieldsDeclaration(_node_ids) => {}
-            NodeKind::StructFieldDeclarator(_node_id, _node_id1) => {}
-            NodeKind::StructFieldDeclaration(_node_id, _node_id1) => {}
-            NodeKind::StructFieldDeclaratorList(_node_ids) => {}
-            NodeKind::SpecifierQualifierList(_node_ids) => {}
-            NodeKind::Xlate(_node_id, _node_id1) => {}
-            NodeKind::DirectAbstractDeclarator(_node_id) => {}
-            NodeKind::DirectAbstractArray(_node_id, _node_id1) => {}
-            NodeKind::DirectAbstractFunction(_node_id, _node_id1) => {}
-            NodeKind::AbstractDeclarator(_node_id, _node_id1) => {}
-            NodeKind::Pointer(_node_ids, _node_id) => {}
-            NodeKind::Array(_) => {}
-            NodeKind::ParamEllipsis => {}
-            NodeKind::Parameters(_) => {}
-            NodeKind::ParameterDeclarationSpecifiers(_node_ids) => {}
-            NodeKind::Character(_) => {}
-            NodeKind::InlineDefinition(_node_id, _node_id1, _node_id2) => {}
-            NodeKind::ParameterTypeList {
-                params: _,
-                ellipsis: _,
-            } => {}
-            NodeKind::ArgumentsExpr(_node_ids) => {}
-            NodeKind::ParameterDeclaration {
-                param_decl_specifiers: _,
-                declarator: _,
-            } => {}
-        }
-    }
-
-    fn resolve_nodes(&mut self) {
-        if self.nodes.is_empty() {
-            return;
-        }
-
-        Self::resolve_node(
-            NodeId(0),
-            &self.nodes,
-            &mut self.lexer.errors,
-            &mut self.name_to_def,
-        );
     }
 
     // abstract_declarator     → pointer
