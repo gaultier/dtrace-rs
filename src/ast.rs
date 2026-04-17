@@ -327,7 +327,7 @@ impl<'a> Parser<'a> {
                 }))
             }
             Token {
-                kind: TokenKind::LiteralNumber(_),
+                kind: TokenKind::LiteralNumber(..),
                 ..
             } => self.parse_literal_number(),
             Token {
@@ -1384,7 +1384,7 @@ impl<'a> Parser<'a> {
         }
 
         let tok = self.lexer.lex();
-        let TokenKind::LiteralNumber(num) = tok.kind else {
+        let TokenKind::LiteralNumber(num, _suffix) = tok.kind else {
             unreachable!("parse_literal_number called on non-number token");
         };
 
@@ -1402,7 +1402,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if matches!(self.peek().kind, TokenKind::LiteralNumber(_)) {
+        if matches!(self.peek().kind, TokenKind::LiteralNumber(..)) {
             return self.parse_literal_number();
         }
 
