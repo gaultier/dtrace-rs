@@ -3983,6 +3983,57 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_macro_argument_reference_identifier_single_dollar() {
+        // `$bar` — named macro variable with a single `$`.
+        let input = "$bar";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::MacroArgumentReferenceIdentifier);
+        assert_eq!(str_from_source(input, token.origin), "$bar");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
+    }
+
+    #[test]
+    fn test_lex_macro_argument_reference_identifier_double_dollar() {
+        // `$$foo` — named macro variable with a double `$$`.
+        let input = "$$foo";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::MacroArgumentReferenceIdentifier);
+        assert_eq!(str_from_source(input, token.origin), "$$foo");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
+    }
+
+    #[test]
+    fn test_lex_macro_argument_reference_identifier_underscore() {
+        // Identifiers may start with `_` and contain digits after the first char.
+        let input = "$_my_var2";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::MacroArgumentReferenceIdentifier);
+        assert_eq!(str_from_source(input, token.origin), "$_my_var2");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
+    }
+
+    #[test]
     fn test_lex_keywords_type_declarators() {
         for (kw, kind) in [
             ("auto", TokenKind::KeywordAuto),
