@@ -2705,6 +2705,26 @@ mod tests {
     }
 
     #[test]
+    fn test_probe_specifier_with_hyphen() {
+        // Probe names like `profile-1000hz` contain a hyphen, which must be
+        // included in the specifier token rather than split off as `Minus`.
+        let input = "profile:::profile-1000hz{}";
+        let mut lexer = Lexer::new(1, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+        assert_eq!(
+            str_from_source(input, token.origin),
+            "profile:::profile-1000hz"
+        );
+        assert_eq!(lexer.lex().kind, TokenKind::LeftCurly);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
+    }
+
+    #[test]
     fn test_probe_specifier() {
         let input = "syscall::open:entry{}";
         let mut lexer = Lexer::new(1, input);

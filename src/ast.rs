@@ -247,6 +247,17 @@ impl<'a> Parser<'a> {
         let tok = self.peek();
         match tok {
             Token {
+                kind: TokenKind::Aggregation,
+                ..
+            } => {
+                let tok = self.lexer.lex();
+                let identifier = lex::str_from_source(self.lexer.input, tok.origin).to_owned();
+                Some(self.new_node(Node {
+                    kind: NodeKind::Aggregation(identifier),
+                    origin: tok.origin,
+                }))
+            }
+            Token {
                 kind: TokenKind::Identifier,
                 ..
             } => {
@@ -255,11 +266,7 @@ impl<'a> Parser<'a> {
                 let identifier = lex::str_from_source(self.lexer.input, tok.origin).to_owned();
 
                 Some(self.new_node(Node {
-                    kind: if identifier.starts_with("@") {
-                        NodeKind::Aggregation(identifier)
-                    } else {
-                        NodeKind::Identifier(identifier)
-                    },
+                    kind: NodeKind::Identifier(identifier),
                     origin: tok.origin,
                 }))
             }
@@ -3214,6 +3221,29 @@ mod tests {
             NodeKind::CommaExpr(..)
         ));
         assert_eq!(origin_str(input, &parser, root_id), "a, b, c");
+    }
+
+    #[test]
+    fn test_probe_definition_hyphen_specifier() {
+        // Probe names with hyphens (e.g. `profile-1000hz`) must parse without errors.
+        let input = "profile:::profile-1000hz {}";
+        let (parser, root_id) = parse_program_input(input);
+        assert!(
+            parser.lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            parser.lexer.errors
+        );
+        let NodeKind::TranslationUnit(ref decls) = parser.nodes[root_id].kind else {
+            panic!("expected TranslationUnit");
+        };
+        assert!(matches!(
+            parser.nodes[decls[0]].kind,
+            NodeKind::ProbeDefinition(..)
+        ));
+        assert_eq!(
+            origin_str(input, &parser, decls[0]),
+            "profile:::profile-1000hz {}"
+        );
     }
 
     #[test]
