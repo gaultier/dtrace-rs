@@ -28,7 +28,7 @@ pub enum NodeKind {
     ProbeDefinition(NodeId, Option<NodeId>, Option<NodeId>),
     BinaryOp(NodeId, Token, NodeId),
     Identifier(String),
-    Aggregation(String),
+    Aggregation,
     Unary(TokenKind, NodeId),
     Assignment(NodeId, Token, NodeId),
     ArgumentsExpr(Vec<NodeId>),
@@ -251,9 +251,8 @@ impl<'a> Parser<'a> {
                 ..
             } => {
                 let tok = self.lexer.lex();
-                let identifier = lex::str_from_source(self.lexer.input, tok.origin).to_owned();
                 Some(self.new_node(Node {
-                    kind: NodeKind::Aggregation(identifier),
+                    kind: NodeKind::Aggregation,
                     origin: tok.origin,
                 }))
             }
@@ -2734,7 +2733,7 @@ pub fn log(
         }
         NodeKind::PrimaryToken(_) => {}
         NodeKind::Cast(_, _) => {}
-        NodeKind::Aggregation(_) => {}
+        NodeKind::Aggregation => {}
         NodeKind::ProbeSpecifiers(node_ids) | NodeKind::CommaExpr(node_ids) => {
             for node in node_ids {
                 log(nodes, *node, indent + 2, file_id_to_name);
