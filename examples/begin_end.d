@@ -1,6 +1,7 @@
+
 BEGIN {
-  print($bar);
-  print($$foo);
+  print($pid);
+  print($$ppid);
 }
 
 END {
