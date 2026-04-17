@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::rc::Rc;
 
 use log::info;
 use serde::Serialize;
@@ -130,7 +131,7 @@ pub struct Lexer<'a> {
     pub(crate) input: &'a str,
     pub control_directives: Vec<ControlDirective>,
     pub comments: Vec<Comment>,
-    pub(crate) chars: Vec<char>,
+    pub(crate) chars: Rc<[char]>,
     pub(crate) chars_idx: usize,
     pub(crate) attributes: Vec<Attribute>,
 }
@@ -387,7 +388,7 @@ impl<'a> Lexer<'a> {
             control_directives: Vec::new(),
             comments: Vec::new(),
             input,
-            chars: input.chars().collect(),
+            chars: input.chars().collect::<Vec<_>>().into(),
             chars_idx: 0,
             attributes: Vec::new(),
         }
