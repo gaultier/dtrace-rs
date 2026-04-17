@@ -4393,6 +4393,65 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_literal_number_hex_overflow() {
+        // `0xfffffffffffffffffff` has 19 hex digits = 76 bits, overflowing `u64`.
+        // The token is produced with value 0 and an error is recorded.
+        let input = "0xfffffffffffffffffff";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0, NumberSuffix::NONE));
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
+        assert!(
+            lexer.errors[0].explanation.contains("hex literal cannot be parsed"),
+            "unexpected explanation: {}",
+            lexer.errors[0].explanation
+        );
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_literal_number_decimal_overflow() {
+        // `u64::MAX` is 18446744073709551615 (20 digits); one more is an overflow.
+        let input = "99999999999999999999";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0, NumberSuffix::NONE));
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
+        assert!(
+            lexer.errors[0].explanation.contains("decimal literal cannot be parsed"),
+            "unexpected explanation: {}",
+            lexer.errors[0].explanation
+        );
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
+    fn test_lex_literal_number_octal_overflow() {
+        // `u64::MAX` in octal is `1777777777777777777777` (22 digits).
+        // `02000000000000000000000` (leading zero + 22 octal digits) overflows.
+        let input = "02000000000000000000000";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0, NumberSuffix::NONE));
+        assert_eq!(str_from_source(input, token.origin), input);
+        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
+        assert!(
+            lexer.errors[0].explanation.contains("octal literal cannot be parsed"),
+            "unexpected explanation: {}",
+            lexer.errors[0].explanation
+        );
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+    }
+
+    #[test]
     fn test_lex_literal_number_float() {
         // `skip_until_end_of_float` consumes the fractional digits too;
         // the whole "1.5" is a single `LiteralNumber` token.
