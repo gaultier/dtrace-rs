@@ -71,8 +71,13 @@ impl<'a> Display for OriginFormatter<'a> {
         }?;
         write!(
             f,
-            ":{}:{}:{}",
-            self.origin.start.line, self.origin.start.column, self.origin.start.byte_offset
+            ":{}:{}:{}-{}:{}:{}",
+            self.origin.start.line,
+            self.origin.start.column,
+            self.origin.start.byte_offset,
+            self.origin.end.line,
+            self.origin.end.column,
+            self.origin.end.byte_offset,
         )
     }
 }
