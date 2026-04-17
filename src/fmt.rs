@@ -447,6 +447,33 @@ END
     }
 
     #[test]
+    fn test_sizeof_simple_type() {
+        let input = "BEGIN { x = sizeof(int); }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = sizeof(int);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_sizeof_qualified_type() {
+        // `const` is a type qualifier; the formatter must join qualifier and specifier with a space.
+        let input = "BEGIN { x = sizeof(const int); }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = sizeof(const int);
+}
+"
+        );
+    }
+
+    #[test]
     fn test_multiple_probes() {
         let input = "syscall::open:entry { x = 1; } syscall::close:entry { x = 2; }";
         assert_eq!(

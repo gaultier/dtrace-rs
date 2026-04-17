@@ -1,5 +1,5 @@
 
-BEGIN, END {
-  print(sizeof( int ));
+BEGIN {
+  print(sizeof(  const   int * const ));
 }
 
