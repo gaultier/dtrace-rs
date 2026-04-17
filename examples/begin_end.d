@@ -1,5 +1,6 @@
 BEGIN {
-  print(0xfffffffffffffffffff);
+  print(1 + \
+      2
 }
 
 END {

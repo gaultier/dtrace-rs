@@ -1070,6 +1070,11 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 self.lex()
             }
+            // Discard.
+            ((Some('\\'), Some('\n'), _), LexerState::InsideClauseAndExpr) => {
+                self.advance(2);
+                self.lex()
+            }
             ((Some('#'), Some('!'), _), _) => {
                 // The official rule `^[\f\t\v ]*#!.*` requires that only
                 // horizontal whitespace precedes `#!` on the same line.
@@ -4404,7 +4409,9 @@ mod tests {
         assert_eq!(lexer.errors.len(), 1, "expected 1 error");
         assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
         assert!(
-            lexer.errors[0].explanation.contains("hex literal cannot be parsed"),
+            lexer.errors[0]
+                .explanation
+                .contains("hex literal cannot be parsed"),
             "unexpected explanation: {}",
             lexer.errors[0].explanation
         );
@@ -4423,7 +4430,9 @@ mod tests {
         assert_eq!(lexer.errors.len(), 1, "expected 1 error");
         assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
         assert!(
-            lexer.errors[0].explanation.contains("decimal literal cannot be parsed"),
+            lexer.errors[0]
+                .explanation
+                .contains("decimal literal cannot be parsed"),
             "unexpected explanation: {}",
             lexer.errors[0].explanation
         );
@@ -4443,7 +4452,9 @@ mod tests {
         assert_eq!(lexer.errors.len(), 1, "expected 1 error");
         assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
         assert!(
-            lexer.errors[0].explanation.contains("octal literal cannot be parsed"),
+            lexer.errors[0]
+                .explanation
+                .contains("octal literal cannot be parsed"),
             "unexpected explanation: {}",
             lexer.errors[0].explanation
         );
