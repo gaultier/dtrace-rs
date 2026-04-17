@@ -1,17 +1,5 @@
 # Remaining differences vs. `dt_lex.l`
 
-## 2. Backslash–newline (line continuation) not discarded
-
-## 3. Named macro variable references not recognised
-
-Official:
-```
-<S0>"$$"{RGX_IDENT}   → look up in pcb_hdl->dt_macros, return DT_TOK_STRING
-<S0>"$"{RGX_IDENT}    → look up in pcb_hdl->dt_macros, return DT_TOK_INT
-```
-`$$target`, `$pid`, `$execname`, etc. are not recognised. Only numeric indices
-(`$1`, `$$2`) are handled. The named forms would currently lex as `$` /
-`MacroArgumentReference(None)` followed by an `Identifier`.
 
 ## 4. `id_or_type()` disambiguation absent
 
@@ -45,15 +33,3 @@ from `int* { trace(timestamp); }` (glob probe specifier).
 The Rust lexer always returns `ProbeSpecifier` from `ProgramOuterScope` with
 no such check.
 
-## 7. S2 (`ProgramOuterScope`) silently accepts characters that should be errors
-
-Official:
-```
-<S2>.   yyerror("syntax error near \"%c\"\n", yytext[0]);
-```
-In outer scope, the only legal non-`RGX_PSPEC` tokens are `"/"`, `","`,
-`{`, whitespace, `\0`, `#` control lines, and `__attribute__`. Every other
-character is a hard syntax error.
-
-The Rust lexer produces operator and literal tokens in `ProgramOuterScope`
-that the official lexer would reject (e.g. `+`, `(`, integer literals).
