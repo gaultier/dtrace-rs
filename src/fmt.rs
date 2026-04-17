@@ -168,8 +168,12 @@ impl<'a, W: Write> Formatter<'a, W> {
             NodeKind::FieldAccess(_node_id, _, _) => {
                 todo!()
             }
-            NodeKind::TypeName(_specifier, _declarator) => {
-                todo!()
+            NodeKind::TypeName(specifier, declarator) => {
+                self.fmt(specifier, indent)?;
+                if let Some(declarator) = declarator {
+                    self.w.write_all(b" ")?;
+                    self.fmt(declarator, indent)?;
+                };
             }
             NodeKind::OffsetOf(_node_id, _token) => {
                 todo!()
@@ -193,7 +197,8 @@ impl<'a, W: Write> Formatter<'a, W> {
             | NodeKind::DStorageClassSpecifier(_)
             | NodeKind::StorageClassSpecifier(_)
             | NodeKind::TypeSpecifier(_) => {
-                todo!()
+                let s = lex::str_from_source(self.input, origin);
+                self.w.write_all(s.as_bytes())?;
             }
             NodeKind::EnumDeclaration(_token, _node_id) => {
                 todo!()
@@ -219,8 +224,13 @@ impl<'a, W: Write> Formatter<'a, W> {
             NodeKind::StructFieldDeclaratorList(_node_ids) => {
                 todo!()
             }
-            NodeKind::SpecifierQualifierList(_node_ids) => {
-                todo!()
+            NodeKind::SpecifierQualifierList(node_ids) => {
+                for (i, node_id) in node_ids.iter().enumerate() {
+                    self.fmt(*node_id, indent)?;
+                    if i != node_ids.len() - 1 {
+                        self.w.write_all(b" ")?;
+                    }
+                }
             }
             NodeKind::Xlate(_type_name, _expr) => {
                 todo!()
