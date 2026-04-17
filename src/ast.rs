@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
-    num::ParseIntError,
     ops::{Index, IndexMut},
 };
 
@@ -328,7 +327,7 @@ impl<'a> Parser<'a> {
                 }))
             }
             Token {
-                kind: TokenKind::LiteralNumber,
+                kind: TokenKind::LiteralNumber(_),
                 ..
             } => self.parse_literal_number(),
             Token {
@@ -1385,25 +1384,9 @@ impl<'a> Parser<'a> {
         }
 
         let tok = self.lexer.lex();
-        let src = lex::str_from_source(self.lexer.input, tok.origin);
-        // Strip optional suffix (`u`, `U`, `l`, `L`, `ll`, `LL`).
-        let digits = src.trim_end_matches(['u', 'U', 'l', 'L']);
-        let num: u64 = if let Some(hex) = digits.strip_prefix("0x").or_else(|| digits.strip_prefix("0X")) {
-            u64::from_str_radix(hex, 16)
-        } else if digits.len() > 1 && digits.starts_with('0') {
-            // Leading zero means octal (C convention).
-            u64::from_str_radix(&digits[1..], 8)
-        } else {
-            u64::from_str_radix(digits, 10)
-        }
-        .map_err(|err: ParseIntError| {
-            self.add_error_with_explanation(
-                ErrorKind::InvalidLiteralNumber,
-                tok.origin,
-                err.to_string(),
-            );
-        })
-        .ok()?;
+        let TokenKind::LiteralNumber(num) = tok.kind else {
+            unreachable!("parse_literal_number called on non-number token");
+        };
 
         let node_id = self.new_node(Node {
             kind: NodeKind::Number(num),
@@ -1419,7 +1402,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if self.peek().kind == TokenKind::LiteralNumber {
+        if matches!(self.peek().kind, TokenKind::LiteralNumber(_)) {
             return self.parse_literal_number();
         }
 
@@ -3134,4 +3117,5 @@ mod tests {
     //        _ => panic!("Expected Add"),
     //    }
     //}
+
 }

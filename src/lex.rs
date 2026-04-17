@@ -130,7 +130,7 @@ pub enum NumberOrString {
 
 #[derive(PartialEq, Eq, Debug, Serialize, Copy, Clone)]
 pub enum TokenKind {
-    LiteralNumber,
+    LiteralNumber(u64),
     LiteralString,
     LiteralCharacter(isize),
     Identifier,
@@ -781,15 +781,19 @@ impl<'a> Lexer<'a> {
         let first = first.unwrap();
         assert!(first.is_ascii_digit());
 
+        let value: u64;
+
         if let Some(second) = self.peek1()
             && first == '0'
             && (second == 'x' || second == 'X')
         {
+            // Hex literal: `0x...` or `0X...`.
             self.advance(1);
+            let hex_start = self.position.byte_offset as usize;
             let mut count = 0;
             while let Some(c) = self.peek1() {
                 match c {
-                    '0'..='9' | 'a'..='f' | 'A'..='Z' => {
+                    '0'..='9' | 'a'..='f' | 'A'..='F' => {
                         self.advance(1);
                         count += 1;
                     }
@@ -800,8 +804,15 @@ impl<'a> Lexer<'a> {
             }
             if count == 0 {
                 self.add_error(ErrorKind::InvalidLiteralNumber, self.position.into(), "hex literal requires at least one hex digit after '0x'");
+                value = 0;
+            } else {
+                let hex_digits = &self.input[hex_start..self.position.byte_offset as usize];
+                value = u64::from_str_radix(hex_digits, 16).unwrap_or(0);
             }
         } else {
+            // Decimal or octal literal.
+            let digits_start = start.byte_offset as usize;
+            let mut is_float = false;
             while let Some(c) = self.peek1() {
                 match c {
                     '0'..='9' => {
@@ -815,6 +826,7 @@ impl<'a> Lexer<'a> {
                         );
                         self.advance(1);
                         self.skip_until_end_of_float();
+                        is_float = true;
                         break;
                     }
                     _ => {
@@ -824,16 +836,31 @@ impl<'a> Lexer<'a> {
             }
             // Check for an exponent without a dot (e.g. `1e5`, `1E+3`):
             // these are float literals per `RGX_FP` in the official lexer.
-            if let Some('e' | 'E') = self.peek1() {
-                self.add_error(
-                    ErrorKind::UnsupportedLiteralFloatNumber,
-                    self.position.into(),
-                    "floating-point literals are not supported",
-                );
-                self.skip_until_end_of_float();
+            if !is_float {
+                if let Some('e' | 'E') = self.peek1() {
+                    self.add_error(
+                        ErrorKind::UnsupportedLiteralFloatNumber,
+                        self.position.into(),
+                        "floating-point literals are not supported",
+                    );
+                    self.skip_until_end_of_float();
+                    is_float = true;
+                }
+            }
+            if is_float {
+                value = 0;
+            } else {
+                let digits = &self.input[digits_start..self.position.byte_offset as usize];
+                // A leading `0` with more digits means octal (C convention).
+                if digits.len() > 1 && digits.starts_with('0') {
+                    value = u64::from_str_radix(&digits[1..], 8).unwrap_or(0);
+                } else {
+                    value = u64::from_str_radix(digits, 10).unwrap_or(0);
+                }
             }
         }
 
+        // Optional suffix: `u`/`U`, then up to two `l`/`L`.
         if let Some('u' | 'U') = self.peek1() {
             self.advance(1);
         }
@@ -847,7 +874,7 @@ impl<'a> Lexer<'a> {
         let origin = start.extend_to_inclusive(self.position);
 
         Token {
-            kind: TokenKind::LiteralNumber,
+            kind: TokenKind::LiteralNumber(value),
             origin,
         }
     }
@@ -1029,7 +1056,7 @@ impl<'a> Lexer<'a> {
                     "floating-point literals are not supported",
                 );
                 Token {
-                    kind: TokenKind::LiteralNumber,
+                    kind: TokenKind::LiteralNumber(0),
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
@@ -1521,7 +1548,7 @@ impl<'a> Lexer<'a> {
                 })
             }
             Some(Token {
-                kind: TokenKind::LiteralNumber,
+                kind: TokenKind::LiteralNumber(_),
                 ..
             }) => self.control_directive_line(tokens, origin),
             Some(Token {
@@ -1578,14 +1605,14 @@ impl<'a> Lexer<'a> {
             // `5`
             [
                 line @ Token {
-                    kind: TokenKind::LiteralNumber,
+                    kind: TokenKind::LiteralNumber(_),
                     ..
                 },
             ] => (line, None, None),
             // `5 "foo.d"`
             [
                 line @ Token {
-                    kind: TokenKind::LiteralNumber,
+                    kind: TokenKind::LiteralNumber(_),
                     ..
                 },
                 file @ Token {
@@ -1596,7 +1623,7 @@ impl<'a> Lexer<'a> {
             // `5 "foo.d" 0`
             [
                 line @ Token {
-                    kind: TokenKind::LiteralNumber,
+                    kind: TokenKind::LiteralNumber(_),
                     ..
                 },
                 file @ Token {
@@ -1604,7 +1631,7 @@ impl<'a> Lexer<'a> {
                     ..
                 },
                 trailing @ Token {
-                    kind: TokenKind::LiteralNumber,
+                    kind: TokenKind::LiteralNumber(_),
                     ..
                 },
             ] => (line, Some(file), Some(trailing)),
@@ -2585,7 +2612,7 @@ mod tests {
         }
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber);
+            assert_eq!(token.kind, TokenKind::LiteralNumber(1));
             assert_eq!(str_from_source(input, token.origin), "1");
         }
         {
@@ -2595,7 +2622,7 @@ mod tests {
         }
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber);
+            assert_eq!(token.kind, TokenKind::LiteralNumber(2));
             assert_eq!(str_from_source(input, token.origin), "2");
         }
         {
@@ -2664,7 +2691,7 @@ mod tests {
         }
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber);
+            assert_eq!(token.kind, TokenKind::LiteralNumber(102429));
             assert_eq!(str_from_source(input, token.origin), "102429");
         }
         {
@@ -2696,7 +2723,7 @@ mod tests {
         let mut lexer = Lexer::new(1, input);
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber);
+            assert_eq!(token.kind, TokenKind::LiteralNumber(0xcafe_babe));
             let s = str_from_source(input, token.origin);
             assert_eq!(s, "0xcafebabe");
         }
@@ -3055,7 +3082,7 @@ mod tests {
         }
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber);
+            assert_eq!(token.kind, TokenKind::LiteralNumber(42));
             assert_eq!(str_from_source(input, token.origin), "42");
             assert_eq!(token.origin.start, pos(2, 8, 14));
             assert_eq!(token.origin.end, pos(2, 10, 16));
@@ -3083,7 +3110,7 @@ mod tests {
         }
         {
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber);
+            assert_eq!(token.kind, TokenKind::LiteralNumber(42));
             assert_eq!(str_from_source(input, token.origin), "42");
             assert_eq!(token.origin.start, pos(2, 8, 15));
             assert_eq!(token.origin.end, pos(2, 10, 17));
@@ -3319,7 +3346,7 @@ mod tests {
         let input = "42";
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(42));
         assert_eq!(str_from_source(input, token.origin), "42");
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(
@@ -4215,7 +4242,7 @@ mod tests {
         let input = "0x";
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0));
         assert_eq!(str_from_source(input, token.origin), "0x");
         assert_eq!(lexer.errors.len(), 1, "expected 1 error");
         assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralNumber);
@@ -4230,7 +4257,7 @@ mod tests {
         let input = "1.5";
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0));
         assert_eq!(str_from_source(input, token.origin), "1.5");
         assert_eq!(lexer.errors.len(), 1, "expected 1 error");
         assert_eq!(
@@ -4248,7 +4275,7 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0));
         assert_eq!(str_from_source(input, token.origin), "1.5e3");
         assert_eq!(lexer.errors.len(), 1);
         assert_eq!(
@@ -4271,7 +4298,7 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0));
         assert_eq!(str_from_source(input, token.origin), "1.5e+3");
         assert_eq!(lexer.errors.len(), 1);
         assert_eq!(
@@ -4294,7 +4321,7 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0));
         assert_eq!(str_from_source(input, token.origin), "1.5e-3");
         assert_eq!(lexer.errors.len(), 1);
         assert_eq!(
@@ -4317,7 +4344,7 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0));
         assert_eq!(str_from_source(input, token.origin), "1.5f");
         assert_eq!(lexer.errors.len(), 1);
         assert_eq!(
@@ -4340,7 +4367,7 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0));
         assert_eq!(str_from_source(input, token.origin), "1.5L");
         assert_eq!(lexer.errors.len(), 1);
         assert_eq!(
@@ -4363,7 +4390,7 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0));
         assert_eq!(str_from_source(input, token.origin), "1.5e3f");
         assert_eq!(lexer.errors.len(), 1);
         assert_eq!(
@@ -4386,7 +4413,7 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0));
         assert_eq!(str_from_source(input, token.origin), "1.");
         assert_eq!(lexer.errors.len(), 1);
         assert_eq!(
@@ -4409,7 +4436,7 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0));
         assert_eq!(str_from_source(input, token.origin), "1.e5");
         assert_eq!(lexer.errors.len(), 1);
         assert_eq!(
@@ -4427,11 +4454,11 @@ mod tests {
 
     #[test]
     fn test_lex_literal_number_leading_zero() {
-        // Leading zeros in decimal literals are allowed per `RGX_INT`.
+        // Leading zero makes this an octal literal: `05` = 5 decimal.
         let input = "05";
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(5));
         assert_eq!(str_from_source(input, token.origin), "05");
         assert!(lexer.errors.is_empty(), "unexpected errors: {:?}", lexer.errors);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
@@ -4443,7 +4470,7 @@ mod tests {
         for input in ["42u", "42U"] {
             let mut lexer = Lexer::new(FILE_ID, input);
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber, "input={input}");
+            assert_eq!(token.kind, TokenKind::LiteralNumber(42), "input={input}");
             assert_eq!(str_from_source(input, token.origin), input, "input={input}");
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
             assert!(
@@ -4459,7 +4486,7 @@ mod tests {
         for input in ["42ul", "42UL", "42uL", "42Ul"] {
             let mut lexer = Lexer::new(FILE_ID, input);
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber, "input={input}");
+            assert_eq!(token.kind, TokenKind::LiteralNumber(42), "input={input}");
             assert_eq!(str_from_source(input, token.origin), input, "input={input}");
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
             assert!(
@@ -4475,7 +4502,7 @@ mod tests {
         for input in ["42ull", "42ULL", "42uLL", "42lL", "42LL"] {
             let mut lexer = Lexer::new(FILE_ID, input);
             let token = lexer.lex();
-            assert_eq!(token.kind, TokenKind::LiteralNumber, "input={input}");
+            assert_eq!(token.kind, TokenKind::LiteralNumber(42), "input={input}");
             assert_eq!(str_from_source(input, token.origin), input, "input={input}");
             assert_eq!(lexer.lex().kind, TokenKind::Eof);
             assert!(
@@ -4544,7 +4571,7 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0));
         assert_eq!(str_from_source(input, token.origin), ".5");
         assert_eq!(lexer.errors.len(), 1, "expected 1 error");
         assert_eq!(
@@ -4654,7 +4681,7 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0x1a));
         assert_eq!(str_from_source(input, token.origin), "0x1a");
         assert!(
             lexer.errors.is_empty(),
@@ -5138,7 +5165,7 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0));
         assert_eq!(str_from_source(input, token.origin), "1e5");
         assert_eq!(lexer.errors.len(), 1);
         assert_eq!(
@@ -5156,7 +5183,7 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
-        assert_eq!(token.kind, TokenKind::LiteralNumber);
+        assert_eq!(token.kind, TokenKind::LiteralNumber(0));
         assert_eq!(str_from_source(input, token.origin), "1E+3");
         assert_eq!(lexer.errors.len(), 1);
         assert_eq!(
@@ -5170,5 +5197,87 @@ mod tests {
             1,
             "no new errors after remaining tokens"
         );
+    }
+
+    #[test]
+    fn test_lex_number_decimal_value() {
+        // Plain decimal literal: `42` → value 42.
+        let input = "42";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::LiteralNumber(42));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty());
+    }
+
+    #[test]
+    fn test_lex_number_octal_value() {
+        // DTrace follows C convention: a leading zero means octal.
+        // `034` = 3*8 + 4 = 28 decimal.
+        let input = "034";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::LiteralNumber(28));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty());
+    }
+
+    #[test]
+    fn test_lex_number_octal_large_value() {
+        // `0400` = 256 decimal.
+        let input = "0400";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::LiteralNumber(256));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty());
+    }
+
+    #[test]
+    fn test_lex_number_zero_value() {
+        // Bare `0` is decimal zero, not treated as octal (no further digits).
+        let input = "0";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::LiteralNumber(0));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty());
+    }
+
+    #[test]
+    fn test_lex_number_hex_lowercase_value() {
+        // `0x1c` = 28 decimal.
+        let input = "0x1c";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::LiteralNumber(0x1c));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty());
+    }
+
+    #[test]
+    fn test_lex_number_hex_uppercase_prefix_value() {
+        // `0X1C` — uppercase `X` prefix is also accepted.
+        let input = "0X1C";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::LiteralNumber(0x1c));
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty());
+    }
+
+    #[test]
+    fn test_lex_number_suffix_strips_value() {
+        // Suffixes `u`/`U`/`l`/`L`/`ll`/`LL` are consumed but do not affect the value.
+        for (input, expected) in [
+            ("42u", 42u64),
+            ("42U", 42),
+            ("100UL", 100),
+            ("7ll", 7),
+            ("7LL", 7),
+        ] {
+            let mut lexer = Lexer::new(FILE_ID, input);
+            assert_eq!(
+                lexer.lex().kind,
+                TokenKind::LiteralNumber(expected),
+                "input={input}"
+            );
+            assert_eq!(lexer.lex().kind, TokenKind::Eof);
+            assert!(lexer.errors.is_empty(), "input={input}");
+        }
     }
 }
