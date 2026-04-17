@@ -146,7 +146,7 @@ pub fn check_node(
             ));
         }
         NodeKind::ProbeSpecifier(_) => todo!(),
-        NodeKind::Identifier(identifier) => {
+        NodeKind::Identifier(_identifier) => {
             todo!()
         }
         NodeKind::BinaryOp(
