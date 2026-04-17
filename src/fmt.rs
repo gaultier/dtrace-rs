@@ -50,7 +50,7 @@ impl<'a, W: Write> Formatter<'a, W> {
         let origin = self.nodes[node_id].origin;
 
         match kind {
-            NodeKind::Unknown | NodeKind::Character(_) => {
+            NodeKind::Unknown | NodeKind::Character(_) | NodeKind::ParamEllipsis => {
                 let src = lex::str_from_source(self.input, origin);
                 self.w.write_all(src.as_bytes())?;
             }
@@ -151,12 +151,11 @@ impl<'a, W: Write> Formatter<'a, W> {
                     }
                 }
             }
-            NodeKind::SizeofType(node_id) => {
+            NodeKind::SizeofExpr(node_id) | NodeKind::SizeofType(node_id) => {
                 self.w.write_all(b"sizeof(")?;
                 self.fmt(node_id, indent)?;
                 self.w.write_all(b")")?;
             }
-            NodeKind::SizeofExpr(_node_id) => todo!(),
             NodeKind::StringofExpr(_node_id) => todo!(),
             NodeKind::PostfixIncDecrement(_node_id, _token_kind) => todo!(),
             NodeKind::PostfixArrayAccess(_primary, _args) => {
@@ -251,9 +250,6 @@ impl<'a, W: Write> Formatter<'a, W> {
                 todo!()
             }
             NodeKind::Array(_params) => {
-                todo!()
-            }
-            NodeKind::ParamEllipsis => {
                 todo!()
             }
             NodeKind::Parameters(_node_ids) => {
