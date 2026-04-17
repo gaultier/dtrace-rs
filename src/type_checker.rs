@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Display};
 use serde::Serialize;
 
 use crate::{
-    ast::{NameToDef, Node, NodeId, NodeKind},
+    ast::{Node, NodeId, NodeKind},
     error::Error,
     lex::{Token, TokenKind},
     origin::Origin,
@@ -130,14 +130,13 @@ pub fn check_node(
     nodes: &[Node],
     errs: &mut Vec<Error>,
     node_to_type: &mut HashMap<NodeId, Type>,
-    name_to_def: &NameToDef,
 ) {
     let node = &nodes[node_id];
     match &node.kind {
         NodeKind::Unknown => {}
         NodeKind::TranslationUnit(decls) => {
             for decl in decls {
-                check_node(*decl, nodes, errs, node_to_type, name_to_def);
+                check_node(*decl, nodes, errs, node_to_type);
             }
         }
         NodeKind::Number(..) => {
@@ -148,14 +147,7 @@ pub fn check_node(
         }
         NodeKind::ProbeSpecifier(_) => todo!(),
         NodeKind::Identifier(identifier) => {
-            let def_id = name_to_def.get_definitive(identifier).unwrap();
-            // This could happen due to some parsing/resolving errors.
-            // Pretend the type exists and is `any` to make progress
-            // and report more errors.
-            let default_type = Type::new_any();
-            let def_type = node_to_type.get(def_id).unwrap_or(&default_type);
-
-            node_to_type.insert(node_id, def_type.clone());
+            todo!()
         }
         NodeKind::BinaryOp(
             lhs,
@@ -165,8 +157,8 @@ pub fn check_node(
             },
             rhs,
         ) => {
-            check_node(*lhs, nodes, errs, node_to_type, name_to_def);
-            check_node(*rhs, nodes, errs, node_to_type, name_to_def);
+            check_node(*lhs, nodes, errs, node_to_type);
+            check_node(*rhs, nodes, errs, node_to_type);
 
             let lhs_type = node_to_type.get(lhs).unwrap();
             let rhs_type = node_to_type.get(rhs).unwrap();
@@ -190,8 +182,8 @@ pub fn check_node(
             },
             rhs,
         ) => {
-            check_node(*lhs, nodes, errs, node_to_type, name_to_def);
-            check_node(*rhs, nodes, errs, node_to_type, name_to_def);
+            check_node(*lhs, nodes, errs, node_to_type);
+            check_node(*rhs, nodes, errs, node_to_type);
 
             let lhs_type = node_to_type.get(lhs).unwrap();
             let rhs_type = node_to_type.get(rhs).unwrap();
@@ -209,19 +201,19 @@ pub fn check_node(
             then_block,
             else_block,
         } => {
-            check_node(*cond, nodes, errs, node_to_type, name_to_def);
-            check_node(*then_block, nodes, errs, node_to_type, name_to_def);
+            check_node(*cond, nodes, errs, node_to_type);
+            check_node(*then_block, nodes, errs, node_to_type);
             if let Some(else_block) = else_block {
-                check_node(*else_block, nodes, errs, node_to_type, name_to_def);
+                check_node(*else_block, nodes, errs, node_to_type);
             }
         }
         NodeKind::Block(stmts) => {
             for stmt in stmts {
-                check_node(*stmt, nodes, errs, node_to_type, name_to_def);
+                check_node(*stmt, nodes, errs, node_to_type);
             }
         }
         NodeKind::Unary(_, expr) => {
-            check_node(*expr, nodes, errs, node_to_type, name_to_def);
+            check_node(*expr, nodes, errs, node_to_type);
         }
         NodeKind::ArgumentsDeclaration(args) => {
             if let Some(_args) = args {
@@ -229,18 +221,18 @@ pub fn check_node(
             }
         }
         NodeKind::ProbeDefinition(probe, pred, actions) => {
-            check_node(*probe, nodes, errs, node_to_type, name_to_def);
+            check_node(*probe, nodes, errs, node_to_type);
             if let Some(pred) = pred {
-                check_node(*pred, nodes, errs, node_to_type, name_to_def);
+                check_node(*pred, nodes, errs, node_to_type);
             }
 
             if let Some(actions) = actions {
-                check_node(*actions, nodes, errs, node_to_type, name_to_def);
+                check_node(*actions, nodes, errs, node_to_type);
             }
         }
         NodeKind::Assignment(lhs, op, rhs) => {
-            check_node(*lhs, nodes, errs, node_to_type, name_to_def);
-            check_node(*rhs, nodes, errs, node_to_type, name_to_def);
+            check_node(*lhs, nodes, errs, node_to_type);
+            check_node(*rhs, nodes, errs, node_to_type);
 
             let lhs_type = node_to_type.get(lhs).unwrap();
             let rhs_type = node_to_type.get(rhs).unwrap();
@@ -307,16 +299,12 @@ pub fn check_node(
     }
 }
 
-pub fn check_nodes(
-    nodes: &[Node],
-    node_to_type: &mut HashMap<NodeId, Type>,
-    name_to_def: &NameToDef,
-) -> Vec<Error> {
+pub fn check_nodes(nodes: &[Node], node_to_type: &mut HashMap<NodeId, Type>) -> Vec<Error> {
     assert!(!nodes.is_empty());
 
     let mut errs = Vec::new();
 
-    check_node(NodeId(0), nodes, &mut errs, node_to_type, name_to_def);
+    check_node(NodeId(0), nodes, &mut errs, node_to_type);
 
     errs
 }
