@@ -127,6 +127,15 @@ impl Origin {
         }
     }
 
+    /// Extend this origin to cover `other`, returning a new `Origin` whose start is `self.start`
+    /// and whose end is `other.end`.
+    pub(crate) fn merge(&self, other: Origin) -> Origin {
+        Origin {
+            start: self.start,
+            end: other.end,
+        }
+    }
+
     pub(crate) fn new_builtin() -> Origin {
         Origin {
             start: Position {

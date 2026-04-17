@@ -307,13 +307,16 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
-                let _ = self.expect_token_one(
+                let right_paren = self.expect_token_one(
                     TokenKind::RightParen,
                     "primary expression closing parenthesis",
                 );
+                let end_origin = right_paren
+                    .map(|t| t.origin)
+                    .unwrap_or_else(|| self.origin(e));
                 Some(self.new_node(Node {
                     kind: NodeKind::Unary(TokenKind::LeftParen, e),
-                    origin: left_paren.origin,
+                    origin: left_paren.origin.merge(end_origin),
                 }))
             }
             _ => None,
@@ -347,9 +350,11 @@ impl<'a> Parser<'a> {
                 }
                 Some(x) => x,
             };
+            let lhs_origin = self.origin(lhs);
+            let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
                 kind: NodeKind::BinaryOp(lhs, op, rhs),
-                origin: op.origin,
+                origin: lhs_origin.merge(rhs_origin),
             });
         }
 
@@ -391,9 +396,11 @@ impl<'a> Parser<'a> {
                 }
                 Some(x) => x,
             };
+            let lhs_origin = self.origin(lhs);
+            let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
                 kind: NodeKind::BinaryOp(lhs, op, rhs),
-                origin: op.origin,
+                origin: lhs_origin.merge(rhs_origin),
             });
         }
 
@@ -424,9 +431,10 @@ impl<'a> Parser<'a> {
                 );
                 self.new_node_unknown()
             });
+            let node_origin = self.origin(node);
             return Some(self.new_node(Node {
                 kind: NodeKind::Cast(typ_str, node),
-                origin: op.origin,
+                origin: op.origin.merge(node_origin),
             }));
         }
 
@@ -446,7 +454,6 @@ impl<'a> Parser<'a> {
         }
 
         let mut exprs = vec![first_expr];
-        let first_comma_origin = self.peek().origin;
 
         while let Some(tok) = self.match_kind(TokenKind::Comma) {
             let expr = self.parse_assignment_expr().unwrap_or_else(|| {
@@ -460,9 +467,11 @@ impl<'a> Parser<'a> {
             exprs.push(expr);
         }
 
+        let first_origin = self.origin(exprs[0]);
+        let last_origin = self.origin(*exprs.last().unwrap());
         Some(self.new_node(Node {
             kind: NodeKind::CommaExpr(exprs),
-            origin: first_comma_origin,
+            origin: first_origin.merge(last_origin),
         }))
     }
 
@@ -493,9 +502,10 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
+                let unary_origin = self.origin(unary);
                 Some(self.new_node(Node {
                     kind: NodeKind::Unary(op.kind, unary),
-                    origin: op.origin,
+                    origin: op.origin.merge(unary_origin),
                 }))
             }
             Token {
@@ -514,9 +524,10 @@ impl<'a> Parser<'a> {
                     None => self.new_node_unknown(),
                     Some(n) => n,
                 };
+                let node_origin = self.origin(node);
                 Some(self.new_node(Node {
                     kind: NodeKind::Unary(op.kind, node),
-                    origin: op.origin,
+                    origin: op.origin.merge(node_origin),
                 }))
             }
             Token {
@@ -530,11 +541,13 @@ impl<'a> Parser<'a> {
                         .expect_token_one(TokenKind::Identifier, "type name for sizeof")
                         .map(|t| lex::str_from_source(self.lexer.input, t.origin).to_owned())
                         .unwrap_or_default();
-                    self.expect_token_one(TokenKind::RightParen, "matching parenthesis for sizeof");
+                    let right_paren = self
+                        .expect_token_one(TokenKind::RightParen, "matching parenthesis for sizeof");
+                    let end_origin = right_paren.map(|t| t.origin).unwrap_or(op.origin);
 
                     Some(self.new_node(Node {
                         kind: NodeKind::SizeofType(typename),
-                        origin: op.origin,
+                        origin: op.origin.merge(end_origin),
                     }))
                 } else {
                     let unary = self.parse_unary_expr().unwrap_or_else(|| {
@@ -545,10 +558,11 @@ impl<'a> Parser<'a> {
                         );
                         self.new_node_unknown()
                     });
+                    let unary_origin = self.origin(unary);
 
                     Some(self.new_node(Node {
                         kind: NodeKind::SizeofExpr(unary),
-                        origin: op.origin,
+                        origin: op.origin.merge(unary_origin),
                     }))
                 }
             }
@@ -566,10 +580,11 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
+                let unary_origin = self.origin(unary);
 
                 Some(self.new_node(Node {
                     kind: NodeKind::StringofExpr(unary),
-                    origin: op.origin,
+                    origin: op.origin.merge(unary_origin),
                 }))
             }
 
@@ -640,10 +655,12 @@ impl<'a> Parser<'a> {
                     );
                     Token::default()
                 };
-                self.expect_token_one(TokenKind::RightParen, "closing parenthesis after field");
+                let right_paren =
+                    self.expect_token_one(TokenKind::RightParen, "closing parenthesis after field");
+                let end_origin = right_paren.map(|t| t.origin).unwrap_or(op.origin);
                 return Some(self.new_node(Node {
                     kind: NodeKind::OffsetOf(type_name, field),
-                    origin: op.origin,
+                    origin: op.origin.merge(end_origin),
                 }));
             }
             Token {
@@ -671,14 +688,15 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
-                self.expect_token_one(
+                let right_paren = self.expect_token_one(
                     TokenKind::RightParen,
                     "closing parenthesis after expression",
                 );
+                let end_origin = right_paren.map(|t| t.origin).unwrap_or(op.origin);
 
                 return Some(self.new_node(Node {
                     kind: NodeKind::Xlate(type_name, expr),
-                    origin: op.origin,
+                    origin: op.origin.merge(end_origin),
                 }));
             }
             _ => {}
@@ -692,45 +710,50 @@ impl<'a> Parser<'a> {
                     kind: TokenKind::LeftSquareBracket,
                     ..
                 } => {
+                    let lhs_origin = self.origin(lhs);
                     let op = self.lexer.lex();
 
                     let rhs = self.parse_argument_expr_list();
-                    self.expect_token_one(
+                    let right_bracket = self.expect_token_one(
                         TokenKind::RightSquareBracket,
                         "matching square bracket in argument list",
                     );
+                    let end_origin = right_bracket.map(|t| t.origin).unwrap_or(op.origin);
 
                     lhs = self.new_node(Node {
                         kind: NodeKind::PostfixArrayAccess(lhs, rhs),
-                        origin: op.origin,
+                        origin: lhs_origin.merge(end_origin),
                     });
                 }
                 Token {
                     kind: TokenKind::LeftParen,
                     ..
                 } => {
+                    let lhs_origin = self.origin(lhs);
                     let op = self.lexer.lex();
 
                     let rhs = self.parse_argument_expr_list();
-                    self.expect_token_one(
+                    let right_paren = self.expect_token_one(
                         TokenKind::RightParen,
                         "matching parenthesis in argument list",
                     );
+                    let end_origin = right_paren.map(|t| t.origin).unwrap_or(op.origin);
 
                     lhs = self.new_node(Node {
                         kind: NodeKind::PostfixArguments(lhs, rhs),
-                        origin: op.origin,
+                        origin: lhs_origin.merge(end_origin),
                     });
                 }
                 Token {
                     kind: TokenKind::Dot | TokenKind::Arrow,
                     ..
                 } => {
+                    let lhs_origin = self.origin(lhs);
                     let op = self.lexer.lex();
                     if let Some(keyword_as_ident) = self.parse_keyword_as_ident() {
                         lhs = self.new_node(Node {
                             kind: NodeKind::FieldAccess(lhs, op.kind, keyword_as_ident),
-                            origin: op.origin,
+                            origin: lhs_origin.merge(keyword_as_ident.origin),
                         });
                     } else {
                         self.add_error_with_explanation(
@@ -740,7 +763,7 @@ impl<'a> Parser<'a> {
                         );
                         lhs = self.new_node(Node {
                             kind: NodeKind::FieldAccess(lhs, op.kind, Token::default()),
-                            origin: op.origin,
+                            origin: lhs_origin.merge(op.origin),
                         });
                     }
                 }
@@ -748,11 +771,12 @@ impl<'a> Parser<'a> {
                     kind: TokenKind::PlusPlus | TokenKind::MinusMinus,
                     ..
                 } => {
+                    let lhs_origin = self.origin(lhs);
                     let op = self.lexer.lex();
 
                     lhs = self.new_node(Node {
                         kind: NodeKind::PostfixIncDecrement(lhs, op.kind),
-                        origin: op.origin,
+                        origin: lhs_origin.merge(op.origin),
                     });
                 }
                 _ => break,
@@ -770,11 +794,9 @@ impl<'a> Parser<'a> {
         }
 
         let expr = self.parse_assignment_expr()?;
-        let first_comma_origin = if self.peek().kind != TokenKind::Comma {
+        if self.peek().kind != TokenKind::Comma {
             return Some(expr);
-        } else {
-            self.peek().origin
-        };
+        }
 
         let mut args = vec![expr];
         while let Some(op) = self.match_kind(TokenKind::Comma) {
@@ -789,9 +811,11 @@ impl<'a> Parser<'a> {
             args.push(arg);
         }
 
+        let first_origin = self.origin(args[0]);
+        let last_origin = self.origin(*args.last().unwrap());
         Some(self.new_node(Node {
             kind: NodeKind::ArgumentsExpr(args),
-            origin: first_comma_origin,
+            origin: first_origin.merge(last_origin),
         }))
     }
 
@@ -804,9 +828,13 @@ impl<'a> Parser<'a> {
 
         let abstract_declarator = self.parse_abstract_declarator();
 
+        let specifier_origin = self.origin(specifier);
+        let end_origin = abstract_declarator
+            .map(|d| self.origin(d))
+            .unwrap_or(specifier_origin);
         Some(self.new_node(Node {
             kind: NodeKind::TypeName(specifier, abstract_declarator),
-            origin: self.origin(specifier),
+            origin: specifier_origin.merge(end_origin),
         }))
     }
 
@@ -832,9 +860,11 @@ impl<'a> Parser<'a> {
             list.push(x);
         }
 
+        let first_origin = self.origin(list[0]);
+        let last_origin = self.origin(*list.last().unwrap());
         Some(self.new_node(Node {
             kind: NodeKind::SpecifierQualifierList(list),
-            origin: self.origin(type_specifier),
+            origin: first_origin.merge(last_origin),
         }))
     }
 
@@ -860,6 +890,7 @@ impl<'a> Parser<'a> {
             | TokenKind::AmpersandEq
             | TokenKind::CaretEq
             | TokenKind::PipeEq => {
+                let lhs_origin = self.origin(lhs);
                 let op = self.lexer.lex();
                 let rhs = self.parse_assignment_expr().unwrap_or_else(|| {
                     self.add_error_with_explanation(
@@ -869,9 +900,10 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
+                let rhs_origin = self.origin(rhs);
                 Some(self.new_node(Node {
                     kind: NodeKind::Assignment(lhs, op, rhs),
-                    origin: op.origin,
+                    origin: lhs_origin.merge(rhs_origin),
                 }))
             }
             _ => Some(lhs),
@@ -908,10 +940,12 @@ impl<'a> Parser<'a> {
                 );
                 self.new_node_unknown()
             });
+            let lhs_origin = self.origin(lhs);
+            let rhs_origin = self.origin(rhs);
 
             Some(self.new_node(Node {
                 kind: NodeKind::TernaryExpr(lhs, mhs, rhs),
-                origin: question_mark.origin,
+                origin: lhs_origin.merge(rhs_origin),
             }))
         } else {
             Some(lhs)
@@ -938,9 +972,11 @@ impl<'a> Parser<'a> {
                 }
                 Some(x) => x,
             };
+            let lhs_origin = self.origin(lhs);
+            let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
                 kind: NodeKind::BinaryOp(lhs, op, rhs),
-                origin: op.origin,
+                origin: lhs_origin.merge(rhs_origin),
             });
         }
 
@@ -967,9 +1003,11 @@ impl<'a> Parser<'a> {
                 }
                 Some(x) => x,
             };
+            let lhs_origin = self.origin(lhs);
+            let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
                 kind: NodeKind::BinaryOp(lhs, op, rhs),
-                origin: op.origin,
+                origin: lhs_origin.merge(rhs_origin),
             });
         }
 
@@ -996,9 +1034,11 @@ impl<'a> Parser<'a> {
                 }
                 Some(x) => x,
             };
+            let lhs_origin = self.origin(lhs);
+            let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
                 kind: NodeKind::BinaryOp(lhs, op, rhs),
-                origin: op.origin,
+                origin: lhs_origin.merge(rhs_origin),
             });
         }
 
@@ -1025,9 +1065,11 @@ impl<'a> Parser<'a> {
                 }
                 Some(x) => x,
             };
+            let lhs_origin = self.origin(lhs);
+            let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
                 kind: NodeKind::BinaryOp(lhs, op, rhs),
-                origin: op.origin,
+                origin: lhs_origin.merge(rhs_origin),
             });
         }
 
@@ -1054,9 +1096,11 @@ impl<'a> Parser<'a> {
                 }
                 Some(x) => x,
             };
+            let lhs_origin = self.origin(lhs);
+            let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
                 kind: NodeKind::BinaryOp(lhs, op, rhs),
-                origin: op.origin,
+                origin: lhs_origin.merge(rhs_origin),
             });
         }
 
@@ -1083,9 +1127,11 @@ impl<'a> Parser<'a> {
                 }
                 Some(x) => x,
             };
+            let lhs_origin = self.origin(lhs);
+            let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
                 kind: NodeKind::BinaryOp(lhs, op, rhs),
-                origin: op.origin,
+                origin: lhs_origin.merge(rhs_origin),
             });
         }
 
@@ -1119,9 +1165,11 @@ impl<'a> Parser<'a> {
                 }
                 Some(x) => x,
             };
+            let lhs_origin = self.origin(lhs);
+            let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
                 kind: NodeKind::BinaryOp(lhs, op, rhs),
-                origin: op.origin,
+                origin: lhs_origin.merge(rhs_origin),
             });
         }
 
@@ -1156,9 +1204,11 @@ impl<'a> Parser<'a> {
                 }
                 Some(x) => x,
             };
+            let lhs_origin = self.origin(lhs);
+            let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
                 kind: NodeKind::BinaryOp(lhs, op, rhs),
-                origin: op.origin,
+                origin: lhs_origin.merge(rhs_origin),
             });
         }
 
@@ -1185,10 +1235,12 @@ impl<'a> Parser<'a> {
                 );
                 self.new_node_unknown()
             });
+            let lhs_origin = self.origin(lhs);
+            let rhs_origin = self.origin(rhs);
 
             lhs = self.new_node(Node {
                 kind: NodeKind::BinaryOp(lhs, op, rhs),
-                origin: op.origin,
+                origin: lhs_origin.merge(rhs_origin),
             });
         }
 
@@ -1248,13 +1300,14 @@ impl<'a> Parser<'a> {
                         })
                     });
 
+                let end_origin = self.origin(else_block.unwrap_or(then_block));
                 Some(self.new_node(Node {
                     kind: NodeKind::If {
                         cond,
                         then_block,
                         else_block,
                     },
-                    origin: if_token.origin,
+                    origin: if_token.origin.merge(end_origin),
                 }))
             }
             _ => self.parse_expr(),
@@ -1374,7 +1427,13 @@ impl<'a> Parser<'a> {
         for _ in 0..self.remaining_chars_count() {
             match self.peek().kind {
                 TokenKind::RightCurly => {
-                    let origin = self.peek().origin;
+                    let origin = if stmts.is_empty() {
+                        self.peek().origin
+                    } else {
+                        let first = self.origin(stmts[0]);
+                        let last = self.origin(*stmts.last().unwrap());
+                        first.merge(last)
+                    };
                     return Some(self.new_node(Node {
                         kind: NodeKind::Block(stmts),
                         origin,
@@ -1391,9 +1450,16 @@ impl<'a> Parser<'a> {
                         "reached EOF while parsing statement, did you forget a semicolon or closing curly brace?"
                             .to_owned(),
                     );
+                    let origin = if stmts.is_empty() {
+                        self.current_or_last_origin_for_err()
+                    } else {
+                        let first = self.origin(stmts[0]);
+                        let last = self.origin(*stmts.last().unwrap());
+                        first.merge(last)
+                    };
                     return Some(self.new_node(Node {
                         kind: NodeKind::Block(stmts),
-                        origin: self.current_or_last_origin_for_err(),
+                        origin,
                     }));
                 }
                 TokenKind::SemiColon => {
@@ -1404,8 +1470,6 @@ impl<'a> Parser<'a> {
                     }));
                 }
                 _ => {
-                    let origin = self.peek().origin;
-
                     let expr = self.parse_expr().unwrap_or_else(|| {
                         self.add_error_with_explanation(
                             ErrorKind::MissingExpr,
@@ -1415,20 +1479,27 @@ impl<'a> Parser<'a> {
                         self.new_node_unknown()
                     });
 
+                    let expr_origin = self.origin(expr);
                     if let Some(tok) = self.match_kind(TokenKind::SemiColon) {
                         stmts.push(self.new_node(Node {
                             kind: NodeKind::ExprStmt(expr),
-                            origin: tok.origin,
+                            origin: expr_origin.merge(tok.origin),
                         }));
                     } else {
+                        let block_first_origin = if stmts.is_empty() {
+                            expr_origin
+                        } else {
+                            self.origin(stmts[0])
+                        };
                         stmts.push(self.new_node(Node {
                             kind: NodeKind::ExprStmt(expr),
-                            origin: Origin::default(),
+                            origin: expr_origin,
                         }));
 
+                        let last_origin = self.origin(*stmts.last().unwrap());
                         return Some(self.new_node(Node {
                             kind: NodeKind::Block(stmts),
-                            origin,
+                            origin: block_first_origin.merge(last_origin),
                         }));
                     }
                 }
@@ -1449,7 +1520,6 @@ impl<'a> Parser<'a> {
             self.lexer.begin(lex::LexerState::InsideClauseAndExpr);
             return Some(probe_specifier);
         }
-        let first_comma_origin = self.peek().origin;
         let mut specifiers = vec![probe_specifier];
 
         while let Some(comma) = self.match_kind(TokenKind::Comma) {
@@ -1466,9 +1536,11 @@ impl<'a> Parser<'a> {
 
         self.lexer.begin(lex::LexerState::InsideClauseAndExpr);
 
+        let first_origin = self.origin(specifiers[0]);
+        let last_origin = self.origin(*specifiers.last().unwrap());
         Some(self.new_node(Node {
             kind: NodeKind::ProbeSpecifiers(specifiers),
-            origin: first_comma_origin,
+            origin: first_origin.merge(last_origin),
         }))
     }
 
@@ -1498,17 +1570,21 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
+        let probe_specifier_origin = self.origin(probe_specifier);
+        if let Some(_left_curly) = self.match_kind(TokenKind::LeftCurly) {
             let stmts = self.parse_statement_list();
 
-            self.expect_token_one(
+            let right_curly = self.expect_token_one(
                 TokenKind::RightCurly,
                 "matching right curly bracket after action",
             );
+            let end_origin = right_curly
+                .map(|t| t.origin)
+                .unwrap_or(probe_specifier_origin);
 
             let node_id = self.new_node(Node {
                 kind: NodeKind::ProbeDefinition(probe_specifier, predicate, stmts),
-                origin: left_curly.origin,
+                origin: probe_specifier_origin.merge(end_origin),
             });
 
             self.lexer.begin(lex::LexerState::ProgramOuterScope);
@@ -1587,14 +1663,17 @@ impl<'a> Parser<'a> {
             self.new_node_unknown()
         });
 
-        self.expect_token_one(
+        let semicolon = self.expect_token_one(
             TokenKind::SemiColon,
             "semicolon at the end of an inline definition",
         );
+        let end_origin = semicolon
+            .map(|t| t.origin)
+            .unwrap_or_else(|| self.origin(expr));
 
         Some(self.new_node(Node {
             kind: NodeKind::InlineDefinition(decl_specifiers, declarator, expr),
-            origin: tok.origin,
+            origin: tok.origin.merge(end_origin),
         }))
     }
 
@@ -1622,9 +1701,11 @@ impl<'a> Parser<'a> {
             }
         }
 
+        let first_origin = self.origin(decls[0]);
+        let last_origin = self.origin(*decls.last().unwrap());
         let node_id = self.new_node(Node {
             kind: NodeKind::TranslationUnit(decls),
-            origin: Origin::default(),
+            origin: first_origin.merge(last_origin),
         });
         Some(node_id)
     }
@@ -1726,14 +1807,14 @@ impl<'a> Parser<'a> {
             self.expect_token_one(TokenKind::SemiColon, "expected semicolon after declaration");
 
         self.lexer.begin(lex::LexerState::ProgramOuterScope);
-        Some(
-            self.new_node(Node {
-                kind: NodeKind::Declaration(decl_specifiers, init_decl_list),
-                origin: semicolon
-                    .map(|t| t.origin)
-                    .unwrap_or_else(|| self.current_or_last_origin_for_err()),
-            }),
-        )
+        let start_origin = self.origin(decl_specifiers);
+        let end_origin = semicolon
+            .map(|t| t.origin)
+            .unwrap_or_else(|| self.current_or_last_origin_for_err());
+        Some(self.new_node(Node {
+            kind: NodeKind::Declaration(decl_specifiers, init_decl_list),
+            origin: start_origin.merge(end_origin),
+        }))
     }
 
     // declaration_specifiers  → ( d_storage_class_specifier
@@ -1758,9 +1839,11 @@ impl<'a> Parser<'a> {
             specifiers.push(specifier);
         }
 
+        let first_origin = self.origin(specifiers[0]);
+        let last_origin = self.origin(*specifiers.last().unwrap());
         Some(self.new_node(Node {
             kind: NodeKind::DeclarationSpecifiers(specifiers),
-            origin: self.origin(specifier),
+            origin: first_origin.merge(last_origin),
         }))
     }
 
@@ -1785,9 +1868,11 @@ impl<'a> Parser<'a> {
             declarators.push(declarator);
         }
 
+        let first_origin = self.origin(declarators[0]);
+        let last_origin = self.origin(*declarators.last().unwrap());
         Some(self.new_node(Node {
             kind: NodeKind::InitDeclarators(declarators),
-            origin: self.origin(init_declarator),
+            origin: first_origin.merge(last_origin),
         }))
     }
 
@@ -1927,9 +2012,13 @@ impl<'a> Parser<'a> {
             self.new_node_unknown()
         });
 
+        let start_origin = ptr
+            .map(|p| self.origin(p))
+            .unwrap_or_else(|| self.origin(direct_declarator));
+        let end_origin = self.origin(direct_declarator);
         Some(self.new_node(Node {
             kind: NodeKind::Declarator(ptr, direct_declarator),
-            origin: self.origin(direct_declarator),
+            origin: start_origin.merge(end_origin),
         }))
     }
 
@@ -2021,6 +2110,7 @@ impl<'a> Parser<'a> {
             self.typenames.insert(name.clone());
         }
 
+        let mut end_origin = name_tok.map(|t| t.origin).unwrap_or(enum_tok.origin);
         let enumerator_list: Option<NodeId> =
             if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
                 let enumerator_list = self.parse_enumerator_list().unwrap_or_else(|| {
@@ -2031,10 +2121,11 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
-                self.expect_token_one(
+                let right_curly = self.expect_token_one(
                     TokenKind::RightCurly,
                     "closing curly brace after enumerator list",
                 );
+                end_origin = right_curly.map(|t| t.origin).unwrap_or(left_curly.origin);
                 Some(enumerator_list)
             } else {
                 None
@@ -2042,7 +2133,7 @@ impl<'a> Parser<'a> {
 
         Some(self.new_node(Node {
             kind: NodeKind::EnumDeclaration(name, enumerator_list),
-            origin: enum_tok.origin,
+            origin: enum_tok.origin.merge(end_origin),
         }))
     }
 
@@ -2067,9 +2158,11 @@ impl<'a> Parser<'a> {
             enumerators.push(enumerator);
         }
 
+        let first_origin = self.origin(enumerators[0]);
+        let last_origin = self.origin(*enumerators.last().unwrap());
         Some(self.new_node(Node {
             kind: NodeKind::EnumeratorsDeclaration(enumerators),
-            origin: self.origin(enumerator),
+            origin: first_origin.merge(last_origin),
         }))
     }
 
@@ -2115,6 +2208,7 @@ impl<'a> Parser<'a> {
             self.typenames.insert(name.clone());
         }
 
+        let mut end_origin = name_tok.map(|t| t.origin).unwrap_or(tok.origin);
         let decl_list = if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
             let decl_list = self.parse_struct_declaration_list().unwrap_or_else(|| {
                 self.add_error_with_explanation(
@@ -2124,10 +2218,11 @@ impl<'a> Parser<'a> {
                 );
                 self.new_node_unknown()
             });
-            self.expect_token_one(
+            let right_curly = self.expect_token_one(
                 TokenKind::RightCurly,
                 "closing curly brace after struct definition",
             );
+            end_origin = right_curly.map(|t| t.origin).unwrap_or(left_curly.origin);
             Some(decl_list)
         } else {
             None
@@ -2135,7 +2230,7 @@ impl<'a> Parser<'a> {
 
         Some(self.new_node(Node {
             kind: NodeKind::StructDeclaration(name, decl_list),
-            origin: tok.origin,
+            origin: tok.origin.merge(end_origin),
         }))
     }
 
@@ -2152,9 +2247,11 @@ impl<'a> Parser<'a> {
             decls.push(decl);
         }
 
+        let first_origin = self.origin(decls[0]);
+        let last_origin = self.origin(*decls.last().unwrap());
         Some(self.new_node(Node {
             kind: NodeKind::StructFieldsDeclaration(decls),
-            origin: self.origin(decl),
+            origin: first_origin.merge(last_origin),
         }))
     }
 
@@ -2165,14 +2262,16 @@ impl<'a> Parser<'a> {
         }
         let spec = self.parse_specifier_qualifier_list()?;
         let struct_declarator_list = self.parse_struct_declarator_list();
-        self.expect_token_one(
+        let semicolon = self.expect_token_one(
             TokenKind::SemiColon,
             "semicolon after field in struct declaration",
         );
 
+        let start_origin = self.origin(spec);
+        let end_origin = semicolon.map(|t| t.origin).unwrap_or(start_origin);
         Some(self.new_node(Node {
             kind: NodeKind::StructFieldDeclaration(spec, struct_declarator_list),
-            origin: self.origin(spec),
+            origin: start_origin.merge(end_origin),
         }))
     }
 
@@ -2197,9 +2296,11 @@ impl<'a> Parser<'a> {
 
             decls.push(decl);
         }
+        let first_origin = self.origin(decls[0]);
+        let last_origin = self.origin(*decls.last().unwrap());
         Some(self.new_node(Node {
             kind: NodeKind::StructFieldDeclaratorList(decls),
-            origin: self.origin(decl),
+            origin: first_origin.merge(last_origin),
         }))
     }
 
@@ -2226,9 +2327,11 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let start_origin = self.origin(declarator);
+        let end_origin = const_expr.map(|e| self.origin(e)).unwrap_or(start_origin);
         Some(self.new_node(Node {
             kind: NodeKind::StructFieldDeclarator(declarator, const_expr),
-            origin: self.origin(declarator),
+            origin: start_origin.merge(end_origin),
         }))
     }
 
@@ -2444,12 +2547,14 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let params_origin = self.origin(params);
+        let end_origin = ellipsis.map(|e| self.origin(e)).unwrap_or(params_origin);
         Some(self.new_node(Node {
             kind: NodeKind::ParameterTypeList {
                 params: Some(params),
                 ellipsis,
             },
-            origin: self.origin(params),
+            origin: params_origin.merge(end_origin),
         }))
     }
 
@@ -2474,9 +2579,11 @@ impl<'a> Parser<'a> {
             params.push(param);
         }
 
+        let first_origin = self.origin(params[0]);
+        let last_origin = self.origin(*params.last().unwrap());
         Some(self.new_node(Node {
             kind: NodeKind::Parameters(params),
-            origin: self.origin(param),
+            origin: first_origin.merge(last_origin),
         }))
     }
 
@@ -2493,12 +2600,14 @@ impl<'a> Parser<'a> {
             .parse_declarator()
             .or_else(|| self.parse_abstract_declarator());
 
+        let start_origin = self.origin(param_decl_specifiers);
+        let end_origin = declarator.map(|d| self.origin(d)).unwrap_or(start_origin);
         Some(self.new_node(Node {
             kind: NodeKind::ParameterDeclaration {
                 param_decl_specifiers,
                 declarator,
             },
-            origin: self.origin(param_decl_specifiers),
+            origin: start_origin.merge(end_origin),
         }))
     }
 
@@ -2523,14 +2632,18 @@ impl<'a> Parser<'a> {
             );
         }
 
-        let origin = specifiers
+        let first_origin = specifiers
             .first()
             .map(|n| self.origin(*n))
             .unwrap_or_else(|| self.current_or_last_origin_for_err());
+        let last_origin = specifiers
+            .last()
+            .map(|n| self.origin(*n))
+            .unwrap_or(first_origin);
 
         Some(self.new_node(Node {
             kind: NodeKind::ParameterDeclarationSpecifiers(specifiers),
-            origin,
+            origin: first_origin.merge(last_origin),
         }))
     }
 
@@ -2825,81 +2938,300 @@ pub fn log(
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
+    use super::*;
+    use crate::lex::{self, Lexer};
 
-    // #[test]
-    // fn test_probe_with_predicate() {
-    //     let input = "fbt::: /self->spec/ {}";
-    //     let lexer = Lexer::new(1, input);
-    //     let mut parser = Parser::new(lexer);
-    //     let root_id = parser.parse();
-    //     let root = &parser.nodes[root_id.unwrap()];
-    // }
+    const FILE_ID: u32 = 1;
 
-    //
-    //#[test]
-    //fn parse_number() {
-    //    let input = "123 ";
-    //    let mut lexer = Lexer::new(1);
-    //    lexer.lex(&input);
-    //
-    //    assert!(lexer.errors.is_empty());
-    //
-    //    let mut parser = Parser::new(input);
-    //    let root_id = parser.parse_expr().unwrap();
-    //    let root = &parser.nodes[root_id];
-    //
-    //    assert!(parser.errors.is_empty());
-    //
-    //    {
-    //        assert!(matches!(root.kind, NodeKind::Number(123)));
-    //    }
-    //}
-    //
-    //#[test]
-    //fn parse_add() {
-    //    let input = "123 + 45 + 0";
-    //    let mut lexer = Lexer::new(1);
-    //    lexer.lex(&input);
-    //
-    //    assert!(lexer.errors.is_empty());
-    //
-    //    let mut parser = Parser::new(input, &lexer);
-    //    let root_id = parser.parse_expr().unwrap();
-    //    let root = &parser.nodes[root_id];
-    //
-    //    assert!(parser.errors.is_empty());
-    //
-    //    match &root.kind {
-    //        NodeKind::BinaryOp(
-    //            lhs,
-    //            Token {
-    //                kind: TokenKind::Plus,
-    //                ..
-    //            },
-    //            rhs,
-    //        ) => {
-    //            let lhs = &parser.nodes[*lhs];
-    //            assert!(matches!(lhs.kind, NodeKind::Number(123)));
-    //            let rhs = &parser.nodes[*rhs];
-    //            match rhs.kind {
-    //                NodeKind::BinaryOp(
-    //                    mhs,
-    //                    Token {
-    //                        kind: TokenKind::Plus,
-    //                        ..
-    //                    },
-    //                    rhs,
-    //                ) => {
-    //                    let mhs = &parser.nodes[mhs];
-    //                    let rhs = &parser.nodes[rhs];
-    //                    assert!(matches!(mhs.kind, NodeKind::Number(45)));
-    //                    assert!(matches!(rhs.kind, NodeKind::Number(0)));
-    //                }
-    //                _ => panic!("Expected Add"),
-    //            }
-    //        }
-    //        _ => panic!("Expected Add"),
-    //    }
-    //}
+    // Parses the given input as an expression and returns the parser and root node id.
+    // The lexer state is set to `InsideClauseAndExpr` so that identifiers are lexed
+    // correctly rather than as probe specifiers.
+    fn parse_expr_input(input: &str) -> (Parser<'_>, NodeId) {
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        let root_id = parser.parse_expr().unwrap();
+        (parser, root_id)
+    }
+
+    // Parses the given input as a full D program and returns the parser and root node id.
+    fn parse_program_input(input: &'static str) -> (Parser<'static>, NodeId) {
+        let lexer = Lexer::new(FILE_ID, input);
+        let mut parser = Parser::new(lexer);
+        let root_id = parser.parse().unwrap();
+        (parser, root_id)
+    }
+
+    fn origin_str<'a>(input: &'a str, parser: &Parser<'_>, node_id: NodeId) -> &'a str {
+        lex::str_from_source(input, parser.nodes[node_id].origin)
+    }
+
+    #[test]
+    fn test_number_origin() {
+        let input = "42";
+        let (parser, root_id) = parse_expr_input(input);
+        assert_eq!(origin_str(input, &parser, root_id), "42");
+    }
+
+    #[test]
+    fn test_identifier_origin() {
+        let input = "myvar";
+        let (parser, root_id) = parse_expr_input(input);
+        assert_eq!(origin_str(input, &parser, root_id), "myvar");
+    }
+
+    #[test]
+    fn test_binary_op_add_origin() {
+        let input = "1 + 2";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert_eq!(origin_str(input, &parser, root_id), "1 + 2");
+    }
+
+    #[test]
+    fn test_binary_op_nested_origin() {
+        let input = "1 + 2 + 3";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert_eq!(origin_str(input, &parser, root_id), "1 + 2 + 3");
+    }
+
+    #[test]
+    fn test_binary_op_multiply_origin() {
+        let input = "a * b";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert_eq!(origin_str(input, &parser, root_id), "a * b");
+    }
+
+    #[test]
+    fn test_binary_op_equality_origin() {
+        let input = "x == y";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert_eq!(origin_str(input, &parser, root_id), "x == y");
+    }
+
+    #[test]
+    fn test_binary_op_logical_and_origin() {
+        let input = "a && b";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert_eq!(origin_str(input, &parser, root_id), "a && b");
+    }
+
+    #[test]
+    fn test_binary_op_relational_origin() {
+        let input = "a < b";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert_eq!(origin_str(input, &parser, root_id), "a < b");
+    }
+
+    #[test]
+    fn test_assignment_origin() {
+        let input = "x = 5";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::Assignment(..)
+        ));
+        assert_eq!(origin_str(input, &parser, root_id), "x = 5");
+    }
+
+    #[test]
+    fn test_unary_minus_origin() {
+        let input = "-1";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Unary(..)));
+        assert_eq!(origin_str(input, &parser, root_id), "-1");
+    }
+
+    #[test]
+    fn test_unary_deref_origin() {
+        let input = "*ptr";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Unary(..)));
+        assert_eq!(origin_str(input, &parser, root_id), "*ptr");
+    }
+
+    #[test]
+    fn test_prefix_increment_origin() {
+        let input = "++x";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Unary(..)));
+        assert_eq!(origin_str(input, &parser, root_id), "++x");
+    }
+
+    #[test]
+    fn test_postfix_increment_origin() {
+        let input = "x++";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::PostfixIncDecrement(..)
+        ));
+        assert_eq!(origin_str(input, &parser, root_id), "x++");
+    }
+
+    #[test]
+    fn test_ternary_origin() {
+        let input = "a ? b : c";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::TernaryExpr(..)
+        ));
+        assert_eq!(origin_str(input, &parser, root_id), "a ? b : c");
+    }
+
+    #[test]
+    fn test_function_call_origin() {
+        let input = "foo(1, 2)";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::PostfixArguments(..)
+        ));
+        assert_eq!(origin_str(input, &parser, root_id), "foo(1, 2)");
+    }
+
+    #[test]
+    fn test_function_call_no_args_origin() {
+        let input = "foo()";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::PostfixArguments(..)
+        ));
+        assert_eq!(origin_str(input, &parser, root_id), "foo()");
+    }
+
+    #[test]
+    fn test_array_access_origin() {
+        let input = "arr[0]";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::PostfixArrayAccess(..)
+        ));
+        assert_eq!(origin_str(input, &parser, root_id), "arr[0]");
+    }
+
+    #[test]
+    fn test_field_access_dot_origin() {
+        let input = "s.field";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::FieldAccess(..)
+        ));
+        assert_eq!(origin_str(input, &parser, root_id), "s.field");
+    }
+
+    #[test]
+    fn test_field_access_arrow_origin() {
+        let input = "p->field";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::FieldAccess(..)
+        ));
+        assert_eq!(origin_str(input, &parser, root_id), "p->field");
+    }
+
+    #[test]
+    fn test_sizeof_type_origin() {
+        // `mytype` is lexed as an `Identifier` (not a keyword), matching what the
+        // `sizeof` parser expects.
+        let input = "sizeof(mytype)";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::SizeofType(..)
+        ));
+        assert_eq!(origin_str(input, &parser, root_id), "sizeof(mytype)");
+    }
+
+    #[test]
+    fn test_sizeof_expr_origin() {
+        let input = "sizeof x";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::SizeofExpr(..)
+        ));
+        assert_eq!(origin_str(input, &parser, root_id), "sizeof x");
+    }
+
+    #[test]
+    fn test_stringof_origin() {
+        let input = "stringof x";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::StringofExpr(..)
+        ));
+        assert_eq!(origin_str(input, &parser, root_id), "stringof x");
+    }
+
+    #[test]
+    fn test_cast_expr_origin() {
+        // The cast parser `(type)expr` greedily consumes `(identifier)` and then parses
+        // the cast expression, so this tests the full origin of a cast node.
+        let input = "(mytype)x";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Cast(..)));
+        assert_eq!(origin_str(input, &parser, root_id), "(mytype)x");
+    }
+
+    #[test]
+    fn test_comma_expr_origin() {
+        let input = "a, b, c";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::CommaExpr(..)
+        ));
+        assert_eq!(origin_str(input, &parser, root_id), "a, b, c");
+    }
+
+    #[test]
+    fn test_probe_definition_origin() {
+        let input = "syscall::open:entry {}";
+        let (parser, root_id) = parse_program_input(input);
+        // Root is a TranslationUnit; get the first child.
+        let NodeKind::TranslationUnit(ref decls) = parser.nodes[root_id].kind else {
+            panic!("expected TranslationUnit");
+        };
+        let probe_id = decls[0];
+        assert!(matches!(
+            parser.nodes[probe_id].kind,
+            NodeKind::ProbeDefinition(..)
+        ));
+        assert_eq!(
+            origin_str(input, &parser, probe_id),
+            "syscall::open:entry {}"
+        );
+    }
+
+    #[test]
+    fn test_if_no_else_origin() {
+        let input = "syscall::open:entry { if (x) y = 1; }";
+        let (parser, root_id) = parse_program_input(input);
+        let NodeKind::TranslationUnit(ref decls) = parser.nodes[root_id].kind else {
+            panic!("expected TranslationUnit");
+        };
+        let NodeKind::ProbeDefinition(_, _, Some(block_id)) = parser.nodes[decls[0]].kind else {
+            panic!("expected ProbeDefinition with block");
+        };
+        let NodeKind::Block(ref stmts) = parser.nodes[block_id].kind else {
+            panic!("expected Block");
+        };
+        let if_id = stmts[0];
+        assert!(matches!(parser.nodes[if_id].kind, NodeKind::If { .. }));
+        // The semicolon after `y = 1` is consumed as a separate `EmptyStmt` in the
+        // outer block, so the `if` node's origin ends at the end of its body expression.
+        assert_eq!(origin_str(input, &parser, if_id), "if (x) y = 1");
+    }
 }
