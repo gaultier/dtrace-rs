@@ -57,6 +57,7 @@ pub enum ErrorKind {
     ShebangMustComeFirst,
     InvalidMacroArgumentReference,
     InvalidMacroArgument,
+    MissingExprOrTypename,
 }
 
 #[derive(Serialize, Debug, Clone)]

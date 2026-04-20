@@ -34,8 +34,7 @@ pub enum NodeKind {
     ArgumentsExpr(Vec<NodeId>),
     ArgumentsDeclaration(Option<NodeId>),
     CommaExpr(Vec<NodeId>),
-    SizeofType(NodeId),
-    SizeofExpr(NodeId),
+    Sizeof(NodeId),
     StringofExpr(NodeId),
     TranslationUnit(Vec<NodeId>),
     If {
@@ -542,40 +541,31 @@ impl<'a> Parser<'a> {
                 ..
             } => {
                 let op = self.lexer.lex();
-
-                if let Some(left_paren) = self.match_kind(TokenKind::LeftParen) {
-                    let typename = self.parse_type_name().unwrap_or_else(|| {
+                // Parenthesis is optional but must be closed if present.
+                let left_paren = self.match_kind(TokenKind::LeftParen);
+                let operand = self
+                    .parse_type_name()
+                    .or_else(|| self.parse_unary_expr())
+                    .unwrap_or_else(|| {
                         self.add_error_with_explanation(
-                            ErrorKind::MissingTypeName,
-                            left_paren.origin,
+                            ErrorKind::MissingExprOrTypename,
+                            left_paren.map(|t| t.origin).unwrap_or(op.origin),
                             String::from("expected type name after `sizeof(`"),
                         );
                         self.new_node_unknown()
                     });
-                    let right_paren = self
-                        .expect_token_one(TokenKind::RightParen, "matching parenthesis for sizeof");
-                    let end_origin = right_paren.map(|t| t.origin).unwrap_or(op.origin);
-
-                    Some(self.new_node(Node {
-                        kind: NodeKind::SizeofType(typename),
-                        origin: op.origin.merge(end_origin),
-                    }))
+                let end_origin = if left_paren.is_some() {
+                    self.expect_token_one(TokenKind::RightParen, "matching parenthesis for sizeof")
+                        .map(|t| t.origin)
+                        .unwrap_or(self.origin(operand))
                 } else {
-                    let unary = self.parse_unary_expr().unwrap_or_else(|| {
-                        self.add_error_with_explanation(
-                            ErrorKind::MissingExpr,
-                            op.origin,
-                            String::from("expected unary expression after sizeof"),
-                        );
-                        self.new_node_unknown()
-                    });
-                    let unary_origin = self.origin(unary);
+                    self.origin(operand)
+                };
 
-                    Some(self.new_node(Node {
-                        kind: NodeKind::SizeofExpr(unary),
-                        origin: op.origin.merge(unary_origin),
-                    }))
-                }
+                Some(self.new_node(Node {
+                    kind: NodeKind::Sizeof(operand),
+                    origin: op.origin.merge(end_origin),
+                }))
             }
             Token {
                 kind: TokenKind::KeywordStringof,
@@ -2744,8 +2734,7 @@ pub fn log(
                 log(nodes, *node, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::SizeofType(_) => {}
-        NodeKind::SizeofExpr(node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
+        NodeKind::Sizeof(node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
         NodeKind::StringofExpr(node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
         NodeKind::PostfixIncDecrement(node_id, _token_kind) => {
             log(nodes, *node_id, indent + 2, file_id_to_name)
@@ -3224,10 +3213,7 @@ mod tests {
         // `sizeof` parser expects.
         let input = "sizeof(mytype)";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(
-            parser.nodes[root_id].kind,
-            NodeKind::SizeofType(..)
-        ));
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Sizeof(..)));
         assert_eq!(origin_str(input, &parser, root_id), "sizeof(mytype)");
     }
 
@@ -3235,10 +3221,7 @@ mod tests {
     fn test_sizeof_expr_origin() {
         let input = "sizeof x";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(
-            parser.nodes[root_id].kind,
-            NodeKind::SizeofExpr(..)
-        ));
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Sizeof(..)));
         assert_eq!(origin_str(input, &parser, root_id), "sizeof x");
     }
 
