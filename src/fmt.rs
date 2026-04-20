@@ -151,10 +151,17 @@ impl<'a, W: Write> Formatter<'a, W> {
                     }
                 }
             }
-            NodeKind::Sizeof(node_id) => {
-                self.w.write_all(b"sizeof(")?;
+            NodeKind::Sizeof(node_id, with_paren) => {
+                self.w.write_all(b"sizeof")?;
+                if with_paren {
+                    self.w.write_all(b"(")?;
+                } else {
+                    self.w.write_all(b" ")?;
+                }
                 self.fmt(node_id, indent)?;
-                self.w.write_all(b")")?;
+                if with_paren {
+                    self.w.write_all(b")")?;
+                }
             }
             NodeKind::StringofExpr(_node_id) => todo!(),
             NodeKind::PostfixIncDecrement(_node_id, _token_kind) => todo!(),
@@ -464,6 +471,22 @@ END
             "BEGIN
 {
   x = sizeof(const int);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_sizeof_expr() {
+        // `sizeof x` (no parens) takes the unary-expression path in the parser, producing
+        // `Sizeof(Identifier)` rather than `Sizeof(TypeName(...))`. The formatter normalizes
+        // both forms to `sizeof(...)`.
+        let input = "BEGIN { x = sizeof y; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = sizeof y;
 }
 "
         );

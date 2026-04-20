@@ -244,7 +244,7 @@ pub fn check_node(
         NodeKind::Cast(_, _) => todo!(),
         NodeKind::Aggregation => todo!(),
         NodeKind::CommaExpr(_node_ids) => todo!(),
-        NodeKind::Sizeof(_) => todo!(),
+        NodeKind::Sizeof(..) => todo!(),
         NodeKind::StringofExpr(_node_id) => todo!(),
         NodeKind::PostfixIncDecrement(_node_id, _token_kind) => todo!(),
         NodeKind::ExprStmt(_node_id) => todo!(),

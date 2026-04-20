@@ -34,7 +34,7 @@ pub enum NodeKind {
     ArgumentsExpr(Vec<NodeId>),
     ArgumentsDeclaration(Option<NodeId>),
     CommaExpr(Vec<NodeId>),
-    Sizeof(NodeId),
+    Sizeof(NodeId, bool /* with parenthesis */),
     StringofExpr(NodeId),
     TranslationUnit(Vec<NodeId>),
     If {
@@ -563,7 +563,7 @@ impl<'a> Parser<'a> {
                 };
 
                 Some(self.new_node(Node {
-                    kind: NodeKind::Sizeof(operand),
+                    kind: NodeKind::Sizeof(operand, left_paren.is_some()),
                     origin: op.origin.merge(end_origin),
                 }))
             }
@@ -2734,7 +2734,7 @@ pub fn log(
                 log(nodes, *node, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::Sizeof(node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
+        NodeKind::Sizeof(node_id, _) => log(nodes, *node_id, indent + 2, file_id_to_name),
         NodeKind::StringofExpr(node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
         NodeKind::PostfixIncDecrement(node_id, _token_kind) => {
             log(nodes, *node_id, indent + 2, file_id_to_name)
