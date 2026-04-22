@@ -2608,15 +2608,13 @@ impl<'a> Lexer<'a> {
          * wrong: a type_name followed by ++, --, [, or = is a syntax error.
          */
 
-        let next = self.chars[self.chars_idx..].chunks(2).find(|c| {
-            c.first()
-                .map(|c| !c.is_ascii_whitespace())
-                .unwrap_or_default()
-        });
-        let res = match next {
-            Some(['+', '+']) | Some(['-', '-']) => TokenKind::Identifier,
-            Some(['=', c]) if *c != '=' => TokenKind::Identifier,
-            Some(['[', ..]) => TokenKind::Identifier,
+        let mut it = self.chars[self.chars_idx..]
+            .iter()
+            .filter(|c| !c.is_ascii_whitespace());
+        let res = match (it.next(), it.next()) {
+            (Some('+'), Some('+')) | (Some('-'), Some('-')) => TokenKind::Identifier,
+            (Some('='), c1) if c1 != Some(&'=') => TokenKind::Identifier,
+            (Some('['), _) => TokenKind::Identifier,
             _ => TokenKind::TypeName,
         };
 
