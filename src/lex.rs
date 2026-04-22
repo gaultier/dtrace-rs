@@ -2020,6 +2020,7 @@ impl<'a> Lexer<'a> {
                 explanation: String::from(
                     "expected up to 3 parts in attribute but found an extraneous part",
                 ),
+                related_origin: None,
             });
         }
         let name = name_str
@@ -2039,6 +2040,7 @@ impl<'a> Lexer<'a> {
                         "invalid stability, possible values are: {}",
                         STABILITY_POSSIBLE_VALUES,
                     ),
+                    related_origin: None,
                 })
             })
             .transpose()?;
@@ -2066,6 +2068,7 @@ impl<'a> Lexer<'a> {
                         "invalid stability, possible values are: {}",
                         STABILITY_POSSIBLE_VALUES,
                     ),
+                    related_origin: None,
                 })
             })
             .transpose()?;
@@ -2094,6 +2097,7 @@ impl<'a> Lexer<'a> {
                         "invalid class, possible values are: {}",
                         CLASS_POSSIBLE_VALUES
                     ),
+                    related_origin: None,
                 })
             })
             .transpose()?;
@@ -2170,6 +2174,7 @@ impl<'a> Lexer<'a> {
                             explanation: String::from(
                                 "expected option of the form key=value, found additional equal sign",
                             ),
+                            related_origin: None,
                         })
                     } else {
                         Ok(ControlDirective {
@@ -2197,6 +2202,7 @@ impl<'a> Lexer<'a> {
                     .start
                     .extend_to_inclusive(other.last().map_or(origin.end, |t| t.origin.end)),
                 explanation: String::from("expected pragma option of the form key=value"),
+                related_origin: None,
             }),
         }
     }
@@ -2282,6 +2288,7 @@ impl<'a> Lexer<'a> {
                             ..self.position
                         }),
                         explanation: String::from("nested comment"),
+                        related_origin: None,
                     });
                     self.advance(1);
                 }
@@ -2294,6 +2301,7 @@ impl<'a> Lexer<'a> {
                             ..self.position
                         }),
                         explanation: String::from("nested comment"),
+                        related_origin: None,
                     });
                     self.advance(1);
                 }
@@ -2336,6 +2344,7 @@ impl<'a> Lexer<'a> {
                             ..self.position
                         }),
                         explanation: String::from("nested comment"),
+                        related_origin: None,
                     });
                     self.advance(1);
                 }
@@ -2642,6 +2651,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
             explanation: String::from(
                 "expected version string as \"major.minor\" or \"major.minor.patch\"",
             ),
+            related_origin: None,
         });
     }
     let (major_str, minor_str, patch_str, trailing) =
@@ -2667,6 +2677,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
             explanation: String::from(
                 "expected up to 3 parts in version string but found an extraneous part",
             ),
+            related_origin: None,
         });
     }
 
@@ -2685,6 +2696,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
             "invalid major version in version string, expected a number up to 255: {}",
             err
         ),
+        related_origin: None,
     })?;
 
     let origin = origin.forwards(major_str.len() + 1);
@@ -2703,6 +2715,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
             "invalid minor version in version string, expected a number: {}",
             err
         ),
+        related_origin: None,
     })?;
     if minor > 0xfff {
         return Err(Error {
@@ -2719,6 +2732,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
             explanation: String::from(
                 "minor version too high in version string, expected a number up to 4095",
             ),
+            related_origin: None,
         });
     }
 
@@ -2739,6 +2753,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
                 "invalid patch version in version string, expected a number: {}",
                 err
             ),
+            related_origin: None,
         })?;
         if num > 0xfff {
             return Err(Error {
@@ -2755,6 +2770,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
                 explanation: String::from(
                     "patch version too high in version string, expected a number up to 4095",
                 ),
+                related_origin: None,
             });
         }
         Some(num)

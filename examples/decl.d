@@ -4,6 +4,8 @@ enum { Red, Green };
 
 enum Color {Purple};
 
+enum Color {Orange};
+
 union  PersonOrColor { struct Person p; enum Color c;} ;
 
 BEGIN {

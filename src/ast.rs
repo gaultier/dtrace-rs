@@ -135,7 +135,13 @@ pub struct Parser<'a> {
     error_mode: bool,
 }
 
-fn record_type_decl(decls: &mut Declarations, name: &str, kind: DeclarationKind, origin: Origin) {
+fn record_type_decl(
+    decls: &mut Declarations,
+    errors: &mut Vec<Error>,
+    name: &str,
+    kind: DeclarationKind,
+    origin: Origin,
+) {
     if decls.is_empty() {
         decls.push(HashMap::with_capacity(16));
     }
@@ -147,7 +153,12 @@ fn record_type_decl(decls: &mut Declarations, name: &str, kind: DeclarationKind,
         DeclarationKind::Forward => entry, // Do not modify existing.
         _ => entry.and_modify(|old| {
             if old.kind != DeclarationKind::Forward {
-                todo!("error: redefinition");
+                errors.push(Error {
+                    kind: ErrorKind::Redeclaration,
+                    origin,
+                    explanation: format!("{} is already declared", name),
+                    related_origin: Some(old.origin),
+                });
             }
             *old = decl;
         }),
@@ -2142,7 +2153,7 @@ impl<'a> Parser<'a> {
         let enum_tok = self.match_kind(TokenKind::KeywordEnum)?;
         let name_tok = self.match_kind1_or_kind2(TokenKind::Identifier, TokenKind::TypeName);
         let left_curly = self.match_kind(TokenKind::LeftCurly);
-        if let Some(tok) = name_tok {
+        if let Some(name) = name_tok {
             let kind = if left_curly.is_some() {
                 DeclarationKind::Enum
             } else {
@@ -2150,9 +2161,10 @@ impl<'a> Parser<'a> {
             };
             record_type_decl(
                 &mut self.lexer.decls,
-                lex::str_from_source(self.lexer.input, tok.origin),
+                &mut self.lexer.errors,
+                lex::str_from_source(self.lexer.input, name.origin),
                 kind,
-                tok.origin,
+                enum_tok.origin.merge(name.origin),
             );
         }
 
@@ -2259,9 +2271,10 @@ impl<'a> Parser<'a> {
             };
             record_type_decl(
                 &mut self.lexer.decls,
+                &mut self.lexer.errors,
                 lex::str_from_source(self.lexer.input, name.origin),
                 kind,
-                name.origin,
+                tok.origin.merge(name.origin),
             );
         }
 
