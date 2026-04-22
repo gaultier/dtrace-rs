@@ -1,4 +1,4 @@
-- lex: maintain stack of types/identifiers/globals
+- lex: maintain stack of ~types~(done)/identifiers/globals
 - ast: fix `sizeof(-2)`
 - ast: start + end origin
 - ast: translator definition
