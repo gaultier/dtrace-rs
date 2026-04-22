@@ -2234,7 +2234,7 @@ impl<'a> Parser<'a> {
 
         let name_tok = self.match_kind1_or_kind2(TokenKind::Identifier, TokenKind::TypeName);
 
-        if let Some(tok) = name_tok {
+        if let Some(name) = name_tok {
             let kind = match tok.kind {
                 TokenKind::KeywordStruct => DeclarationKind::Struct,
                 TokenKind::KeywordUnion => DeclarationKind::Union,
@@ -2242,9 +2242,9 @@ impl<'a> Parser<'a> {
             };
             record_type_decl(
                 &mut self.lexer.decls,
-                lex::str_from_source(self.lexer.input, tok.origin),
+                lex::str_from_source(self.lexer.input, name.origin),
                 kind,
-                tok.origin,
+                name.origin,
             );
         }
 
@@ -3381,6 +3381,73 @@ mod tests {
             NodeKind::Assignment(..)
         ));
         assert_eq!(origin_str(input, &parser, assign_id), "a = 1");
+    }
+
+    // Helper: returns true if `name` is present in the lexer's type declaration registry.
+    fn is_type_recorded(parser: &Parser<'_>, name: &str) -> bool {
+        parser
+            .lexer
+            .decls
+            .iter()
+            .any(|scope| scope.contains_key(name))
+    }
+
+    #[test]
+    fn test_enum_decl_records_typename() {
+        // Parsing `enum Color { Red, Green }` must register `Color` in the lexer's `decls`
+        // so that subsequent occurrences of `Color` lex as `TypeName` rather than `Identifier`.
+        let input = "enum Color { Red, Green };";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_enum_specifier();
+        assert!(is_type_recorded(&parser, "Color"));
+    }
+
+    #[test]
+    fn test_struct_decl_records_typename() {
+        // Parsing `struct Point { int x; }` must register `Point` in the lexer's `decls`
+        // so that subsequent occurrences of `Point` lex as `TypeName`.
+        let input = "struct Point { int x; };";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_struct_or_union_specifier();
+        assert!(is_type_recorded(&parser, "Point"));
+    }
+
+    #[test]
+    fn test_union_decl_records_typename() {
+        // Parsing `union Data { int i; }` must register `Data` in the lexer's `decls`
+        // so that subsequent occurrences of `Data` lex as `TypeName`.
+        let input = "union Data { int i; };";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_struct_or_union_specifier();
+        assert!(is_type_recorded(&parser, "Data"));
+    }
+
+    #[test]
+    fn test_enum_decl_without_name_records_nothing() {
+        // An anonymous enum `enum { Red }` has no name to register.
+        let input = "enum { Red };";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_enum_specifier();
+        assert!(parser.lexer.decls.iter().all(|scope| scope.is_empty()));
+    }
+
+    #[test]
+    fn test_struct_decl_without_name_records_nothing() {
+        // An anonymous struct `struct { int x; }` has no name to register.
+        let input = "struct { int x; };";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_struct_or_union_specifier();
+        assert!(parser.lexer.decls.iter().all(|scope| scope.is_empty()));
     }
 
     #[test]
