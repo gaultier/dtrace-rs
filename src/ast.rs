@@ -174,15 +174,21 @@ fn lookup_type<'a>(
     name: &'a str,
     kind: DeclarationKind,
 ) -> Option<&'a Declaration> {
-    let mut it = decls
-        .iter()
-        .rev()
-        .filter(|(n, decl)| decl.kind == kind && n == name)
-        .map(|(_, decl)| decl);
+    // Build the filtered iterator lazily; we need it twice because `find` exhausts the
+    // iterator, so calling `next` on the same one after finding nothing would always return
+    // `None`.
+    let mut iter = || {
+        decls
+            .iter()
+            .rev()
+            .filter(move |(n, decl)| decl.kind == kind && n == name)
+            .map(|(_, decl)| decl)
+    };
 
-    // Try to find a non-forward declaration first (more information).
-    // Then fallback to a forward declaration.
-    it.find(|decl| !decl.is_forward).or_else(|| it.next())
+    // Prefer the full (non-forward) declaration; fall back to a forward one.
+    iter()
+        .find(|decl| !decl.is_forward)
+        .or_else(|| iter().next())
 }
 
 impl<'a> Parser<'a> {
