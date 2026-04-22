@@ -227,8 +227,15 @@ impl<'a> Parser<'a> {
 
     fn match_kind(&mut self, kind: TokenKind) -> Option<Token> {
         let t = self.peek1();
-        dbg!(t);
         if t.kind == kind {
+            return Some(self.lexer.lex());
+        }
+        None
+    }
+
+    fn match_kind1_or_kind2(&mut self, kind1: TokenKind, kind2: TokenKind) -> Option<Token> {
+        let t = self.peek1();
+        if t.kind == kind1 || t.kind == kind2 {
             return Some(self.lexer.lex());
         }
         None
@@ -2107,7 +2114,7 @@ impl<'a> Parser<'a> {
         }
 
         let enum_tok = self.match_kind(TokenKind::KeywordEnum)?;
-        let name_tok = self.match_kind(TokenKind::Identifier);
+        let name_tok = self.match_kind1_or_kind2(TokenKind::Identifier, TokenKind::TypeName);
         let name = name_tok.map(|t| lex::str_from_source(self.lexer.input, t.origin).to_owned());
         if let Some(name) = &name {
             self.typenames.insert(name.clone());

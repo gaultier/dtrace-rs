@@ -267,6 +267,7 @@ pub enum TokenKind {
     Aggregation,
     MacroArgumentReferenceNumerical(Option<u32>),
     MacroArgumentReferenceIdentifier,
+    TypeName,
 }
 
 /// Type-suffix flags on an integer literal, recording `u`/`U`, `l`/`L`, and `ll`/`LL`.
