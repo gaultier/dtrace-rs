@@ -422,18 +422,25 @@ impl<'a> Lexer<'a> {
 
     fn is_identifier_character_trailing(&self, c: char) -> bool {
         match self.state {
-            LexerState::ProgramOuterScope | LexerState::InsideClauseAndExpr => {
-                c.is_alphanumeric() || c == '_' || c == '`'
-            }
+            // In expression context, backtick is the D kernel-scoping operator (e.g. `kmem_alloc`),
+            // so it is valid inside an identifier.
+            LexerState::InsideClauseAndExpr => c.is_alphanumeric() || c == '_' || c == '`',
+            // In outer scope, keywords are lexed as identifiers, but they never contain backtick.
+            // Backtick can appear only inside probe specifiers (via `is_character_probe_specifier_rest`).
+            LexerState::ProgramOuterScope => c.is_alphanumeric() || c == '_',
             LexerState::InsideControlDirective(_) => !(c.is_whitespace() || c == '"'),
         }
     }
 
     fn is_identifier_character_leading(&self, c: char) -> bool {
         match self.state {
-            LexerState::ProgramOuterScope | LexerState::InsideClauseAndExpr => {
+            // Backtick is a valid leading character for kernel-scoped identifiers in expression context.
+            LexerState::InsideClauseAndExpr => {
                 c.is_alphanumeric() || c == '_' || c == '@' || c == '`'
             }
+            // In outer scope, a leading backtick is a syntax error per the DTrace reference lexer
+            // (`RGX_PSPEC` first-char class excludes backtick; `<S2>. yyerror(...)`).
+            LexerState::ProgramOuterScope => c.is_alphanumeric() || c == '_' || c == '@',
             LexerState::InsideControlDirective(_) => !(c.is_whitespace() || c == '"'),
         }
     }
@@ -4339,12 +4346,26 @@ mod tests {
     }
 
     #[test]
-    fn test_lex_identifier_backtick() {
-        // Backtick is valid in kernel type names such as `int or struct `foo.
-        // In ProgramOuterScope, backtick-led names are not probe specifier starts,
-        // so they lex as Identifier.
+    fn test_lex_identifier_backtick_in_outer_scope_is_error() {
+        // A leading backtick in `ProgramOuterScope` is a syntax error per the DTrace reference
+        // lexer: `RGX_PSPEC` first-char class excludes backtick, and the S2 fallback emits an
+        // error for unrecognized characters.
         let input = "`foo";
         let mut lexer = Lexer::new(FILE_ID, input);
+        while lexer.lex().kind != TokenKind::Eof {}
+        assert!(
+            !lexer.errors.is_empty(),
+            "expected a lexer error for a leading backtick in outer scope"
+        );
+    }
+
+    #[test]
+    fn test_lex_identifier_backtick_leading_in_clause() {
+        // In `InsideClauseAndExpr`, backtick is the D kernel-scoping operator and can appear
+        // at the start of an identifier (e.g. `` `kmem_alloc ``).
+        let input = "`foo";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Identifier);
         assert_eq!(str_from_source(input, token.origin), "`foo");
@@ -4393,6 +4414,20 @@ mod tests {
             lexer.errors.is_empty(),
             "unexpected errors: {:?}",
             lexer.errors
+        );
+    }
+
+    #[test]
+    fn test_lex_probe_specifier_backtick_at_start_is_error() {
+        // A leading backtick in outer scope (S2) is a syntax error per the DTrace reference lexer.
+        // `RGX_PSPEC` first-char class excludes backtick; the S2 fallback emits an error.
+        let input = r#"`* { }"#;
+        let mut lexer = Lexer::new(FILE_ID, input);
+        // Consume all tokens.
+        while lexer.lex().kind != TokenKind::Eof {}
+        assert!(
+            !lexer.errors.is_empty(),
+            "expected a lexer error for a leading backtick in outer scope"
         );
     }
 
