@@ -611,6 +611,10 @@ impl<'a> Parser<'a> {
     fn parse_keyword_as_ident(&mut self) -> Option<Token> {
         match self.peek1().kind {
             TokenKind::Identifier
+            // `TypeName` can appear as a field name in member access and `offsetof`, matching the
+            // grammar rules: `postfix_expression "." DT_TOK_TNAME` and
+            // `DT_TOK_OFFSETOF "(" type_name "," DT_TOK_TNAME ")"`.
+            | TokenKind::TypeName
             | TokenKind::KeywordProbe
             | TokenKind::KeywordProvider
             | TokenKind::KeywordSelf
@@ -657,7 +661,9 @@ impl<'a> Parser<'a> {
                     self.new_node_unknown()
                 });
                 let comma = self.expect_token_one(TokenKind::Comma, "comma after type name");
-                let field = if let Some(identifier) = self.match_kind(TokenKind::Identifier) {
+                let field = if let Some(identifier) =
+                    self.match_kind1_or_kind2(TokenKind::Identifier, TokenKind::TypeName)
+                {
                     identifier
                 } else if let Some(keyword_as_ident) = self.parse_keyword_as_ident() {
                     keyword_as_ident
@@ -1939,6 +1945,17 @@ impl<'a> Parser<'a> {
                     origin: tok.origin,
                 }))
             }
+            TokenKind::TypeName => {
+                // The lexer already confirmed this name is a registered typedef or struct/enum
+                // name via `id_or_type`, so it is unconditionally a type specifier.
+                let tok = self.lexer.lex();
+                self.typenames
+                    .insert(lex::str_from_source(self.lexer.input, tok.origin).to_owned());
+                Some(self.new_node(Node {
+                    kind: NodeKind::TypeSpecifier(tok.kind),
+                    origin: tok.origin,
+                }))
+            }
             TokenKind::Identifier => {
                 let origin = self.peek1().origin;
                 let kind = self.peek1().kind;
@@ -2215,7 +2232,7 @@ impl<'a> Parser<'a> {
             .match_kind(TokenKind::KeywordStruct)
             .or_else(|| self.match_kind(TokenKind::KeywordUnion))?;
 
-        let name_tok = self.match_kind(TokenKind::Identifier);
+        let name_tok = self.match_kind1_or_kind2(TokenKind::Identifier, TokenKind::TypeName);
         let name = name_tok.map(|t| lex::str_from_source(self.lexer.input, t.origin).to_owned());
 
         if let Some(name) = &name {
