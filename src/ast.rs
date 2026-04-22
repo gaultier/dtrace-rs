@@ -3409,6 +3409,16 @@ mod tests {
             .any(|scope| scope.contains_key(name))
     }
 
+    // Helper: returns the `Declaration` for `name`, searching inner scopes first.
+    fn get_decl(parser: &Parser<'_>, name: &str) -> Option<Declaration> {
+        parser
+            .lexer
+            .decls
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name).copied())
+    }
+
     #[test]
     fn test_enum_decl_records_typename() {
         // Parsing `enum Color { Red, Green }` must register `Color` in the lexer's `decls`
@@ -3465,6 +3475,84 @@ mod tests {
         let mut parser = Parser::new(lexer);
         parser.parse_struct_or_union_specifier();
         assert!(parser.lexer.decls.iter().all(|scope| scope.is_empty()));
+    }
+
+    #[test]
+    fn test_struct_bare_name_registers_as_forward() {
+        // `struct Person` with no `{` must register `Person` as `Forward`, not `Struct`, so
+        // that a later full definition can upgrade the entry without triggering a redefinition
+        // error.
+        let input = "struct Person;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_struct_or_union_specifier();
+        let decl = get_decl(&parser, "Person").unwrap();
+        assert_eq!(decl.kind, DeclarationKind::Forward);
+    }
+
+    #[test]
+    fn test_enum_bare_name_registers_as_forward() {
+        let input = "enum Color;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_enum_specifier();
+        let decl = get_decl(&parser, "Color").unwrap();
+        assert_eq!(decl.kind, DeclarationKind::Forward);
+    }
+
+    #[test]
+    fn test_struct_forward_then_full_def_upgrades_kind_and_origin() {
+        // A forward declaration followed by a full definition must upgrade the entry from
+        // `Forward` to `Struct`. The stored origin must be from the full definition (line 2),
+        // since that declaration carries the most information (field list).
+        let input = "struct Person;\nstruct Person { int age; }";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_struct_or_union_specifier(); // consumes `struct Person` (no `{`)
+        parser.lexer.lex(); // skip `;`
+        parser.parse_struct_or_union_specifier(); // consumes `struct Person { int age; }`
+
+        let decl = get_decl(&parser, "Person").unwrap();
+        assert_eq!(decl.kind, DeclarationKind::Struct);
+        // The origin must point to the name token in the full definition (line 2), not in the
+        // forward declaration (line 1).
+        assert_eq!(decl.origin.start.line, 2);
+        assert_eq!(lex::str_from_source(input, decl.origin), "Person");
+    }
+
+    #[test]
+    fn test_enum_forward_then_full_def_upgrades_kind_and_origin() {
+        let input = "enum Color;\nenum Color { Red, Green }";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_enum_specifier();
+        parser.lexer.lex(); // skip `;`
+        parser.parse_enum_specifier();
+
+        let decl = get_decl(&parser, "Color").unwrap();
+        assert_eq!(decl.kind, DeclarationKind::Enum);
+        assert_eq!(decl.origin.start.line, 2);
+        assert_eq!(lex::str_from_source(input, decl.origin), "Color");
+    }
+
+    #[test]
+    fn test_struct_ref_in_offsetof_does_not_overwrite_full_def() {
+        // `struct Person` appearing inside `offsetof` has no `{`, so it is recorded as
+        // `Forward`. The `Forward` registration must not overwrite the prior full `Struct`
+        // definition, preserving both the kind and the origin from the definition site.
+        let input =
+            "struct Person { int age; int id; };\nBEGIN { print(offsetof(struct Person, id)); }";
+        let (parser, _) = parse_program_input(input);
+
+        let decl = get_decl(&parser, "Person").unwrap();
+        assert_eq!(decl.kind, DeclarationKind::Struct);
+        // Origin must still point to the full definition on line 1.
+        assert_eq!(decl.origin.start.line, 1);
+        assert_eq!(lex::str_from_source(input, decl.origin), "Person");
     }
 
     #[test]
