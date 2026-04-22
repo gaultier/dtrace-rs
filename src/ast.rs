@@ -100,8 +100,6 @@ pub struct Node {
     pub origin: Origin,
 }
 
-pub struct Node {}
-
 impl IndexMut<NodeId> for [Node] {
     fn index_mut(&mut self, index: NodeId) -> &mut Self::Output {
         &mut self[index.0]
