@@ -329,6 +329,62 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
     })))
 }
 
+// Converts a slice of compiler errors into LSP diagnostics.
+//
+// For each error that carries a `related_origin` (e.g., a redeclaration), two diagnostics
+// are emitted:
+//   1. An ERROR at the offending site with `relatedInformation` pointing to the original.
+//   2. A HINT at the original site with `relatedInformation` pointing back to the offending
+//      site, so that editors that do not underline `relatedInformation` locations still mark
+//      the original declaration.
+fn errors_to_diagnostics(errors: &[crate::error::Error], uri: &Uri) -> Vec<Diagnostic> {
+    errors
+        .iter()
+        .flat_map(|e| {
+            let message = if e.explanation.is_empty() {
+                format!("{:?}", e.kind)
+            } else {
+                e.explanation.clone()
+            };
+
+            let main = Diagnostic {
+                range: origin_to_lsp_range(e.origin),
+                severity: Some(DiagnosticSeverity::ERROR),
+                message: message.clone(),
+                // FIXME: This assumes that the related origin is in the same file.
+                related_information: e.related_origin.map(|rel| {
+                    vec![DiagnosticRelatedInformation {
+                        location: Location {
+                            uri: uri.clone(),
+                            range: origin_to_lsp_range(rel),
+                        },
+                        message: String::from("First declared here"),
+                    }]
+                }),
+                ..Default::default()
+            };
+
+            // Emit a secondary hint at the original declaration so that editors which do not
+            // underline `relatedInformation` locations still highlight it.
+            let hint = e.related_origin.map(|rel| Diagnostic {
+                range: origin_to_lsp_range(rel),
+                severity: Some(DiagnosticSeverity::HINT),
+                message,
+                related_information: Some(vec![DiagnosticRelatedInformation {
+                    location: Location {
+                        uri: uri.clone(),
+                        range: origin_to_lsp_range(e.origin),
+                    },
+                    message: String::from("Redeclared here"),
+                }]),
+                ..Default::default()
+            });
+
+            std::iter::once(main).chain(hint)
+        })
+        .collect()
+}
+
 fn did_open(state: &mut State, params: serde_json::Value) -> io::Result<Option<Message>> {
     let docs = match state {
         State::Initialized { docs } => docs,
@@ -347,34 +403,7 @@ fn did_open(state: &mut State, params: serde_json::Value) -> io::Result<Option<M
     let compiled = compile(&params.text_document.text, 1);
     let resp = PublishDiagnosticsParams {
         uri: params.text_document.uri.clone(),
-        diagnostics: compiled
-            .errors
-            .iter()
-            .map(|e| Diagnostic {
-                range: origin_to_lsp_range(e.origin),
-                severity: Some(DiagnosticSeverity::ERROR),
-                code: None,
-                code_description: None,
-                source: None,
-                message: if e.explanation.is_empty() {
-                    format!("{:?}", e.kind)
-                } else {
-                    e.explanation.clone()
-                },
-                related_information: e.related_origin.map(|rel| {
-                    vec![DiagnosticRelatedInformation {
-                        location: Location {
-                            // FIXME: This assumes that the related origin is in the same file.
-                            uri: params.text_document.uri.clone(),
-                            range: origin_to_lsp_range(rel),
-                        },
-                        message: String::from("Here"),
-                    }]
-                }),
-                tags: None,
-                data: None,
-            })
-            .collect(),
+        diagnostics: errors_to_diagnostics(&compiled.errors, &params.text_document.uri),
         version: Some(params.text_document.version),
     };
     docs.insert(
@@ -408,24 +437,9 @@ fn did_change(state: &mut State, params: serde_json::Value) -> Result<Option<Mes
 
     let text = &params.content_changes[0].text;
     let compiled = compile(text, 1);
-
     let resp = PublishDiagnosticsParams {
         uri: params.text_document.uri.clone(),
-        diagnostics: compiled
-            .errors
-            .iter()
-            .map(|e| Diagnostic {
-                range: origin_to_lsp_range(e.origin),
-                severity: Some(DiagnosticSeverity::ERROR),
-                code: None,
-                code_description: None,
-                source: None,
-                message: e.explanation.clone(),
-                related_information: None,
-                tags: None,
-                data: None,
-            })
-            .collect(),
+        diagnostics: errors_to_diagnostics(&compiled.errors, &params.text_document.uri),
         version: Some(params.text_document.version),
     };
     docs.insert(params.text_document.uri.clone(), (text.clone(), compiled));
