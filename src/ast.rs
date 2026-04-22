@@ -140,30 +140,49 @@ fn record_type_decl(
     errors: &mut Vec<Error>,
     name: &str,
     kind: DeclarationKind,
+    is_forward: bool,
     origin: Origin,
 ) {
-    if decls.is_empty() {
-        decls.push(HashMap::with_capacity(16));
+    let conflicting = if is_forward {
+        None
+    } else {
+        decls
+            .iter()
+            .rev()
+            .filter(|(n, decl)| !decl.is_forward && decl.kind == kind && n == name)
+            .next()
+    };
+    if let Some((_, conflicting)) = conflicting {
+        errors.push(Error {
+            kind: ErrorKind::Redeclaration,
+            origin,
+            explanation: format!("{} is already declared", name),
+            related_origin: Some(conflicting.origin),
+        });
     }
-    let current_module = decls.last_mut().unwrap();
 
-    let entry = current_module.entry(name.to_owned());
-    let decl = Declaration { kind, origin };
-    match kind {
-        DeclarationKind::Forward => entry, // Do not modify existing.
-        _ => entry.and_modify(|old| {
-            if old.kind != DeclarationKind::Forward {
-                errors.push(Error {
-                    kind: ErrorKind::Redeclaration,
-                    origin,
-                    explanation: format!("{} is already declared", name),
-                    related_origin: Some(old.origin),
-                });
-            }
-            *old = decl;
-        }),
-    }
-    .or_insert(decl);
+    let decl = Declaration {
+        kind,
+        origin,
+        is_forward,
+    };
+    decls.push((name.to_owned(), decl));
+}
+
+fn lookup_type<'a>(
+    decls: &'a Declarations,
+    name: &'a str,
+    kind: DeclarationKind,
+) -> Option<&'a Declaration> {
+    let mut it = decls
+        .iter()
+        .rev()
+        .filter(|(n, decl)| decl.kind == kind && n == name)
+        .map(|(_, decl)| decl);
+
+    // Try to find a non-forward declaration first (more information).
+    // Then fallback to a forward declaration.
+    it.find(|decl| !decl.is_forward).or_else(|| it.next())
 }
 
 impl<'a> Parser<'a> {
@@ -2154,16 +2173,13 @@ impl<'a> Parser<'a> {
         let name_tok = self.match_kind1_or_kind2(TokenKind::Identifier, TokenKind::TypeName);
         let left_curly = self.match_kind(TokenKind::LeftCurly);
         if let Some(name) = name_tok {
-            let kind = if left_curly.is_some() {
-                DeclarationKind::Enum
-            } else {
-                DeclarationKind::Forward
-            };
+            let is_forward = left_curly.is_none();
             record_type_decl(
                 &mut self.lexer.decls,
                 &mut self.lexer.errors,
                 lex::str_from_source(self.lexer.input, name.origin),
-                kind,
+                DeclarationKind::Enum,
+                is_forward,
                 enum_tok.origin.merge(name.origin),
             );
         }
@@ -2261,12 +2277,10 @@ impl<'a> Parser<'a> {
         let left_curly = self.match_kind(TokenKind::LeftCurly);
 
         if let Some(name) = name_tok {
-            let kind = match (tok.kind, left_curly.is_some()) {
-                (TokenKind::KeywordStruct, true) => DeclarationKind::Struct,
-                (TokenKind::KeywordUnion, true) => DeclarationKind::Union,
-                (TokenKind::KeywordStruct | TokenKind::KeywordUnion, false) => {
-                    DeclarationKind::Forward
-                }
+            let is_forward = left_curly.is_none();
+            let kind = match tok.kind {
+                TokenKind::KeywordStruct => DeclarationKind::Struct,
+                TokenKind::KeywordUnion => DeclarationKind::Union,
                 _ => unreachable!(),
             };
             record_type_decl(
@@ -2274,6 +2288,7 @@ impl<'a> Parser<'a> {
                 &mut self.lexer.errors,
                 lex::str_from_source(self.lexer.input, name.origin),
                 kind,
+                is_forward,
                 tok.origin.merge(name.origin),
             );
         }
@@ -3413,25 +3428,6 @@ mod tests {
         assert_eq!(origin_str(input, &parser, assign_id), "a = 1");
     }
 
-    // Helper: returns true if `name` is present in the lexer's type declaration registry.
-    fn is_type_recorded(parser: &Parser<'_>, name: &str) -> bool {
-        parser
-            .lexer
-            .decls
-            .iter()
-            .any(|scope| scope.contains_key(name))
-    }
-
-    // Helper: returns the `Declaration` for `name`, searching inner scopes first.
-    fn get_decl(parser: &Parser<'_>, name: &str) -> Option<Declaration> {
-        parser
-            .lexer
-            .decls
-            .iter()
-            .rev()
-            .find_map(|scope| scope.get(name).copied())
-    }
-
     #[test]
     fn test_enum_decl_records_typename() {
         // Parsing `enum Color { Red, Green }` must register `Color` in the lexer's `decls`
@@ -3441,7 +3437,9 @@ mod tests {
         lexer.begin(lex::LexerState::InsideClauseAndExpr);
         let mut parser = Parser::new(lexer);
         parser.parse_enum_specifier();
-        assert!(is_type_recorded(&parser, "Color"));
+
+        let lookup = lookup_type(&parser.lexer.decls, "Color", DeclarationKind::Enum).unwrap();
+        assert!(!lookup.is_forward);
     }
 
     #[test]
@@ -3453,7 +3451,9 @@ mod tests {
         lexer.begin(lex::LexerState::InsideClauseAndExpr);
         let mut parser = Parser::new(lexer);
         parser.parse_struct_or_union_specifier();
-        assert!(is_type_recorded(&parser, "Point"));
+
+        let lookup = lookup_type(&parser.lexer.decls, "Point", DeclarationKind::Struct).unwrap();
+        assert!(!lookup.is_forward);
     }
 
     #[test]
@@ -3465,7 +3465,9 @@ mod tests {
         lexer.begin(lex::LexerState::InsideClauseAndExpr);
         let mut parser = Parser::new(lexer);
         parser.parse_struct_or_union_specifier();
-        assert!(is_type_recorded(&parser, "Data"));
+
+        let lookup = lookup_type(&parser.lexer.decls, "Data", DeclarationKind::Union).unwrap();
+        assert!(!lookup.is_forward);
     }
 
     #[test]
@@ -3476,7 +3478,8 @@ mod tests {
         lexer.begin(lex::LexerState::InsideClauseAndExpr);
         let mut parser = Parser::new(lexer);
         parser.parse_enum_specifier();
-        assert!(parser.lexer.decls.iter().all(|scope| scope.is_empty()));
+        assert!(lookup_type(&parser.lexer.decls, "", DeclarationKind::Enum).is_none());
+        assert!(lookup_type(&parser.lexer.decls, "Red", DeclarationKind::Enum).is_none());
     }
 
     #[test]
@@ -3487,7 +3490,8 @@ mod tests {
         lexer.begin(lex::LexerState::InsideClauseAndExpr);
         let mut parser = Parser::new(lexer);
         parser.parse_struct_or_union_specifier();
-        assert!(parser.lexer.decls.iter().all(|scope| scope.is_empty()));
+        assert!(lookup_type(&parser.lexer.decls, "", DeclarationKind::Struct).is_none());
+        assert!(lookup_type(&parser.lexer.decls, "x", DeclarationKind::Struct).is_none());
     }
 
     #[test]
@@ -3500,8 +3504,9 @@ mod tests {
         lexer.begin(lex::LexerState::InsideClauseAndExpr);
         let mut parser = Parser::new(lexer);
         parser.parse_struct_or_union_specifier();
-        let decl = get_decl(&parser, "Person").unwrap();
-        assert_eq!(decl.kind, DeclarationKind::Forward);
+
+        let lookup = lookup_type(&parser.lexer.decls, "Person", DeclarationKind::Struct).unwrap();
+        assert!(lookup.is_forward);
     }
 
     #[test]
@@ -3511,8 +3516,8 @@ mod tests {
         lexer.begin(lex::LexerState::InsideClauseAndExpr);
         let mut parser = Parser::new(lexer);
         parser.parse_enum_specifier();
-        let decl = get_decl(&parser, "Color").unwrap();
-        assert_eq!(decl.kind, DeclarationKind::Forward);
+        let lookup = lookup_type(&parser.lexer.decls, "Color", DeclarationKind::Enum).unwrap();
+        assert!(lookup.is_forward);
     }
 
     #[test]
@@ -3528,12 +3533,13 @@ mod tests {
         parser.lexer.lex(); // skip `;`
         parser.parse_struct_or_union_specifier(); // consumes `struct Person { int age; }`
 
-        let decl = get_decl(&parser, "Person").unwrap();
-        assert_eq!(decl.kind, DeclarationKind::Struct);
+        let lookup = lookup_type(&parser.lexer.decls, "Person", DeclarationKind::Struct).unwrap();
+        assert!(!lookup.is_forward);
+
         // The origin must point to the full `struct Person` span in the full definition (line 2),
         // not in the forward declaration (line 1).
-        assert_eq!(decl.origin.start.line, 2);
-        assert_eq!(lex::str_from_source(input, decl.origin), "struct Person");
+        assert_eq!(lookup.origin.start.line, 2);
+        assert_eq!(lex::str_from_source(input, lookup.origin), "struct Person");
     }
 
     #[test]
@@ -3546,26 +3552,23 @@ mod tests {
         parser.lexer.lex(); // skip `;`
         parser.parse_enum_specifier();
 
-        let decl = get_decl(&parser, "Color").unwrap();
-        assert_eq!(decl.kind, DeclarationKind::Enum);
-        assert_eq!(decl.origin.start.line, 2);
-        assert_eq!(lex::str_from_source(input, decl.origin), "enum Color");
+        let lookup = lookup_type(&parser.lexer.decls, "Color", DeclarationKind::Enum).unwrap();
+        assert!(!lookup.is_forward);
+        assert_eq!(lookup.origin.start.line, 2);
+        assert_eq!(lex::str_from_source(input, lookup.origin), "enum Color");
     }
 
     #[test]
     fn test_struct_ref_in_offsetof_does_not_overwrite_full_def() {
-        // `struct Person` appearing inside `offsetof` has no `{`, so it is recorded as
-        // `Forward`. The `Forward` registration must not overwrite the prior full `Struct`
-        // definition, preserving both the kind and the origin from the definition site.
         let input =
             "struct Person { int age; int id; };\nBEGIN { print(offsetof(struct Person, id)); }";
         let (parser, _) = parse_program_input(input);
 
-        let decl = get_decl(&parser, "Person").unwrap();
-        assert_eq!(decl.kind, DeclarationKind::Struct);
+        let lookup = lookup_type(&parser.lexer.decls, "Person", DeclarationKind::Struct).unwrap();
+        assert!(!lookup.is_forward);
         // Origin must still point to the full definition on line 1.
-        assert_eq!(decl.origin.start.line, 1);
-        assert_eq!(lex::str_from_source(input, decl.origin), "struct Person");
+        assert_eq!(lookup.origin.start.line, 1);
+        assert_eq!(lex::str_from_source(input, lookup.origin), "struct Person");
     }
 
     #[test]

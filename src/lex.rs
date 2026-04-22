@@ -23,7 +23,6 @@ pub enum DeclarationKind {
     Struct,
     Union,
     Enum,
-    Forward,
     Typedef,
 }
 
@@ -31,6 +30,7 @@ pub enum DeclarationKind {
 pub struct Declaration {
     pub kind: DeclarationKind,
     pub origin: Origin,
+    pub is_forward: bool,
     // TODO flags.
 }
 
@@ -141,8 +141,7 @@ pub struct Attribute {
     pub origin: Origin,
 }
 
-pub type ModuleDeclarations = HashMap<String, Declaration>;
-pub type Declarations = Vec<ModuleDeclarations>;
+pub type Declarations = Vec<(String, Declaration)>;
 
 #[derive(Debug)]
 pub struct Lexer<'a> {
@@ -432,7 +431,7 @@ impl<'a> Lexer<'a> {
             // In expression context, backtick is the D kernel-scoping operator (e.g. `kmem_alloc`),
             // so it is valid inside an identifier.
             LexerState::InsideClauseAndExpr => c.is_alphanumeric() || c == '_' || c == '`',
-            // In outer scope, keywords are lexed as identifiers, but they never contain backtick.
+            // In outer declarations, keywords are lexed as identifiers, but they never contain backtick.
             // Backtick can appear only inside probe specifiers (via `is_character_probe_specifier_rest`).
             LexerState::ProgramOuterScope => c.is_alphanumeric() || c == '_',
             LexerState::InsideControlDirective(_) => !(c.is_whitespace() || c == '"'),
@@ -445,7 +444,7 @@ impl<'a> Lexer<'a> {
             LexerState::InsideClauseAndExpr => {
                 c.is_alphanumeric() || c == '_' || c == '@' || c == '`'
             }
-            // In outer scope, a leading backtick is a syntax error per the DTrace reference lexer
+            // In outer declarations, a leading backtick is a syntax error per the DTrace reference lexer
             // (`RGX_PSPEC` first-char class excludes backtick; `<S2>. yyerror(...)`).
             LexerState::ProgramOuterScope => c.is_alphanumeric() || c == '_' || c == '@',
             LexerState::InsideControlDirective(_) => !(c.is_whitespace() || c == '"'),
@@ -2596,7 +2595,7 @@ impl<'a> Lexer<'a> {
          */
         if self.globals.contains_key(s)
             || self.identifiers.contains_key(s)
-            || self.decls.iter().find(|x| x.contains_key(s)).is_none()
+            || self.decls.iter().find(|(name, _)| name == s).is_none()
         {
             return TokenKind::Identifier;
         }
@@ -4442,7 +4441,7 @@ mod tests {
         while lexer.lex().kind != TokenKind::Eof {}
         assert!(
             !lexer.errors.is_empty(),
-            "expected a lexer error for a leading backtick in outer scope"
+            "expected a lexer error for a leading backtick in outer declarations"
         );
     }
 
@@ -4506,7 +4505,7 @@ mod tests {
 
     #[test]
     fn test_lex_probe_specifier_backtick_at_start_is_error() {
-        // A leading backtick in outer scope (S2) is a syntax error per the DTrace reference lexer.
+        // A leading backtick in outer declarations (S2) is a syntax error per the DTrace reference lexer.
         // `RGX_PSPEC` first-char class excludes backtick; the S2 fallback emits an error.
         let input = r#"`* { }"#;
         let mut lexer = Lexer::new(FILE_ID, input);
@@ -4514,7 +4513,7 @@ mod tests {
         while lexer.lex().kind != TokenKind::Eof {}
         assert!(
             !lexer.errors.is_empty(),
-            "expected a lexer error for a leading backtick in outer scope"
+            "expected a lexer error for a leading backtick in outer declarations"
         );
     }
 
@@ -5152,7 +5151,7 @@ mod tests {
 
     #[test]
     fn test_lex_slash_in_outer_scope() {
-        // A lone '/' in outer scope produces a `Slash` token (used as predicate delimiter).
+        // A lone '/' in outer declarations produces a `Slash` token (used as predicate delimiter).
         let input = "/";
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
@@ -5823,7 +5822,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::ProbeSpecifier);
         assert_eq!(str_from_source(input, token.origin), "\\");
         // The newline is skipped as whitespace; `+` is not a valid token in outer
-        // scope but is still produced by the lexer (known divergence from official).
+        // declarations but is still produced by the lexer (known divergence from official).
         assert_eq!(lexer.errors.is_empty(), true);
     }
 
@@ -5923,15 +5922,14 @@ mod tests {
         let input = "MyType;";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        let mut scope = std::collections::HashMap::new();
-        scope.insert(
+        lexer.decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
+                is_forward: true,
             },
-        );
-        lexer.decls.push(scope);
+        ));
         assert_eq!(lexer.lex().kind, TokenKind::TypeName);
         assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
@@ -5945,15 +5943,14 @@ mod tests {
         let input = "MyType++";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        let mut scope = std::collections::HashMap::new();
-        scope.insert(
+        lexer.decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
+                is_forward: true,
             },
-        );
-        lexer.decls.push(scope);
+        ));
         assert_eq!(lexer.lex().kind, TokenKind::Identifier);
     }
 
@@ -5962,15 +5959,14 @@ mod tests {
         let input = "MyType--";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        let mut scope = std::collections::HashMap::new();
-        scope.insert(
+        lexer.decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
+                is_forward: true,
             },
-        );
-        lexer.decls.push(scope);
+        ));
         assert_eq!(lexer.lex().kind, TokenKind::Identifier);
     }
 
@@ -5979,15 +5975,14 @@ mod tests {
         let input = "MyType[0]";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        let mut scope = std::collections::HashMap::new();
-        scope.insert(
+        lexer.decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
+                is_forward: true,
             },
-        );
-        lexer.decls.push(scope);
+        ));
         assert_eq!(lexer.lex().kind, TokenKind::Identifier);
     }
 
@@ -5997,15 +5992,14 @@ mod tests {
         let input = "MyType = 1";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        let mut scope = std::collections::HashMap::new();
-        scope.insert(
+        lexer.decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
+                is_forward: true,
             },
-        );
-        lexer.decls.push(scope);
+        ));
         assert_eq!(lexer.lex().kind, TokenKind::Identifier);
     }
 
@@ -6015,15 +6009,14 @@ mod tests {
         let input = "MyType == 1";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        let mut scope = std::collections::HashMap::new();
-        scope.insert(
+        lexer.decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
+                is_forward: true,
             },
-        );
-        lexer.decls.push(scope);
+        ));
         assert_eq!(lexer.lex().kind, TokenKind::TypeName);
     }
 
@@ -6034,15 +6027,14 @@ mod tests {
         let input = "MyType;";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        let mut scope = std::collections::HashMap::new();
-        scope.insert(
+        lexer.decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
+                is_forward: true,
             },
-        );
-        lexer.decls.push(scope);
+        ));
         lexer
             .globals
             .insert("MyType".to_owned(), crate::origin::Origin::default());
@@ -6055,15 +6047,14 @@ mod tests {
         let input = "MyType;";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        let mut scope = std::collections::HashMap::new();
-        scope.insert(
+        lexer.decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
+                is_forward: true,
             },
-        );
-        lexer.decls.push(scope);
+        ));
         lexer
             .identifiers
             .insert("MyType".to_owned(), crate::origin::Origin::default());
