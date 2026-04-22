@@ -16,7 +16,7 @@ const CLASS_POSSIBLE_VALUES: &str = "Cpu, Platform, Group, Isa, Common";
 
 const DEPENDS_ON_POSSIBLE_VALUES: &str = "provider, module, library";
 
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(PartialEq, Debug, Copy, Clone, Serialize)]
 pub enum DeclarationKind {
     Array,
     Function,

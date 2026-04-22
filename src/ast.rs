@@ -135,17 +135,24 @@ pub struct Parser<'a> {
     error_mode: bool,
 }
 
-fn record_type_decl(
-    decls: &mut Declarations,
-    name: &str,
-    kind: DeclarationKind,
-    origin: Origin,
-) -> Option<Declaration> {
+fn record_type_decl(decls: &mut Declarations, name: &str, kind: DeclarationKind, origin: Origin) {
     if decls.is_empty() {
         decls.push(HashMap::with_capacity(16));
     }
     let current_module = decls.last_mut().unwrap();
-    current_module.insert(name.to_owned(), Declaration { kind, origin })
+
+    let entry = current_module.entry(name.to_owned());
+    let decl = Declaration { kind, origin };
+    match kind {
+        DeclarationKind::Forward => entry, // Do not modify existing.
+        _ => entry.and_modify(|old| {
+            if old.kind != DeclarationKind::Forward {
+                todo!("error: redefinition");
+            }
+            *old = decl;
+        }),
+    }
+    .or_insert(decl);
 }
 
 impl<'a> Parser<'a> {
@@ -2134,35 +2141,40 @@ impl<'a> Parser<'a> {
 
         let enum_tok = self.match_kind(TokenKind::KeywordEnum)?;
         let name_tok = self.match_kind1_or_kind2(TokenKind::Identifier, TokenKind::TypeName);
+        let left_curly = self.match_kind(TokenKind::LeftCurly);
         if let Some(tok) = name_tok {
+            let kind = if left_curly.is_some() {
+                DeclarationKind::Enum
+            } else {
+                DeclarationKind::Forward
+            };
             record_type_decl(
                 &mut self.lexer.decls,
                 lex::str_from_source(self.lexer.input, tok.origin),
-                DeclarationKind::Enum,
+                kind,
                 tok.origin,
             );
         }
 
         let mut end_origin = name_tok.map(|t| t.origin).unwrap_or(enum_tok.origin);
-        let enumerator_list: Option<NodeId> =
-            if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
-                let enumerator_list = self.parse_enumerator_list().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
-                        ErrorKind::MissingEnumerators,
-                        left_curly.origin,
-                        String::from("expected at least one enumerator in enum definition"),
-                    );
-                    self.new_node_unknown()
-                });
-                let right_curly = self.expect_token_one(
-                    TokenKind::RightCurly,
-                    "closing curly brace after enumerator list",
+        let enumerator_list: Option<NodeId> = if let Some(left_curly) = left_curly {
+            let enumerator_list = self.parse_enumerator_list().unwrap_or_else(|| {
+                self.add_error_with_explanation(
+                    ErrorKind::MissingEnumerators,
+                    left_curly.origin,
+                    String::from("expected at least one enumerator in enum definition"),
                 );
-                end_origin = right_curly.map(|t| t.origin).unwrap_or(left_curly.origin);
-                Some(enumerator_list)
-            } else {
-                None
-            };
+                self.new_node_unknown()
+            });
+            let right_curly = self.expect_token_one(
+                TokenKind::RightCurly,
+                "closing curly brace after enumerator list",
+            );
+            end_origin = right_curly.map(|t| t.origin).unwrap_or(left_curly.origin);
+            Some(enumerator_list)
+        } else {
+            None
+        };
 
         Some(self.new_node(Node {
             kind: NodeKind::EnumDeclaration(name_tok, enumerator_list),
@@ -2234,10 +2246,15 @@ impl<'a> Parser<'a> {
 
         let name_tok = self.match_kind1_or_kind2(TokenKind::Identifier, TokenKind::TypeName);
 
+        let left_curly = self.match_kind(TokenKind::LeftCurly);
+
         if let Some(name) = name_tok {
-            let kind = match tok.kind {
-                TokenKind::KeywordStruct => DeclarationKind::Struct,
-                TokenKind::KeywordUnion => DeclarationKind::Union,
+            let kind = match (tok.kind, left_curly.is_some()) {
+                (TokenKind::KeywordStruct, true) => DeclarationKind::Struct,
+                (TokenKind::KeywordUnion, true) => DeclarationKind::Union,
+                (TokenKind::KeywordStruct | TokenKind::KeywordUnion, false) => {
+                    DeclarationKind::Forward
+                }
                 _ => unreachable!(),
             };
             record_type_decl(
@@ -2249,7 +2266,7 @@ impl<'a> Parser<'a> {
         }
 
         let mut end_origin = name_tok.map(|t| t.origin).unwrap_or(tok.origin);
-        let decl_list = if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
+        let decl_list = if let Some(left_curly) = left_curly {
             let decl_list = self.parse_struct_declaration_list().unwrap_or_else(|| {
                 self.add_error_with_explanation(
                     ErrorKind::MissingStructDeclarationList,
