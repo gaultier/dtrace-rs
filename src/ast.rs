@@ -176,7 +176,7 @@ fn lookup_type<'a>(
     // Build the filtered iterator lazily; we need it twice because `find` exhausts the
     // iterator, so calling `next` on the same one after finding nothing would always return
     // `None`.
-    let mut iter = || {
+    let iter = || {
         decls
             .iter()
             .rev()
