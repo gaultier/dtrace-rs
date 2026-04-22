@@ -629,6 +629,10 @@ impl<'a> Lexer<'a> {
             }
             (LexerState::InsideClauseAndExpr, "typedef") => TokenKind::KeywordTypedef,
             (LexerState::InsideClauseAndExpr, "union") => TokenKind::KeywordUnion,
+            (LexerState::ProgramOuterScope, "union") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordUnion
+            }
             (LexerState::InsideClauseAndExpr, "unsigned") => TokenKind::KeywordUnsigned,
             (LexerState::InsideClauseAndExpr, "userland") => TokenKind::KeywordUserland,
             (LexerState::InsideClauseAndExpr, "void") => TokenKind::KeywordVoid,
