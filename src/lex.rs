@@ -2580,7 +2580,7 @@ impl<'a> Lexer<'a> {
          */
         if self.globals.contains_key(s)
             || self.identifiers.contains_key(s)
-            || !self.decls.iter().find(|x| x.contains_key(s)).is_some()
+            || self.decls.iter().find(|x| x.contains_key(s)).is_none()
         {
             return TokenKind::Identifier;
         }
@@ -2622,7 +2622,7 @@ impl<'a> Lexer<'a> {
             self.identifiers.insert(s.to_owned(), origin);
         }
 
-        return res;
+        res
     }
 }
 
