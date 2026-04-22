@@ -11,7 +11,7 @@ use serde::Serialize;
 use crate::{
     ast::{Node, NodeId, Parser},
     error::Error,
-    lex::{Attribute, Comment, ControlDirective, Lexer},
+    lex::{Attribute, Comment, ControlDirective, Declarations, Lexer},
     origin::FileId,
 };
 
@@ -159,6 +159,7 @@ pub struct CompileResult {
     pub errors: Vec<Error>,
     pub control_directives: Vec<ControlDirective>,
     pub attributes: Vec<Attribute>,
+    pub declarations: Declarations,
     pub comments: Vec<Comment>,
     pub ast_nodes: Vec<Node>,
     pub ast_root: Option<NodeId>,
@@ -175,6 +176,7 @@ pub fn compile(input: &str, file_id: FileId) -> CompileResult {
             comments: parser.lexer.comments,
             attributes: parser.lexer.attributes,
             control_directives: parser.lexer.control_directives,
+            declarations: parser.lexer.decls,
             ast_nodes: parser.nodes,
             errors: parser.lexer.errors,
             ast_root: root,
@@ -187,6 +189,7 @@ pub fn compile(input: &str, file_id: FileId) -> CompileResult {
         comments: parser.lexer.comments,
         attributes: parser.lexer.attributes,
         control_directives: parser.lexer.control_directives,
+        declarations: parser.lexer.decls,
         ast_nodes: parser.nodes,
         errors: parser.lexer.errors,
         ast_root: root,

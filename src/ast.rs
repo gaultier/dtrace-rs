@@ -6,7 +6,9 @@ use std::{
 
 use crate::{
     error::{Error, ErrorKind},
-    lex::{self, Declaration, DeclarationKind, Lexer, NumberSuffix, Token, TokenKind},
+    lex::{
+        self, Declaration, DeclarationKind, Declarations, Lexer, NumberSuffix, Token, TokenKind,
+    },
     origin::{FileId, Origin},
     type_checker::Type,
 };
@@ -134,7 +136,7 @@ pub struct Parser<'a> {
 }
 
 fn record_type_decl(
-    decls: &mut Vec<HashMap<String, Declaration>>,
+    decls: &mut Declarations,
     name: &str,
     kind: DeclarationKind,
     origin: Origin,

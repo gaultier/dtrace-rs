@@ -16,7 +16,7 @@ const CLASS_POSSIBLE_VALUES: &str = "Cpu, Platform, Group, Isa, Common";
 
 const DEPENDS_ON_POSSIBLE_VALUES: &str = "provider, module, library";
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub enum DeclarationKind {
     Array,
     Function,
@@ -27,10 +27,10 @@ pub enum DeclarationKind {
     Typedef,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub struct Declaration {
-    pub(crate) kind: DeclarationKind,
-    pub(crate) origin: Origin,
+    pub kind: DeclarationKind,
+    pub origin: Origin,
     // TODO flags.
 }
 
@@ -141,6 +141,9 @@ pub struct Attribute {
     pub origin: Origin,
 }
 
+pub type ModuleDeclarations = HashMap<String, Declaration>;
+pub type Declarations = Vec<ModuleDeclarations>;
+
 #[derive(Debug)]
 pub struct Lexer<'a> {
     pub(crate) position: Position,
@@ -152,7 +155,7 @@ pub struct Lexer<'a> {
     pub(crate) chars: Rc<[char]>,
     pub(crate) chars_idx: usize,
     pub(crate) attributes: Vec<Attribute>,
-    pub(crate) decls: Vec<HashMap<String, Declaration>>,
+    pub(crate) decls: Declarations,
     pub(crate) globals: HashMap<String, Origin>,
     pub(crate) identifiers: HashMap<String, Origin>,
 }

@@ -50,6 +50,16 @@ fn main() {
             for attr in &compiled.attributes {
                 info!("{}: attribute", attr.origin.display(&file_id_to_name));
             }
+            for module_declarations in &compiled.declarations {
+                for (name, decl) in module_declarations {
+                    info!(
+                        "{}: declaration: name={} kind={:?}",
+                        decl.origin.display(&file_id_to_name),
+                        name,
+                        decl.kind
+                    );
+                }
+            }
             if let Some(root) = compiled.ast_root {
                 compiler_rs_lib::ast::log(&compiled.ast_nodes, root, 0, &file_id_to_name);
             } else {
