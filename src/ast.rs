@@ -1,12 +1,12 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     hash::Hash,
     ops::{Index, IndexMut},
 };
 
 use crate::{
     error::{Error, ErrorKind},
-    lex::{self, Lexer, NumberSuffix, Token, TokenKind},
+    lex::{self, Declaration, DeclarationKind, Lexer, NumberSuffix, Token, TokenKind},
     origin::{FileId, Origin},
     type_checker::Type,
 };
@@ -61,10 +61,10 @@ pub enum NodeKind {
     DStorageClassSpecifier(TokenKind),
     StorageClassSpecifier(TokenKind),
     TypeSpecifier(TokenKind),
-    EnumDeclaration(Option<String>, Option<NodeId>),
+    EnumDeclaration(Option<Token>, Option<NodeId>),
     EnumeratorDeclaration(String, Option<NodeId>),
     EnumeratorsDeclaration(Vec<NodeId>),
-    StructDeclaration(Option<String>, Option<NodeId>),
+    StructDeclaration(Option<Token>, Option<NodeId>),
     StructFieldsDeclaration(Vec<NodeId>),
     StructFieldDeclarator(NodeId, Option<NodeId>),
     StructFieldDeclaration(NodeId, Option<NodeId>),
@@ -130,8 +130,20 @@ pub struct Parser<'a> {
     pub(crate) lexer: Lexer<'a>,
     pub(crate) nodes: Vec<Node>,
     pub(crate) node_to_type: HashMap<NodeId, Type>,
-    pub(crate) typenames: HashSet<String>,
     error_mode: bool,
+}
+
+fn record_type_decl(
+    decls: &mut Vec<HashMap<String, Declaration>>,
+    name: &str,
+    kind: DeclarationKind,
+    origin: Origin,
+) -> Option<Declaration> {
+    if decls.is_empty() {
+        decls.push(HashMap::with_capacity(16));
+    }
+    let current_module = decls.last_mut().unwrap();
+    current_module.insert(name.to_owned(), Declaration { kind, origin })
 }
 
 impl<'a> Parser<'a> {
@@ -139,7 +151,6 @@ impl<'a> Parser<'a> {
         Self {
             nodes: Vec::new(),
             node_to_type: HashMap::new(),
-            typenames: HashSet::new(),
             lexer,
             error_mode: false,
         }
@@ -1949,25 +1960,10 @@ impl<'a> Parser<'a> {
                 // The lexer already confirmed this name is a registered typedef or struct/enum
                 // name via `id_or_type`, so it is unconditionally a type specifier.
                 let tok = self.lexer.lex();
-                self.typenames
-                    .insert(lex::str_from_source(self.lexer.input, tok.origin).to_owned());
                 Some(self.new_node(Node {
                     kind: NodeKind::TypeSpecifier(tok.kind),
                     origin: tok.origin,
                 }))
-            }
-            TokenKind::Identifier => {
-                let origin = self.peek1().origin;
-                let kind = self.peek1().kind;
-                let name = lex::str_from_source(self.lexer.input, origin);
-                if self.typenames.contains(name) {
-                    Some(self.new_node(Node {
-                        kind: NodeKind::TypeSpecifier(kind),
-                        origin,
-                    }))
-                } else {
-                    None
-                }
             }
             TokenKind::KeywordStruct | TokenKind::KeywordUnion => {
                 self.parse_struct_or_union_specifier()
@@ -2136,9 +2132,13 @@ impl<'a> Parser<'a> {
 
         let enum_tok = self.match_kind(TokenKind::KeywordEnum)?;
         let name_tok = self.match_kind1_or_kind2(TokenKind::Identifier, TokenKind::TypeName);
-        let name = name_tok.map(|t| lex::str_from_source(self.lexer.input, t.origin).to_owned());
-        if let Some(name) = &name {
-            self.typenames.insert(name.clone());
+        if let Some(tok) = name_tok {
+            record_type_decl(
+                &mut self.lexer.decls,
+                lex::str_from_source(self.lexer.input, tok.origin),
+                DeclarationKind::Enum,
+                tok.origin,
+            );
         }
 
         let mut end_origin = name_tok.map(|t| t.origin).unwrap_or(enum_tok.origin);
@@ -2163,7 +2163,7 @@ impl<'a> Parser<'a> {
             };
 
         Some(self.new_node(Node {
-            kind: NodeKind::EnumDeclaration(name, enumerator_list),
+            kind: NodeKind::EnumDeclaration(name_tok, enumerator_list),
             origin: enum_tok.origin.merge(end_origin),
         }))
     }
@@ -2233,10 +2233,19 @@ impl<'a> Parser<'a> {
             .or_else(|| self.match_kind(TokenKind::KeywordUnion))?;
 
         let name_tok = self.match_kind1_or_kind2(TokenKind::Identifier, TokenKind::TypeName);
-        let name = name_tok.map(|t| lex::str_from_source(self.lexer.input, t.origin).to_owned());
 
-        if let Some(name) = &name {
-            self.typenames.insert(name.clone());
+        if let Some(tok) = name_tok {
+            let kind = match tok.kind {
+                TokenKind::KeywordStruct => DeclarationKind::Struct,
+                TokenKind::KeywordUnion => DeclarationKind::Union,
+                _ => unreachable!(),
+            };
+            record_type_decl(
+                &mut self.lexer.decls,
+                lex::str_from_source(self.lexer.input, tok.origin),
+                kind,
+                tok.origin,
+            );
         }
 
         let mut end_origin = name_tok.map(|t| t.origin).unwrap_or(tok.origin);
@@ -2260,7 +2269,7 @@ impl<'a> Parser<'a> {
         };
 
         Some(self.new_node(Node {
-            kind: NodeKind::StructDeclaration(name, decl_list),
+            kind: NodeKind::StructDeclaration(name_tok, decl_list),
             origin: tok.origin.merge(end_origin),
         }))
     }

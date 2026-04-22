@@ -29,8 +29,8 @@ pub enum DeclarationKind {
 
 #[derive(Debug, Copy, Clone)]
 pub struct Declaration {
-    kind: DeclarationKind,
-    origin: Origin,
+    pub(crate) kind: DeclarationKind,
+    pub(crate) origin: Origin,
     // TODO flags.
 }
 
