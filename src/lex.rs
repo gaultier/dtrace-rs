@@ -2580,7 +2580,7 @@ impl<'a> Lexer<'a> {
          */
         if self.globals.contains_key(s)
             || self.identifiers.contains_key(s)
-            || self.decls.iter().find(|x| x.contains_key(s)).is_some()
+            || !self.decls.iter().find(|x| x.contains_key(s)).is_some()
         {
             return TokenKind::Identifier;
         }
