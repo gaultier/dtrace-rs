@@ -149,8 +149,7 @@ fn record_type_decl(
         decls
             .iter()
             .rev()
-            .filter(|(n, decl)| !decl.is_forward && decl.kind == kind && n == name)
-            .next()
+            .find(|(n, decl)| !decl.is_forward && decl.kind == kind && n == name)
     };
     if let Some((_, conflicting)) = conflicting {
         errors.push(Error {
@@ -3659,6 +3658,61 @@ mod tests {
         assert_eq!(err.origin.start.line, 3);
         let related = err.related_origin.unwrap();
         assert_eq!(related.start.line, 2);
+    }
+
+    #[test]
+    fn test_cross_kind_forward_decls_do_not_conflict() {
+        // Two forward declarations with the same name but different kinds are valid in DTrace:
+        // `struct Person; enum Person` compiles without errors.
+        let input = "struct Person;\nenum Person;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_struct_or_union_specifier();
+        parser.lexer.lex(); // skip `;`
+        parser.parse_enum_specifier();
+
+        assert!(parser.lexer.errors.is_empty());
+    }
+
+    #[test]
+    fn test_same_name_different_kind_is_allowed() {
+        // DTrace allows the same tag name for different type kinds:
+        // `struct Person{int x;}; enum Person{ORANGE}` is valid.
+        let input = "struct Person { int x; }\nenum Person { ORANGE }";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_struct_or_union_specifier();
+        parser.parse_enum_specifier();
+
+        assert!(parser.lexer.errors.is_empty());
+    }
+
+    #[test]
+    fn test_same_name_same_kind_interleaved_with_other_kind_is_redeclaration() {
+        // The flat `Declarations` list makes it possible to detect a same-kind redeclaration
+        // even when a different-kind declaration with the same name appears in between. With
+        // the old HashMap approach the first `enum Color` would have been overwritten.
+        //
+        //   enum Color { Purple };   <- first enum Color, no error
+        //   struct Color { int x; }; <- different kind, allowed
+        //   enum Color { Orange };   <- redeclaration of enum Color (same kind as line 1)
+        let input = "enum Color { Purple }\nstruct Color { int x; }\nenum Color { Orange }";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_enum_specifier();
+        parser.parse_struct_or_union_specifier();
+        parser.parse_enum_specifier();
+
+        assert_eq!(parser.lexer.errors.len(), 1);
+        let err = &parser.lexer.errors[0];
+        assert_eq!(err.kind, ErrorKind::Redeclaration);
+        // The offending declaration is the second `enum Color` on line 3.
+        assert_eq!(err.origin.start.line, 3);
+        // The related origin points back to the first `enum Color` on line 1.
+        assert_eq!(err.related_origin.unwrap().start.line, 1);
     }
 
     #[test]
