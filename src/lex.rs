@@ -1,5 +1,5 @@
-use std::ops::Range;
 use std::rc::Rc;
+use std::{collections::HashMap, ops::Range};
 
 use log::info;
 use serde::Serialize;
@@ -152,7 +152,9 @@ pub struct Lexer<'a> {
     pub(crate) chars: Rc<[char]>,
     pub(crate) chars_idx: usize,
     pub(crate) attributes: Vec<Attribute>,
-    pub(crate) decls: Vec<Declaration>,
+    pub(crate) decls: Vec<HashMap<String, Declaration>>,
+    pub(crate) globals: HashMap<String, Origin>,
+    pub(crate) identifiers: HashMap<String, Origin>,
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Clone)]
@@ -412,6 +414,8 @@ impl<'a> Lexer<'a> {
             chars_idx: 0,
             attributes: Vec::new(),
             decls: Vec::new(),
+            globals: HashMap::new(),
+            identifiers: HashMap::new(),
         }
     }
 
@@ -461,9 +465,10 @@ impl<'a> Lexer<'a> {
         }
 
         let origin = start.extend_to_inclusive(end);
+        let s = str_from_source(self.input, origin);
 
         Token {
-            kind: TokenKind::Identifier,
+            kind: self.id_or_type(s, origin),
             origin,
         }
     }
@@ -2559,6 +2564,67 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
+    }
+
+    /* Given a lexeme 's' (typically yytext), set yylval and return an appropriate
+     * token to the parser indicating either an identifier or a typedef name.
+     * User-defined global variables always take precedence over types, but we do
+     * use some heuristics because D programs can look at an ever-changing set of
+     * kernel types and also can implicitly instantiate variables by assignment,
+     * unlike in C.
+     */
+    fn id_or_type(&mut self, s: &str, origin: Origin) -> TokenKind {
+        /*
+         * If the lexeme is a global variable or likely identifier or *not* a
+         * type_name, then it is an identifier token.
+         */
+        if self.globals.contains_key(s)
+            || self.identifiers.contains_key(s)
+            || self.decls.iter().find(|x| x.contains_key(s)).is_some()
+        {
+            return TokenKind::Identifier;
+        }
+
+        /*
+         * If we're in the midst of parsing a declaration and a type_specifier
+         * has already been shifted, then return DT_TOK_IDENT instead of TNAME.
+         * This semantic is necessary to permit valid ISO C code such as:
+         *
+         * typedef int foo;
+         * struct s { foo foo; };
+         *
+         * without causing shift/reduce conflicts in the direct_declarator part
+         * of the grammar.  The result is that we must check for conflicting
+         * redeclarations of the same identifier as part of dt_node_decl().
+         */
+        // TODO: need to set a lexer field from the parser when entering a declaration to track it.
+
+        /*
+         * If the lexeme matches a type name but is in a program clause, then
+         * it could be a type or it could be an undefined variable.  Peek at
+         * the next token to decide.  If we see ++, --, [, or =, we know there
+         * might be an assignment that is trying to create a global variable,
+         * so we optimistically return DT_TOK_IDENT.  There is no harm in being
+         * wrong: a type_name followed by ++, --, [, or = is a syntax error.
+         */
+
+        let next = self.chars[self.chars_idx..].chunks(2).find(|c| {
+            c.first()
+                .map(|c| !c.is_ascii_whitespace())
+                .unwrap_or_default()
+        });
+        let res = match next {
+            Some(['+', '+']) | Some(['-', '-']) => TokenKind::Identifier,
+            Some(['=', c]) if *c != '=' => TokenKind::Identifier,
+            Some(['[', ..]) => TokenKind::Identifier,
+            _ => TokenKind::TypeName,
+        };
+
+        if res == TokenKind::Identifier {
+            self.identifiers.insert(s.to_owned(), origin);
+        }
+
+        return res;
     }
 }
 
