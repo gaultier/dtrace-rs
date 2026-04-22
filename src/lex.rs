@@ -16,6 +16,24 @@ const CLASS_POSSIBLE_VALUES: &str = "Cpu, Platform, Group, Isa, Common";
 
 const DEPENDS_ON_POSSIBLE_VALUES: &str = "provider, module, library";
 
+#[derive(Debug, Copy, Clone)]
+pub enum DeclarationKind {
+    Array,
+    Function,
+    Struct,
+    Union,
+    Enum,
+    Forward,
+    Typedef,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Declaration {
+    kind: DeclarationKind,
+    origin: Origin,
+    // TODO flags.
+}
+
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub(crate) enum LexerState {
     // S2.
@@ -134,6 +152,7 @@ pub struct Lexer<'a> {
     pub(crate) chars: Rc<[char]>,
     pub(crate) chars_idx: usize,
     pub(crate) attributes: Vec<Attribute>,
+    pub(crate) decls: Vec<Declaration>,
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Clone)]
@@ -391,6 +410,7 @@ impl<'a> Lexer<'a> {
             chars: input.chars().collect::<Vec<_>>().into(),
             chars_idx: 0,
             attributes: Vec::new(),
+            decls: Vec::new(),
         }
     }
 

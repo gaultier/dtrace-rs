@@ -168,6 +168,7 @@ impl<'a> Parser<'a> {
             attributes: Vec::new(),
             chars: self.lexer.chars.clone(),
             chars_idx: self.lexer.chars_idx,
+            decls: Vec::new(),
         };
         cpy.lex()
     }
@@ -183,6 +184,7 @@ impl<'a> Parser<'a> {
             attributes: Vec::new(),
             chars: self.lexer.chars.clone(),
             chars_idx: self.lexer.chars_idx,
+            decls: Vec::new(),
         };
         let _ = cpy.lex();
         cpy.lex()
