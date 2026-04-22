@@ -5884,6 +5884,170 @@ mod tests {
     }
 
     #[test]
+    fn test_id_or_type_unknown_name_is_identifier() {
+        // A name not registered in `decls` is always an identifier.
+        let input = "foo";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        assert_eq!(lexer.lex().kind, TokenKind::Identifier);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty());
+    }
+
+    #[test]
+    fn test_id_or_type_registered_typename_is_typename() {
+        // A name in `decls` with no suspicious following token is `TypeName`.
+        let input = "MyType;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let mut scope = std::collections::HashMap::new();
+        scope.insert(
+            "MyType".to_owned(),
+            crate::lex::Declaration {
+                kind: crate::lex::DeclarationKind::Typedef,
+                origin: crate::origin::Origin::default(),
+            },
+        );
+        lexer.decls.push(scope);
+        assert_eq!(lexer.lex().kind, TokenKind::TypeName);
+        assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(lexer.errors.is_empty());
+    }
+
+    #[test]
+    fn test_id_or_type_typename_before_plusplus_is_identifier() {
+        // `TypeName++` is a syntax error in D, but we optimistically return `Identifier`
+        // so the parser can generate a better diagnostic.
+        let input = "MyType++";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let mut scope = std::collections::HashMap::new();
+        scope.insert(
+            "MyType".to_owned(),
+            crate::lex::Declaration {
+                kind: crate::lex::DeclarationKind::Typedef,
+                origin: crate::origin::Origin::default(),
+            },
+        );
+        lexer.decls.push(scope);
+        assert_eq!(lexer.lex().kind, TokenKind::Identifier);
+    }
+
+    #[test]
+    fn test_id_or_type_typename_before_minusminus_is_identifier() {
+        let input = "MyType--";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let mut scope = std::collections::HashMap::new();
+        scope.insert(
+            "MyType".to_owned(),
+            crate::lex::Declaration {
+                kind: crate::lex::DeclarationKind::Typedef,
+                origin: crate::origin::Origin::default(),
+            },
+        );
+        lexer.decls.push(scope);
+        assert_eq!(lexer.lex().kind, TokenKind::Identifier);
+    }
+
+    #[test]
+    fn test_id_or_type_typename_before_bracket_is_identifier() {
+        let input = "MyType[0]";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let mut scope = std::collections::HashMap::new();
+        scope.insert(
+            "MyType".to_owned(),
+            crate::lex::Declaration {
+                kind: crate::lex::DeclarationKind::Typedef,
+                origin: crate::origin::Origin::default(),
+            },
+        );
+        lexer.decls.push(scope);
+        assert_eq!(lexer.lex().kind, TokenKind::Identifier);
+    }
+
+    #[test]
+    fn test_id_or_type_typename_before_assign_is_identifier() {
+        // Single `=` means assignment — treat the name as a variable being created.
+        let input = "MyType = 1";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let mut scope = std::collections::HashMap::new();
+        scope.insert(
+            "MyType".to_owned(),
+            crate::lex::Declaration {
+                kind: crate::lex::DeclarationKind::Typedef,
+                origin: crate::origin::Origin::default(),
+            },
+        );
+        lexer.decls.push(scope);
+        assert_eq!(lexer.lex().kind, TokenKind::Identifier);
+    }
+
+    #[test]
+    fn test_id_or_type_typename_before_eqeq_is_typename() {
+        // `==` is comparison, not assignment — the name is still used as a type.
+        let input = "MyType == 1";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let mut scope = std::collections::HashMap::new();
+        scope.insert(
+            "MyType".to_owned(),
+            crate::lex::Declaration {
+                kind: crate::lex::DeclarationKind::Typedef,
+                origin: crate::origin::Origin::default(),
+            },
+        );
+        lexer.decls.push(scope);
+        assert_eq!(lexer.lex().kind, TokenKind::TypeName);
+    }
+
+    #[test]
+    fn test_id_or_type_globals_wins_over_decls() {
+        // A name in both `globals` and `decls` is returned as `Identifier`:
+        // explicit global variables always take precedence over type names.
+        let input = "MyType;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let mut scope = std::collections::HashMap::new();
+        scope.insert(
+            "MyType".to_owned(),
+            crate::lex::Declaration {
+                kind: crate::lex::DeclarationKind::Typedef,
+                origin: crate::origin::Origin::default(),
+            },
+        );
+        lexer.decls.push(scope);
+        lexer
+            .globals
+            .insert("MyType".to_owned(), crate::origin::Origin::default());
+        assert_eq!(lexer.lex().kind, TokenKind::Identifier);
+    }
+
+    #[test]
+    fn test_id_or_type_identifiers_wins_over_decls() {
+        // A name previously recorded as a local identifier beats its registration as a type name.
+        let input = "MyType;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let mut scope = std::collections::HashMap::new();
+        scope.insert(
+            "MyType".to_owned(),
+            crate::lex::Declaration {
+                kind: crate::lex::DeclarationKind::Typedef,
+                origin: crate::origin::Origin::default(),
+            },
+        );
+        lexer.decls.push(scope);
+        lexer
+            .identifiers
+            .insert("MyType".to_owned(), crate::origin::Origin::default());
+        assert_eq!(lexer.lex().kind, TokenKind::Identifier);
+    }
+
+    #[test]
     fn test_lex_number_suffix_strips_value() {
         // Suffixes are consumed and do not affect the numeric value, only the suffix flags.
         for (input, expected_value, expected_suffix) in [
