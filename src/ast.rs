@@ -3530,10 +3530,10 @@ mod tests {
 
         let decl = get_decl(&parser, "Person").unwrap();
         assert_eq!(decl.kind, DeclarationKind::Struct);
-        // The origin must point to the name token in the full definition (line 2), not in the
-        // forward declaration (line 1).
+        // The origin must point to the full `struct Person` span in the full definition (line 2),
+        // not in the forward declaration (line 1).
         assert_eq!(decl.origin.start.line, 2);
-        assert_eq!(lex::str_from_source(input, decl.origin), "Person");
+        assert_eq!(lex::str_from_source(input, decl.origin), "struct Person");
     }
 
     #[test]
@@ -3549,7 +3549,7 @@ mod tests {
         let decl = get_decl(&parser, "Color").unwrap();
         assert_eq!(decl.kind, DeclarationKind::Enum);
         assert_eq!(decl.origin.start.line, 2);
-        assert_eq!(lex::str_from_source(input, decl.origin), "Color");
+        assert_eq!(lex::str_from_source(input, decl.origin), "enum Color");
     }
 
     #[test]
@@ -3565,7 +3565,91 @@ mod tests {
         assert_eq!(decl.kind, DeclarationKind::Struct);
         // Origin must still point to the full definition on line 1.
         assert_eq!(decl.origin.start.line, 1);
-        assert_eq!(lex::str_from_source(input, decl.origin), "Person");
+        assert_eq!(lex::str_from_source(input, decl.origin), "struct Person");
+    }
+
+    #[test]
+    fn test_struct_redeclaration_produces_error() {
+        // Redefining a struct with a body is a redeclaration error. The error origin must span
+        // the second `struct Name` (the offending site), and `related_origin` must span the
+        // first `struct Name` (the original declaration), so the diagnostics can point to both.
+        let input = "struct Person { int age; }\nstruct Person { int id; }";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_struct_or_union_specifier();
+        parser.parse_struct_or_union_specifier();
+
+        assert_eq!(parser.lexer.errors.len(), 1);
+        let err = &parser.lexer.errors[0];
+        assert_eq!(err.kind, ErrorKind::Redeclaration);
+        // Error origin: second `struct Person`, on line 2.
+        assert_eq!(err.origin.start.line, 2);
+        assert_eq!(lex::str_from_source(input, err.origin), "struct Person");
+        // Related origin: first `struct Person`, on line 1.
+        let related = err.related_origin.unwrap();
+        assert_eq!(related.start.line, 1);
+        assert_eq!(lex::str_from_source(input, related), "struct Person");
+    }
+
+    #[test]
+    fn test_union_redeclaration_produces_error() {
+        let input = "union Data { int i; }\nunion Data { char c; }";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_struct_or_union_specifier();
+        parser.parse_struct_or_union_specifier();
+
+        assert_eq!(parser.lexer.errors.len(), 1);
+        let err = &parser.lexer.errors[0];
+        assert_eq!(err.kind, ErrorKind::Redeclaration);
+        assert_eq!(err.origin.start.line, 2);
+        assert_eq!(lex::str_from_source(input, err.origin), "union Data");
+        let related = err.related_origin.unwrap();
+        assert_eq!(related.start.line, 1);
+        assert_eq!(lex::str_from_source(input, related), "union Data");
+    }
+
+    #[test]
+    fn test_enum_redeclaration_produces_error() {
+        let input = "enum Color { Red }\nenum Color { Blue }";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_enum_specifier();
+        parser.parse_enum_specifier();
+
+        assert_eq!(parser.lexer.errors.len(), 1);
+        let err = &parser.lexer.errors[0];
+        assert_eq!(err.kind, ErrorKind::Redeclaration);
+        assert_eq!(err.origin.start.line, 2);
+        assert_eq!(lex::str_from_source(input, err.origin), "enum Color");
+        let related = err.related_origin.unwrap();
+        assert_eq!(related.start.line, 1);
+        assert_eq!(lex::str_from_source(input, related), "enum Color");
+    }
+
+    #[test]
+    fn test_forward_decl_then_redeclaration_produces_error() {
+        // Defining a struct twice after a forward declaration: the forward decl upgrades
+        // silently, but the second full definition is a redeclaration error.
+        let input = "struct Person;\nstruct Person { int age; }\nstruct Person { int id; }";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        parser.parse_struct_or_union_specifier();
+        parser.lexer.lex(); // skip `;`
+        parser.parse_struct_or_union_specifier();
+        parser.parse_struct_or_union_specifier();
+
+        assert_eq!(parser.lexer.errors.len(), 1);
+        let err = &parser.lexer.errors[0];
+        assert_eq!(err.kind, ErrorKind::Redeclaration);
+        // Error on the third declaration (line 3), related to the second (line 2).
+        assert_eq!(err.origin.start.line, 3);
+        let related = err.related_origin.unwrap();
+        assert_eq!(related.start.line, 2);
     }
 
     #[test]
