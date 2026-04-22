@@ -4,10 +4,10 @@ use std::{
 };
 
 use lsp_types::{
-    Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidOpenTextDocumentParams, Hover,
-    HoverContents, HoverParams, HoverProviderCapability, MarkedString, PositionEncodingKind,
-    PublishDiagnosticsParams, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextDocumentSyncOptions, Uri,
+    Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, DidChangeTextDocumentParams,
+    DidOpenTextDocumentParams, Hover, HoverContents, HoverParams, HoverProviderCapability,
+    Location, MarkedString, PositionEncodingKind, PublishDiagnosticsParams, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions, Uri,
 };
 use serde::{Deserialize, Serialize};
 
@@ -361,7 +361,16 @@ fn did_open(state: &mut State, params: serde_json::Value) -> io::Result<Option<M
                 } else {
                     e.explanation.clone()
                 },
-                related_information: None,
+                related_information: e.related_origin.map(|rel| {
+                    vec![DiagnosticRelatedInformation {
+                        location: Location {
+                            // FIXME: This assumes that the related origin is in the same file.
+                            uri: params.text_document.uri.clone(),
+                            range: origin_to_lsp_range(rel),
+                        },
+                        message: String::from("Here"),
+                    }]
+                }),
                 tags: None,
                 data: None,
             })
