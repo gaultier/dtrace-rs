@@ -2233,7 +2233,6 @@ impl<'a> Parser<'a> {
         let tok = self.match_kind1_or_kind2(TokenKind::KeywordStruct, TokenKind::KeywordUnion)?;
 
         let name_tok = self.match_kind1_or_kind2(TokenKind::Identifier, TokenKind::TypeName);
-        dbg!(tok, name_tok);
 
         if let Some(name) = name_tok {
             let kind = match tok.kind {
