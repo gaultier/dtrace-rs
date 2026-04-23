@@ -383,7 +383,7 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
-                let right_paren = self.expect_token_one(
+                let right_paren = self.expect(
                     TokenKind::RightParen,
                     "primary expression closing parenthesis",
                 );
@@ -501,14 +501,13 @@ impl<'a> Parser<'a> {
         }
 
         if let Some(op) = self.match_kind(TokenKind::LeftParen) {
-            let typ = self.expect_token_one(TokenKind::Identifier, "type in cast");
+            let typ = self.expect(TokenKind::Identifier, "type in cast");
             let typ_str = if let Some(typ) = typ {
                 lex::str_from_source(self.lexer.input, typ.origin).to_owned()
             } else {
                 String::new()
             };
-            let right_paren =
-                self.expect_token_one(TokenKind::RightParen, "closing cast right parenthesis");
+            let right_paren = self.expect(TokenKind::RightParen, "closing cast right parenthesis");
             let node = self.parse_cast_expr().unwrap_or_else(|| {
                 self.error(
                     ErrorKind::MissingExpr,
@@ -671,7 +670,7 @@ impl<'a> Parser<'a> {
                 // Bottom line: `sizeof typename` e.g. `sizeof int` is forbidden.
 
                 let end_origin = if left_paren.is_some() {
-                    self.expect_token_one(TokenKind::RightParen, "matching parenthesis for sizeof")
+                    self.expect(TokenKind::RightParen, "matching parenthesis for sizeof")
                         .map(|t| t.origin)
                         .unwrap_or(self.origin(operand))
                 } else {
@@ -754,8 +753,8 @@ impl<'a> Parser<'a> {
                 ..
             } => {
                 let op = self.lexer.lex();
-                let left_paren = self
-                    .expect_token_one(TokenKind::LeftParen, "opening parenthesis after offsetof");
+                let left_paren =
+                    self.expect(TokenKind::LeftParen, "opening parenthesis after offsetof");
                 let type_name = self.parse_type_name().unwrap_or_else(|| {
                     self.error(
                         ErrorKind::MissingTypeName,
@@ -769,7 +768,7 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
-                let comma = self.expect_token_one(TokenKind::Comma, "comma after type name");
+                let comma = self.expect(TokenKind::Comma, "comma after type name");
                 let field = if let Some(identifier) =
                     self.match_kind1_or_kind2(TokenKind::Identifier, TokenKind::TypeName)
                 {
@@ -790,7 +789,7 @@ impl<'a> Parser<'a> {
                     Token::default()
                 };
                 let right_paren =
-                    self.expect_token_one(TokenKind::RightParen, "closing parenthesis after field");
+                    self.expect(TokenKind::RightParen, "closing parenthesis after field");
                 let end_origin = right_paren.map(|t| t.origin).unwrap_or(op.origin);
                 return Some(self.new_node(Node {
                     kind: NodeKind::OffsetOf(type_name, field),
@@ -802,7 +801,7 @@ impl<'a> Parser<'a> {
                 ..
             } => {
                 let op = self.lexer.lex();
-                let lt = self.expect_token_one(TokenKind::Lt, "'<' after xlate");
+                let lt = self.expect(TokenKind::Lt, "'<' after xlate");
                 let type_name = self.parse_type_name().unwrap_or_else(|| {
                     self.error(
                         ErrorKind::MissingTypeName,
@@ -812,9 +811,8 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
-                self.expect_token_one(TokenKind::Gt, "'>' after type name");
-                let left_paren =
-                    self.expect_token_one(TokenKind::LeftParen, "opening parenthesis after '>'");
+                self.expect(TokenKind::Gt, "'>' after type name");
+                let left_paren = self.expect(TokenKind::LeftParen, "opening parenthesis after '>'");
                 let expr = self.parse_expr().unwrap_or_else(|| {
                     self.error(
                         ErrorKind::MissingExpr,
@@ -828,7 +826,7 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
-                let right_paren = self.expect_token_one(
+                let right_paren = self.expect(
                     TokenKind::RightParen,
                     "closing parenthesis after expression",
                 );
@@ -854,7 +852,7 @@ impl<'a> Parser<'a> {
                     let op = self.lexer.lex();
 
                     let rhs = self.parse_argument_expr_list();
-                    let right_bracket = self.expect_token_one(
+                    let right_bracket = self.expect(
                         TokenKind::RightSquareBracket,
                         "matching square bracket in argument list",
                     );
@@ -873,7 +871,7 @@ impl<'a> Parser<'a> {
                     let op = self.lexer.lex();
 
                     let rhs = self.parse_argument_expr_list();
-                    let right_paren = self.expect_token_one(
+                    let right_paren = self.expect(
                         TokenKind::RightParen,
                         "matching parenthesis in argument list",
                     );
@@ -1092,7 +1090,7 @@ impl<'a> Parser<'a> {
                 );
                 self.new_node_unknown()
             });
-            self.expect_token_one(TokenKind::Colon, "colon in ternary expression");
+            self.expect(TokenKind::Colon, "colon in ternary expression");
             let rhs = self.parse_conditional_expr().unwrap_or_else(|| {
                 self.error(
                     ErrorKind::MissingExpr,
@@ -1479,7 +1477,7 @@ impl<'a> Parser<'a> {
             TokenKind::KeywordIf => {
                 let if_token = self.lexer.lex();
 
-                self.expect_token_one(TokenKind::LeftParen, "opening parenthesis in if expression");
+                self.expect(TokenKind::LeftParen, "opening parenthesis in if expression");
                 let cond = self.parse_expr().unwrap_or_else(|| {
                     self.error(
                         ErrorKind::MissingExpr,
@@ -1493,7 +1491,7 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
-                self.expect_token_one(
+                self.expect(
                     TokenKind::RightParen,
                     "closing parenthesis in if expression",
                 );
@@ -1542,7 +1540,7 @@ impl<'a> Parser<'a> {
 
         if let Some(_left_curly) = self.match_kind(TokenKind::LeftCurly) {
             let stmt_list = self.parse_statement_list();
-            self.expect_token_one(
+            self.expect(
                 TokenKind::RightCurly,
                 "matching right curly brace after block",
             );
@@ -1577,7 +1575,7 @@ impl<'a> Parser<'a> {
         self.lexer.chars.len() - self.lexer.chars_idx
     }
 
-    fn expect_token_one(&mut self, token_kind: TokenKind, context: &str) -> Option<Token> {
+    fn expect(&mut self, token_kind: TokenKind, context: &str) -> Option<Token> {
         if let Some(token) = self.match_kind(token_kind) {
             Some(token)
         } else {
@@ -1789,7 +1787,7 @@ impl<'a> Parser<'a> {
 
         let predicate = if let Some(_slash) = self.match_kind(TokenKind::Slash) {
             let expr = self.parse_expr();
-            self.expect_token_one(
+            self.expect(
                 TokenKind::ClosePredicateDelimiter,
                 "matching slash after predicate",
             );
@@ -1801,7 +1799,7 @@ impl<'a> Parser<'a> {
         if let Some(_left_curly) = self.match_kind(TokenKind::LeftCurly) {
             let stmts = self.parse_statement_list();
 
-            let right_curly = self.expect_token_one(
+            let right_curly = self.expect(
                 TokenKind::RightCurly,
                 "matching right curly bracket after action",
             );
@@ -1882,7 +1880,7 @@ impl<'a> Parser<'a> {
             self.new_node_unknown()
         });
 
-        self.expect_token_one(TokenKind::Eq, "equal sign after declarator");
+        self.expect(TokenKind::Eq, "equal sign after declarator");
 
         let expr = self.parse_assignment_expr().unwrap_or_else(|| {
             self.error(
@@ -1894,7 +1892,7 @@ impl<'a> Parser<'a> {
             self.new_node_unknown()
         });
 
-        let semicolon = self.expect_token_one(
+        let semicolon = self.expect(
             TokenKind::SemiColon,
             "semicolon at the end of an inline definition",
         );
@@ -2038,8 +2036,7 @@ impl<'a> Parser<'a> {
 
         let init_decl_list = self.parse_init_declarator_list();
 
-        let semicolon =
-            self.expect_token_one(TokenKind::SemiColon, "expected semicolon after declaration");
+        let semicolon = self.expect(TokenKind::SemiColon, "expected semicolon after declaration");
 
         self.lexer.begin(lex::LexerState::ProgramOuterScope);
         let start_origin = self.origin(decl_specifiers);
@@ -2296,7 +2293,7 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
-                self.expect_token_one(
+                self.expect(
                     TokenKind::LeftParen,
                     "matching parenthesis after declarator",
                 );
@@ -2371,7 +2368,7 @@ impl<'a> Parser<'a> {
                 );
                 self.new_node_unknown()
             });
-            let right_curly = self.expect_token_one(
+            let right_curly = self.expect(
                 TokenKind::RightCurly,
                 "closing curly brace after enumerator list",
             );
@@ -2483,7 +2480,7 @@ impl<'a> Parser<'a> {
                 );
                 self.new_node_unknown()
             });
-            let right_curly = self.expect_token_one(
+            let right_curly = self.expect(
                 TokenKind::RightCurly,
                 "closing curly brace after struct definition",
             );
@@ -2532,7 +2529,7 @@ impl<'a> Parser<'a> {
         }
         let spec = self.parse_specifier_qualifier_list()?;
         let struct_declarator_list = self.parse_struct_declarator_list();
-        let semicolon = self.expect_token_one(
+        let semicolon = self.expect(
             TokenKind::SemiColon,
             "semicolon after field in struct declaration",
         );
@@ -2637,7 +2634,7 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
-                self.expect_token_one(
+                self.expect(
                     TokenKind::RightParen,
                     "matching parenthesis in direct abstract declarator",
                 );
@@ -2739,7 +2736,7 @@ impl<'a> Parser<'a> {
 
         let params = self.parse_array_parameters();
 
-        self.expect_token_one(
+        self.expect(
             TokenKind::LeftSquareBracket,
             "match square bracket for array",
         );
@@ -2758,7 +2755,7 @@ impl<'a> Parser<'a> {
 
         let left_paren = self.match_kind(TokenKind::LeftParen)?;
         let args = self.parse_function_parameters();
-        self.expect_token_one(TokenKind::RightParen, "matching parenthesis for function");
+        self.expect(TokenKind::RightParen, "matching parenthesis for function");
 
         Some(self.new_node(Node {
             kind: NodeKind::ArgumentsDeclaration(args),
@@ -2816,7 +2813,7 @@ impl<'a> Parser<'a> {
         });
 
         let ellipsis = if let Some(comma) = self.match_kind(TokenKind::Comma) {
-            self.expect_token_one(TokenKind::DotDotDot, "ellipsis parameter after comma");
+            self.expect(TokenKind::DotDotDot, "ellipsis parameter after comma");
             Some(self.new_node(Node {
                 kind: NodeKind::ParamEllipsis,
                 origin: comma.origin,
