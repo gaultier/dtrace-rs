@@ -226,6 +226,7 @@ impl<'a> Parser<'a> {
             decls: Vec::new(),
             globals: HashMap::new(),
             identifiers: HashMap::new(),
+            curly_depth: self.lexer.curly_depth,
         };
         cpy.lex()
     }
@@ -244,6 +245,7 @@ impl<'a> Parser<'a> {
             decls: Vec::new(),
             globals: HashMap::new(),
             identifiers: HashMap::new(),
+            curly_depth: self.lexer.curly_depth,
         };
         let _ = cpy.lex();
         cpy.lex()
@@ -3713,6 +3715,70 @@ mod tests {
         assert_eq!(err.origin.start.line, 3);
         // The related origin points back to the first `enum Color` on line 1.
         assert_eq!(err.related_origin.unwrap().start.line, 1);
+    }
+
+    #[test]
+    fn test_struct_with_anonymous_union_field() {
+        // `struct Outer { union { int i; } foo; }` — the field's type specifier is an anonymous
+        // union (no name token), and the field declarator is named `foo`. The anonymous union
+        // must not produce any entry in `decls`; only `Outer` must be registered.
+        let input = "struct Outer { union { int i; } foo; };";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(lex::LexerState::InsideClauseAndExpr);
+        let mut parser = Parser::new(lexer);
+        let root_id = parser.parse_struct_or_union_specifier().unwrap();
+
+        assert!(parser.lexer.errors.is_empty());
+
+        // The outer struct must be registered as a non-forward `Struct`.
+        let outer = lookup_type(&parser.lexer.decls, "Outer", DeclarationKind::Struct).unwrap();
+        assert!(!outer.is_forward);
+        // The anonymous union leaves no named entry.
+        assert_eq!(parser.lexer.decls.len(), 1);
+
+        // Root: StructDeclaration with name token "Outer" and a body.
+        let NodeKind::StructDeclaration(Some(outer_tok), Some(fields_id)) =
+            parser.nodes[root_id].kind
+        else {
+            panic!("expected StructDeclaration with name and body");
+        };
+        assert_eq!(lex::str_from_source(input, outer_tok.origin), "Outer");
+
+        // Body: StructFieldsDeclaration with exactly one field.
+        let NodeKind::StructFieldsDeclaration(ref field_ids) = parser.nodes[fields_id].kind else {
+            panic!("expected StructFieldsDeclaration");
+        };
+        assert_eq!(field_ids.len(), 1);
+
+        // The single field: StructFieldDeclaration(specifier_qualifier_list, declarator_list).
+        let NodeKind::StructFieldDeclaration(spec_id, Some(decl_list_id)) =
+            parser.nodes[field_ids[0]].kind
+        else {
+            panic!("expected StructFieldDeclaration with declarator list");
+        };
+
+        // Specifier: SpecifierQualifierList containing the anonymous union.
+        let NodeKind::SpecifierQualifierList(ref specs) = parser.nodes[spec_id].kind else {
+            panic!("expected SpecifierQualifierList");
+        };
+        assert_eq!(specs.len(), 1);
+        // The sole specifier must be an anonymous union (no name token).
+        let NodeKind::StructDeclaration(None, Some(_)) = parser.nodes[specs[0]].kind else {
+            panic!("expected anonymous StructDeclaration (union with no name) in specifier");
+        };
+
+        // Declarator list: StructFieldDeclaratorList with one entry named "foo".
+        let NodeKind::StructFieldDeclaratorList(ref declarators) = parser.nodes[decl_list_id].kind
+        else {
+            panic!("expected StructFieldDeclaratorList");
+        };
+        assert_eq!(declarators.len(), 1);
+        let NodeKind::StructFieldDeclarator(declarator_id, None) =
+            parser.nodes[declarators[0]].kind
+        else {
+            panic!("expected StructFieldDeclarator without bit-field");
+        };
+        assert_eq!(origin_str(input, &parser, declarator_id), "foo");
     }
 
     #[test]

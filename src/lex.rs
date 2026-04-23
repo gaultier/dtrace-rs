@@ -157,6 +157,11 @@ pub struct Lexer<'a> {
     pub(crate) decls: Declarations,
     pub(crate) globals: HashMap<String, Origin>,
     pub(crate) identifiers: HashMap<String, Origin>,
+    // Tracks nesting depth of `{...}` blocks while in `InsideClauseAndExpr` state.
+    // The state only transitions back to `ProgramOuterScope` when depth reaches zero.
+    // Without this, the first `}` of any inner block (e.g., a struct field union body)
+    // would prematurely exit clause mode, causing subsequent tokens to be mis-lexed.
+    pub(crate) curly_depth: usize,
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Clone)]
@@ -418,6 +423,7 @@ impl<'a> Lexer<'a> {
             decls: Vec::new(),
             globals: HashMap::new(),
             identifiers: HashMap::new(),
+            curly_depth: 0,
         }
     }
 
@@ -1544,8 +1550,15 @@ impl<'a> Lexer<'a> {
             ((Some('{'), _, _), _) => {
                 let start = self.position;
                 self.advance(1);
-                if self.state == LexerState::ProgramOuterScope {
-                    self.state = LexerState::InsideClauseAndExpr;
+                match self.state {
+                    LexerState::ProgramOuterScope => {
+                        self.state = LexerState::InsideClauseAndExpr;
+                        self.curly_depth = 1;
+                    }
+                    LexerState::InsideClauseAndExpr => {
+                        self.curly_depth += 1;
+                    }
+                    LexerState::InsideControlDirective(_) => {}
                 }
                 Token {
                     kind: TokenKind::LeftCurly,
@@ -1556,7 +1569,10 @@ impl<'a> Lexer<'a> {
                 let start = self.position;
                 self.advance(1);
                 if self.state == LexerState::InsideClauseAndExpr {
-                    self.state = LexerState::ProgramOuterScope;
+                    self.curly_depth = self.curly_depth.saturating_sub(1);
+                    if self.curly_depth == 0 {
+                        self.state = LexerState::ProgramOuterScope;
+                    }
                 }
                 Token {
                     kind: TokenKind::RightCurly,
@@ -2413,6 +2429,7 @@ impl<'a> Lexer<'a> {
 
     pub(crate) fn begin(&mut self, state: LexerState) {
         self.state = state;
+        self.curly_depth = 0;
     }
 
     fn macro_argument_reference_numerical(
