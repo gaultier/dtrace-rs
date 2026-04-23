@@ -3337,6 +3337,77 @@ mod tests {
     }
 
     #[test]
+    fn test_sizeof_paren_negative_number() {
+        // `sizeof(-2)` — a parenthesized expression; the parenthesized path tries
+        // `parse_type_name` first, fails (no type keyword), then succeeds with
+        // `parse_unary_expr` on the negation. Produces `Sizeof(Unary(Minus, 2), true)`.
+        let input = "sizeof(-2)";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(parser.lexer.errors.is_empty());
+        let NodeKind::Sizeof(operand_id, with_paren) = parser.nodes[root_id].kind else {
+            panic!("expected Sizeof node");
+        };
+        assert!(with_paren);
+        assert!(matches!(
+            parser.nodes[operand_id].kind,
+            NodeKind::Unary(TokenKind::Minus, _)
+        ));
+    }
+
+    #[test]
+    fn test_sizeof_unparenthesized_negative_number() {
+        // `sizeof -2` — expression without parentheses; the no-paren path calls
+        // `parse_unary_expr` directly, which handles the leading `-`. Produces
+        // `Sizeof(Unary(Minus, 2), false)`.
+        let input = "sizeof -2";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(parser.lexer.errors.is_empty());
+        let NodeKind::Sizeof(operand_id, with_paren) = parser.nodes[root_id].kind else {
+            panic!("expected Sizeof node");
+        };
+        assert!(!with_paren);
+        assert!(matches!(
+            parser.nodes[operand_id].kind,
+            NodeKind::Unary(TokenKind::Minus, _)
+        ));
+    }
+
+    #[test]
+    fn test_sizeof_paren_type() {
+        // `sizeof(int)` — parenthesized type name; the parenthesized path succeeds on
+        // `parse_type_name` before trying `parse_unary_expr`. Produces
+        // `Sizeof(TypeName(SpecifierQualifierList([TypeSpecifier(KeywordInt)]), None), true)`.
+        let input = "sizeof(int)";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(parser.lexer.errors.is_empty());
+        let NodeKind::Sizeof(operand_id, with_paren) = parser.nodes[root_id].kind else {
+            panic!("expected Sizeof node");
+        };
+        assert!(with_paren);
+        assert!(matches!(
+            parser.nodes[operand_id].kind,
+            NodeKind::TypeName(..)
+        ));
+    }
+
+    #[test]
+    fn test_sizeof_bare_type_is_error() {
+        // `sizeof int` (no parentheses around a bare type name) is forbidden in DTrace D.
+        // The no-paren path calls `parse_unary_expr`, which cannot consume `int` as an
+        // expression, producing a `MissingExpr` error.
+        let input = "sizeof int";
+        let (parser, _) = parse_expr_input(input);
+        assert!(!parser.lexer.errors.is_empty());
+        assert!(
+            parser
+                .lexer
+                .errors
+                .iter()
+                .any(|e| matches!(e.kind, ErrorKind::MissingExpr))
+        );
+    }
+
+    #[test]
     fn test_stringof_origin() {
         let input = "stringof x";
         let (parser, root_id) = parse_expr_input(input);
