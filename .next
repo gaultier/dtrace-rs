@@ -1,6 +1,4 @@
 - lex: maintain stack of ~types~(done)/identifiers/globals
-- ast: fix `sizeof(-2)`
-- ast: start + end origin
 - ast: translator definition
 - ast: provider definition
 - name resolving

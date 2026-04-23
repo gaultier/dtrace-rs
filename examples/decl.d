@@ -22,5 +22,4 @@ BEGIN {
   print(sizeof(-2));
   print(sizeof -2);
   print(sizeof(int));
-  print(sizeof int);
 }
