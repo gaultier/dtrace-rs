@@ -252,28 +252,27 @@ impl<'a> Parser<'a> {
         cpy.lex()
     }
 
-    // Used to avoid an avalanche of errors for the same line.
-    fn skip_to_next_line(&mut self) {
-        // TODO: Could just in the lexer skip to the next '\n' char.
-        let current_line = self.lexer.position.line;
-
+    // Advance past tokens until a sync token is found, leaving the lexer positioned just
+    // before it. The sync token itself is not consumed so the caller can inspect it.
+    fn sync_to(&mut self, sync_tokens: &[TokenKind]) {
         loop {
-            match self.peek1() {
-                Token {
-                    kind: TokenKind::Eof,
-                    ..
-                } => return,
-                Token { origin, .. } if origin.start.line > current_line => {
-                    return;
-                }
+            match self.peek1().kind {
+                TokenKind::Eof => return,
+                kind if sync_tokens.contains(&kind) => return,
                 _ => {
                     self.lexer.advance(1);
                 }
-            };
+            }
         }
     }
 
-    fn add_error_with_explanation(&mut self, kind: ErrorKind, origin: Origin, explanation: String) {
+    fn add_error_with_explanation(
+        &mut self,
+        kind: ErrorKind,
+        origin: Origin,
+        explanation: String,
+        sync_tokens: &[TokenKind],
+    ) {
         if self.error_mode {
             return;
         }
@@ -283,8 +282,7 @@ impl<'a> Parser<'a> {
             .push(Error::new(kind, origin, explanation));
         self.error_mode = true;
 
-        // Skip to the next newline to avoid having cascading errors.
-        self.skip_to_next_line();
+        self.sync_to(sync_tokens);
     }
 
     fn match_kind(&mut self, kind: TokenKind) -> Option<Token> {
@@ -381,6 +379,7 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         left_paren.origin,
                         String::from("expected expression after parenthesis"),
+                        &[TokenKind::RightParen, TokenKind::SemiColon, TokenKind::RightCurly],
                     );
                     self.new_node_unknown()
                 });
@@ -422,6 +421,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected multiplicative expression"),
+                        &[
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                            TokenKind::RightParen,
+                        ],
                     );
                     self.new_node_unknown()
                 }
@@ -468,6 +472,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected cast expression"),
+                        &[
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                            TokenKind::RightParen,
+                        ],
                     );
                     self.new_node_unknown()
                 }
@@ -505,6 +514,11 @@ impl<'a> Parser<'a> {
                     ErrorKind::MissingExpr,
                     right_paren.map(|t| t.origin).unwrap_or(op.origin),
                     String::from("expected expression after parenthesis in cast"),
+                    &[
+                        TokenKind::RightParen,
+                        TokenKind::SemiColon,
+                        TokenKind::RightCurly,
+                    ],
                 );
                 self.new_node_unknown()
             });
@@ -538,6 +552,12 @@ impl<'a> Parser<'a> {
                     ErrorKind::MissingExpr,
                     tok.origin,
                     String::from("expected expression following comma"),
+                    &[
+                        TokenKind::Comma,
+                        TokenKind::SemiColon,
+                        TokenKind::RightCurly,
+                        TokenKind::RightParen,
+                    ],
                 );
                 self.new_node_unknown()
             });
@@ -576,6 +596,7 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         op.origin,
                         format!("expected unary expression after {:?}", op.kind,),
+                        &[TokenKind::SemiColon, TokenKind::RightCurly],
                     );
                     self.new_node_unknown()
                 });
@@ -621,6 +642,11 @@ impl<'a> Parser<'a> {
                             ErrorKind::MissingExpr,
                             left_paren.map(|t| t.origin).unwrap_or(op.origin),
                             String::from("expected expression after `sizeof`"),
+                            &[
+                                TokenKind::SemiColon,
+                                TokenKind::RightCurly,
+                                TokenKind::RightParen,
+                            ],
                         );
                         self.new_node_unknown()
                     })
@@ -633,6 +659,11 @@ impl<'a> Parser<'a> {
                                 ErrorKind::MissingExprOrTypename,
                                 left_paren.map(|t| t.origin).unwrap_or(op.origin),
                                 String::from("expected type name or expression after `sizeof(`"),
+                                &[
+                                    TokenKind::RightParen,
+                                    TokenKind::SemiColon,
+                                    TokenKind::RightCurly,
+                                ],
                             );
                             self.new_node_unknown()
                         })
@@ -663,6 +694,7 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected unary expression after stringof"),
+                        &[TokenKind::SemiColon, TokenKind::RightCurly],
                     );
                     self.new_node_unknown()
                 });
@@ -729,6 +761,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingTypeName,
                         left_paren.map(|t| t.origin).unwrap_or(op.origin),
                         String::from("expected type name after offsetof"),
+                        &[
+                            TokenKind::Comma,
+                            TokenKind::RightParen,
+                            TokenKind::SemiColon,
+                        ],
                     );
                     self.new_node_unknown()
                 });
@@ -744,6 +781,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingFieldOrKeywordInMemberAccess,
                         comma.map(|t| t.origin).unwrap_or(op.origin),
                         String::from("expected field or keyword as offsetof last argument"),
+                        &[
+                            TokenKind::RightParen,
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                        ],
                     );
                     Token::default()
                 };
@@ -766,6 +808,7 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingTypeName,
                         lt.map(|t| t.origin).unwrap_or(op.origin),
                         String::from("expected type name after xlate"),
+                        &[TokenKind::Gt, TokenKind::SemiColon, TokenKind::RightCurly],
                     );
                     self.new_node_unknown()
                 });
@@ -777,6 +820,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         left_paren.map(|t| t.origin).unwrap_or(op.origin),
                         String::from("expected expression for xlate after type name"),
+                        &[
+                            TokenKind::RightParen,
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                        ],
                     );
                     self.new_node_unknown()
                 });
@@ -852,6 +900,13 @@ impl<'a> Parser<'a> {
                             ErrorKind::MissingFieldOrKeywordInMemberAccess,
                             op.origin,
                             String::from("expected identifier or keyword in member access"),
+                            &[
+                                TokenKind::SemiColon,
+                                TokenKind::RightCurly,
+                                TokenKind::RightParen,
+                                TokenKind::Dot,
+                                TokenKind::Arrow,
+                            ],
                         );
                         lhs = self.new_node(Node {
                             kind: NodeKind::FieldAccess(lhs, op.kind, Token::default()),
@@ -897,6 +952,11 @@ impl<'a> Parser<'a> {
                     ErrorKind::MissingExpr,
                     op.origin,
                     String::from("expected assignment expression in argument list after comma"),
+                    &[
+                        TokenKind::Comma,
+                        TokenKind::RightParen,
+                        TokenKind::SemiColon,
+                    ],
                 );
                 self.new_node_unknown()
             });
@@ -989,6 +1049,12 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected expression after assignment operator"),
+                        &[
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                            TokenKind::RightParen,
+                            TokenKind::Comma,
+                        ],
                     );
                     self.new_node_unknown()
                 });
@@ -1018,6 +1084,11 @@ impl<'a> Parser<'a> {
                     ErrorKind::MissingExpr,
                     question_mark.origin,
                     String::from("expected expression in ternary condition after question mark"),
+                    &[
+                        TokenKind::Colon,
+                        TokenKind::SemiColon,
+                        TokenKind::RightCurly,
+                    ],
                 );
                 self.new_node_unknown()
             });
@@ -1029,6 +1100,11 @@ impl<'a> Parser<'a> {
                     String::from(
                         "expected conditional expression in ternary condition after colon",
                     ),
+                    &[
+                        TokenKind::SemiColon,
+                        TokenKind::RightCurly,
+                        TokenKind::RightParen,
+                    ],
                 );
                 self.new_node_unknown()
             });
@@ -1059,6 +1135,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected logical xor expression"),
+                        &[
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                            TokenKind::RightParen,
+                        ],
                     );
                     self.new_node_unknown()
                 }
@@ -1090,6 +1171,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected logical and expression"),
+                        &[
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                            TokenKind::RightParen,
+                        ],
                     );
                     self.new_node_unknown()
                 }
@@ -1121,6 +1207,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected logical or expression"),
+                        &[
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                            TokenKind::RightParen,
+                        ],
                     );
                     self.new_node_unknown()
                 }
@@ -1152,6 +1243,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected exclusive or expression"),
+                        &[
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                            TokenKind::RightParen,
+                        ],
                     );
                     self.new_node_unknown()
                 }
@@ -1183,6 +1279,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected logical or expression"),
+                        &[
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                            TokenKind::RightParen,
+                        ],
                     );
                     self.new_node_unknown()
                 }
@@ -1214,6 +1315,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected equality expression"),
+                        &[
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                            TokenKind::RightParen,
+                        ],
                     );
                     self.new_node_unknown()
                 }
@@ -1252,6 +1358,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected equality expression"),
+                        &[
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                            TokenKind::RightParen,
+                        ],
                     );
                     self.new_node_unknown()
                 }
@@ -1291,6 +1402,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected equality expression"),
+                        &[
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                            TokenKind::RightParen,
+                        ],
                     );
                     self.new_node_unknown()
                 }
@@ -1324,6 +1440,11 @@ impl<'a> Parser<'a> {
                     ErrorKind::MissingExpr,
                     op.origin,
                     String::from("expected additive expression after shift operator"),
+                    &[
+                        TokenKind::SemiColon,
+                        TokenKind::RightCurly,
+                        TokenKind::RightParen,
+                    ],
                 );
                 self.new_node_unknown()
             });
@@ -1364,6 +1485,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingExpr,
                         self.current_or_last_origin_for_err(),
                         String::from("expected expression in if"),
+                        &[
+                            TokenKind::RightParen,
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                        ],
                     );
                     self.new_node_unknown()
                 });
@@ -1376,6 +1502,7 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingStatementOrBlock,
                         self.current_or_last_origin_for_err(),
                         String::from("expected statement or block after if condition"),
+                        &[TokenKind::SemiColon, TokenKind::RightCurly],
                     );
                     self.new_node_unknown()
                 });
@@ -1387,6 +1514,7 @@ impl<'a> Parser<'a> {
                                 ErrorKind::MissingStatementOrBlock,
                                 self.current_or_last_origin_for_err(),
                                 String::from("expected statement or block after else"),
+                                &[TokenKind::SemiColon, TokenKind::RightCurly],
                             );
                             self.new_node_unknown()
                         })
@@ -1453,10 +1581,14 @@ impl<'a> Parser<'a> {
         if let Some(token) = self.match_kind(token_kind) {
             Some(token)
         } else {
+            // Sync to the expected token: if it appears later in the input (e.g. a missing
+            // `)` with the `)` still present further ahead), we land just before it so the
+            // outer structure can still close cleanly.
             self.add_error_with_explanation(
                 ErrorKind::MissingExpectedToken(token_kind),
                 self.current_or_last_origin_for_err(),
                 format!("failed to parse {}: missing {:?}", context, token_kind),
+                &[token_kind],
             );
             None
         }
@@ -1541,6 +1673,7 @@ impl<'a> Parser<'a> {
                         self.current_or_last_origin_for_err(),
                         "reached EOF while parsing statement, did you forget a semicolon or closing curly brace?"
                             .to_owned(),
+                        &[TokenKind::RightCurly],
                     );
                     let origin = if stmts.is_empty() {
                         self.current_or_last_origin_for_err()
@@ -1567,6 +1700,7 @@ impl<'a> Parser<'a> {
                             ErrorKind::MissingExpr,
                             self.current_or_last_origin_for_err(),
                             String::from("expected expression in statement list"),
+                            &[TokenKind::SemiColon, TokenKind::RightCurly],
                         );
                         self.new_node_unknown()
                     });
@@ -1620,6 +1754,7 @@ impl<'a> Parser<'a> {
                     ErrorKind::MissingProbeSpecifier,
                     comma.origin,
                     String::from("expected probe specifier following comma"),
+                    &[TokenKind::Comma, TokenKind::LeftCurly, TokenKind::Slash],
                 );
                 self.new_node_unknown()
             });
@@ -1687,6 +1822,7 @@ impl<'a> Parser<'a> {
             ErrorKind::MissingPredicateOrAction,
             self.current_or_last_origin_for_err(),
             String::from("a predicate or action must follow a probe specifier in file mode"),
+            &[TokenKind::SemiColon, TokenKind::RightCurly],
         );
         Some(self.new_node(Node {
             kind: NodeKind::ProbeDefinition(probe_specifier, predicate, None),
@@ -1732,6 +1868,7 @@ impl<'a> Parser<'a> {
                 ErrorKind::MissingDeclarationSpecifiers,
                 tok.origin,
                 String::from("expected declaration specifiers"),
+                &[TokenKind::Eq, TokenKind::SemiColon],
             );
             self.new_node_unknown()
         });
@@ -1740,6 +1877,7 @@ impl<'a> Parser<'a> {
                 ErrorKind::MissingDeclarator,
                 tok.origin,
                 String::from("expected declarator"),
+                &[TokenKind::Eq, TokenKind::SemiColon],
             );
             self.new_node_unknown()
         });
@@ -1751,6 +1889,7 @@ impl<'a> Parser<'a> {
                 ErrorKind::MissingExpr,
                 tok.origin,
                 String::from("expected expression after equal sign"),
+                &[TokenKind::SemiColon],
             );
             self.new_node_unknown()
         });
@@ -1822,8 +1961,11 @@ impl<'a> Parser<'a> {
             };
 
             if self.error_mode {
-                trace!("skipping to next line");
-                self.skip_to_next_line();
+                // The error site already synced to a structural boundary; consume that
+                // token so the next iteration starts at a fresh position.
+                if !matches!(self.peek1().kind, TokenKind::Eof) {
+                    self.lexer.lex();
+                }
                 self.error_mode = false;
                 continue;
             }
@@ -1841,7 +1983,7 @@ impl<'a> Parser<'a> {
                 return Some(expr);
             }
 
-            // Catch-all.
+            // Catch-all: sync past the unrecognised token to a statement boundary.
             self.add_error_with_explanation(
                 ErrorKind::ParseProgram,
                 self.current_or_last_origin_for_err(),
@@ -1849,6 +1991,7 @@ impl<'a> Parser<'a> {
                     "catch-all parse program error: encountered unexpected token {:?}",
                     token_kind
                 ),
+                &[TokenKind::SemiColon, TokenKind::RightCurly],
             );
         }
         None
@@ -1954,6 +2097,7 @@ impl<'a> Parser<'a> {
                     ErrorKind::MissingInitDeclarator,
                     comma.origin,
                     String::from("expected init declarator after comma"),
+                    &[TokenKind::Comma, TokenKind::SemiColon],
                 );
                 self.new_node_unknown()
             });
@@ -2096,6 +2240,11 @@ impl<'a> Parser<'a> {
                 ErrorKind::MissingDirectDeclarator,
                 self.current_or_last_origin_for_err(),
                 String::from("expected directed declarator in declaration"),
+                &[
+                    TokenKind::SemiColon,
+                    TokenKind::RightCurly,
+                    TokenKind::Comma,
+                ],
             );
             self.new_node_unknown()
         });
@@ -2139,6 +2288,11 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingDeclarator,
                         left_paren.origin,
                         String::from("expected declarator after parenthesis"),
+                        &[
+                            TokenKind::RightParen,
+                            TokenKind::SemiColon,
+                            TokenKind::RightCurly,
+                        ],
                     );
                     self.new_node_unknown()
                 });
@@ -2213,6 +2367,7 @@ impl<'a> Parser<'a> {
                     ErrorKind::MissingEnumerators,
                     left_curly.origin,
                     String::from("expected at least one enumerator in enum definition"),
+                    &[TokenKind::RightCurly, TokenKind::SemiColon],
                 );
                 self.new_node_unknown()
             });
@@ -2247,6 +2402,7 @@ impl<'a> Parser<'a> {
                     ErrorKind::MissingEnumerator,
                     comma.origin,
                     String::from("expected enumerator following comma"),
+                    &[TokenKind::Comma, TokenKind::RightCurly],
                 );
                 self.new_node_unknown()
             });
@@ -2273,6 +2429,7 @@ impl<'a> Parser<'a> {
                     ErrorKind::MissingExpr,
                     eq.origin,
                     String::from("expected expression following enumerator"),
+                    &[TokenKind::Comma, TokenKind::RightCurly],
                 );
                 self.new_node_unknown()
             })
@@ -2322,6 +2479,7 @@ impl<'a> Parser<'a> {
                     ErrorKind::MissingStructDeclarationList,
                     left_curly.origin,
                     String::from("expected unary expression after opening curly brace"),
+                    &[TokenKind::RightCurly, TokenKind::SemiColon],
                 );
                 self.new_node_unknown()
             });
@@ -2402,6 +2560,7 @@ impl<'a> Parser<'a> {
                     String::from(
                         "expected a struct field declarator after comma in struct field declaration"
                     ),
+                    &[TokenKind::Comma, TokenKind::SemiColon, TokenKind::RightCurly],
                 );
                 self.new_node_unknown()
             });
@@ -2431,6 +2590,7 @@ impl<'a> Parser<'a> {
                     String::from(
                         "expected a constant expression after colon in struct field declaration",
                     ),
+                    &[TokenKind::SemiColon, TokenKind::RightCurly],
                 );
                 self.new_node_unknown()
             });
@@ -2473,6 +2633,7 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingAbstractDeclarator,
                         tok.origin,
                         String::from("expected abstract declarator after parenthesis"),
+                        &[TokenKind::RightParen],
                     );
                     self.new_node_unknown()
                 });
@@ -2492,6 +2653,7 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingFunction,
                         self.current_or_last_origin_for_err(),
                         String::from("expected function after opening parenthesis"),
+                        &[TokenKind::RightParen],
                     );
                     self.new_node_unknown()
                 });
@@ -2503,6 +2665,7 @@ impl<'a> Parser<'a> {
                         ErrorKind::MissingArray,
                         self.current_or_last_origin_for_err(),
                         String::from("expected array after opening square bracket"),
+                        &[TokenKind::RightSquareBracket],
                     );
                     self.new_node_unknown()
                 });
@@ -2521,6 +2684,7 @@ impl<'a> Parser<'a> {
                             ErrorKind::MissingArray,
                             self.current_or_last_origin_for_err(),
                             String::from("expected array after opening square bracket"),
+                            &[TokenKind::RightSquareBracket],
                         );
                         self.new_node_unknown()
                     });
@@ -2547,6 +2711,7 @@ impl<'a> Parser<'a> {
                             ErrorKind::MissingFunction,
                             self.current_or_last_origin_for_err(),
                             String::from("expected function after opening parenthesis"),
+                            &[TokenKind::RightParen],
                         );
                         self.new_node_unknown()
                     });
@@ -2645,6 +2810,7 @@ impl<'a> Parser<'a> {
                 ErrorKind::MissingFunctionParameters,
                 self.current_or_last_origin_for_err(),
                 String::from("missing function parameters"),
+                &[TokenKind::RightParen, TokenKind::Comma],
             );
             self.new_node_unknown()
         });
@@ -2685,6 +2851,7 @@ impl<'a> Parser<'a> {
                     ErrorKind::MissingFunctionParameter,
                     comma.origin,
                     String::from("expected function parameter after comma"),
+                    &[TokenKind::Comma, TokenKind::RightParen],
                 );
                 self.new_node_unknown()
             });
@@ -2741,6 +2908,7 @@ impl<'a> Parser<'a> {
                 ErrorKind::MissingParameterDeclarationSpecifiers,
                 self.current_or_last_origin_for_err(),
                 String::from("expected parameter declaration specifiers"),
+                &[TokenKind::Comma, TokenKind::RightParen],
             );
         }
 
