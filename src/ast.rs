@@ -45,7 +45,7 @@ pub enum NodeKind {
         else_block: Option<NodeId>,
     },
     Block(Vec<NodeId>),
-    PostfixIncDecrement(NodeId, TokenKind),
+    PostfixIncDecrement(NodeId, Token),
     ExprStmt(NodeId),
     EmptyStmt,
     PostfixArguments(NodeId, Option<NodeId>),
@@ -920,7 +920,7 @@ impl<'a> Parser<'a> {
                     let op = self.lexer.lex();
 
                     lhs = self.new_node(Node {
-                        kind: NodeKind::PostfixIncDecrement(lhs, op.kind),
+                        kind: NodeKind::PostfixIncDecrement(lhs, op),
                         origin: lhs_origin.merge(op.origin),
                     });
                 }

@@ -163,13 +163,25 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.w.write_all(b")")?;
                 }
             }
-            NodeKind::StringofExpr(_node_id) => todo!(),
-            NodeKind::PostfixIncDecrement(_node_id, _token_kind) => todo!(),
+            NodeKind::StringofExpr(node_id) => {
+                self.w.write_all(b"stringof(")?;
+                self.fmt(node_id, indent)?;
+                self.w.write_all(b")")?;
+            }
+            NodeKind::PostfixIncDecrement(node_id, token) => {
+                self.fmt(node_id, indent)?;
+                let s = lex::str_from_source(self.input, token.origin);
+                self.w.write_all(s.as_bytes())?;
+            }
             NodeKind::PostfixArrayAccess(_primary, _args) => {
                 todo!()
             }
-            NodeKind::TernaryExpr(_lhs, _mhs, _rhs) => {
-                todo!()
+            NodeKind::TernaryExpr(lhs, mhs, rhs) => {
+                self.fmt(lhs, indent)?;
+                self.w.write_all(b" ? ")?;
+                self.fmt(mhs, indent)?;
+                self.w.write_all(b" : ")?;
+                self.fmt(rhs, indent)?;
             }
             NodeKind::FieldAccess(_node_id, _, _) => {
                 todo!()
@@ -181,8 +193,13 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.fmt(declarator, indent)?;
                 };
             }
-            NodeKind::OffsetOf(_node_id, _token) => {
-                todo!()
+            NodeKind::OffsetOf(node_id, token) => {
+                self.w.write_all(b"offsetof(")?;
+                self.fmt(node_id, indent)?;
+                self.w.write_all(b", ")?;
+                let s = lex::str_from_source(self.input, token.origin);
+                self.w.write_all(s.as_bytes())?;
+                self.w.write_all(b")")?;
             }
             NodeKind::Declaration(_decl_specifiers, _init_declarator_list) => {
                 todo!()
