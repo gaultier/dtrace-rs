@@ -215,6 +215,9 @@ impl<'a, W: Write> Formatter<'a, W> {
             NodeKind::EnumeratorsDeclaration(_node_ids) => {
                 todo!()
             }
+            NodeKind::UnionDeclaration(_, _node_id) => {
+                todo!()
+            }
             NodeKind::StructDeclaration(_, _node_id) => {
                 todo!()
             }

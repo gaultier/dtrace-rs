@@ -92,6 +92,7 @@ pub enum NodeKind {
         param_decl_specifiers: NodeId,
         declarator: Option<NodeId>,
     },
+    UnionDeclaration(Option<Token>, Option<NodeId>),
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -2320,8 +2321,13 @@ impl<'a> Parser<'a> {
             None
         };
 
+        let kind = match tok.kind {
+            TokenKind::KeywordStruct => NodeKind::StructDeclaration(name_tok, decl_list),
+            TokenKind::KeywordUnion => NodeKind::UnionDeclaration(name_tok, decl_list),
+            _ => unreachable!(),
+        };
         Some(self.new_node(Node {
-            kind: NodeKind::StructDeclaration(name_tok, decl_list),
+            kind,
             origin: tok.origin.merge(end_origin),
         }))
     }
@@ -2902,7 +2908,7 @@ pub fn log(
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::StructDeclaration(_, node_id) => {
+        NodeKind::UnionDeclaration(_, node_id) | NodeKind::StructDeclaration(_, node_id) => {
             if let Some(node_id) = node_id {
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
