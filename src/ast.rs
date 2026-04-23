@@ -266,7 +266,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn add_error_with_explanation(
+    fn error(
         &mut self,
         kind: ErrorKind,
         origin: Origin,
@@ -375,7 +375,7 @@ impl<'a> Parser<'a> {
             } => {
                 let left_paren = self.match_kind(TokenKind::LeftParen)?;
                 let e = self.parse_expr().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         left_paren.origin,
                         String::from("expected expression after parenthesis"),
@@ -417,7 +417,7 @@ impl<'a> Parser<'a> {
 
             let rhs = match self.parse_multiplicative_expr() {
                 None => {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected multiplicative expression"),
@@ -468,7 +468,7 @@ impl<'a> Parser<'a> {
 
             let rhs = match self.parse_cast_expr() {
                 None => {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected cast expression"),
@@ -510,7 +510,7 @@ impl<'a> Parser<'a> {
             let right_paren =
                 self.expect_token_one(TokenKind::RightParen, "closing cast right parenthesis");
             let node = self.parse_cast_expr().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingExpr,
                     right_paren.map(|t| t.origin).unwrap_or(op.origin),
                     String::from("expected expression after parenthesis in cast"),
@@ -548,7 +548,7 @@ impl<'a> Parser<'a> {
 
         while let Some(tok) = self.match_kind(TokenKind::Comma) {
             let expr = self.parse_assignment_expr().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingExpr,
                     tok.origin,
                     String::from("expected expression following comma"),
@@ -592,7 +592,7 @@ impl<'a> Parser<'a> {
             } => {
                 let op = self.lexer.lex();
                 let unary = self.parse_unary_expr().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         op.origin,
                         format!("expected unary expression after {:?}", op.kind,),
@@ -638,7 +638,7 @@ impl<'a> Parser<'a> {
                 let operand = if left_paren.is_none() {
                     // Parenthesis absent: must be a unary expression.
                     self.parse_unary_expr().unwrap_or_else(|| {
-                        self.add_error_with_explanation(
+                        self.error(
                             ErrorKind::MissingExpr,
                             left_paren.map(|t| t.origin).unwrap_or(op.origin),
                             String::from("expected expression after `sizeof`"),
@@ -655,7 +655,7 @@ impl<'a> Parser<'a> {
                     self.parse_type_name()
                         .or_else(|| self.parse_unary_expr())
                         .unwrap_or_else(|| {
-                            self.add_error_with_explanation(
+                            self.error(
                                 ErrorKind::MissingExprOrTypename,
                                 left_paren.map(|t| t.origin).unwrap_or(op.origin),
                                 String::from("expected type name or expression after `sizeof(`"),
@@ -690,7 +690,7 @@ impl<'a> Parser<'a> {
                 let op = self.lexer.lex();
 
                 let unary = self.parse_unary_expr().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected unary expression after stringof"),
@@ -757,7 +757,7 @@ impl<'a> Parser<'a> {
                 let left_paren = self
                     .expect_token_one(TokenKind::LeftParen, "opening parenthesis after offsetof");
                 let type_name = self.parse_type_name().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingTypeName,
                         left_paren.map(|t| t.origin).unwrap_or(op.origin),
                         String::from("expected type name after offsetof"),
@@ -777,7 +777,7 @@ impl<'a> Parser<'a> {
                 } else if let Some(keyword_as_ident) = self.parse_keyword_as_ident() {
                     keyword_as_ident
                 } else {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingFieldOrKeywordInMemberAccess,
                         comma.map(|t| t.origin).unwrap_or(op.origin),
                         String::from("expected field or keyword as offsetof last argument"),
@@ -804,7 +804,7 @@ impl<'a> Parser<'a> {
                 let op = self.lexer.lex();
                 let lt = self.expect_token_one(TokenKind::Lt, "'<' after xlate");
                 let type_name = self.parse_type_name().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingTypeName,
                         lt.map(|t| t.origin).unwrap_or(op.origin),
                         String::from("expected type name after xlate"),
@@ -816,7 +816,7 @@ impl<'a> Parser<'a> {
                 let left_paren =
                     self.expect_token_one(TokenKind::LeftParen, "opening parenthesis after '>'");
                 let expr = self.parse_expr().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         left_paren.map(|t| t.origin).unwrap_or(op.origin),
                         String::from("expected expression for xlate after type name"),
@@ -896,7 +896,7 @@ impl<'a> Parser<'a> {
                             origin: lhs_origin.merge(keyword_as_ident.origin),
                         });
                     } else {
-                        self.add_error_with_explanation(
+                        self.error(
                             ErrorKind::MissingFieldOrKeywordInMemberAccess,
                             op.origin,
                             String::from("expected identifier or keyword in member access"),
@@ -948,7 +948,7 @@ impl<'a> Parser<'a> {
         let mut args = vec![expr];
         while let Some(op) = self.match_kind(TokenKind::Comma) {
             let arg = self.parse_assignment_expr().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingExpr,
                     op.origin,
                     String::from("expected assignment expression in argument list after comma"),
@@ -1045,7 +1045,7 @@ impl<'a> Parser<'a> {
                 let lhs_origin = self.origin(lhs);
                 let op = self.lexer.lex();
                 let rhs = self.parse_assignment_expr().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected expression after assignment operator"),
@@ -1080,7 +1080,7 @@ impl<'a> Parser<'a> {
 
         if let Some(question_mark) = self.match_kind(TokenKind::Question) {
             let mhs = self.parse_expr().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingExpr,
                     question_mark.origin,
                     String::from("expected expression in ternary condition after question mark"),
@@ -1094,7 +1094,7 @@ impl<'a> Parser<'a> {
             });
             self.expect_token_one(TokenKind::Colon, "colon in ternary expression");
             let rhs = self.parse_conditional_expr().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingExpr,
                     self.current_or_last_origin_for_err(),
                     String::from(
@@ -1131,7 +1131,7 @@ impl<'a> Parser<'a> {
         while let Some(op) = self.match_kind(TokenKind::PipePipe) {
             let rhs = match self.parse_logical_xor_expr() {
                 None => {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected logical xor expression"),
@@ -1167,7 +1167,7 @@ impl<'a> Parser<'a> {
         while let Some(op) = self.match_kind(TokenKind::CaretCaret) {
             let rhs = match self.parse_logical_and_expr() {
                 None => {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected logical and expression"),
@@ -1203,7 +1203,7 @@ impl<'a> Parser<'a> {
         while let Some(op) = self.match_kind(TokenKind::AmpersandAmpersand) {
             let rhs = match self.parse_inclusive_or_expr() {
                 None => {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected logical or expression"),
@@ -1239,7 +1239,7 @@ impl<'a> Parser<'a> {
         while let Some(op) = self.match_kind(TokenKind::Pipe) {
             let rhs = match self.parse_exclusive_or_expr() {
                 None => {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected exclusive or expression"),
@@ -1275,7 +1275,7 @@ impl<'a> Parser<'a> {
         while let Some(op) = self.match_kind(TokenKind::Caret) {
             let rhs = match self.parse_and_expr() {
                 None => {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected logical or expression"),
@@ -1311,7 +1311,7 @@ impl<'a> Parser<'a> {
         while let Some(op) = self.match_kind(TokenKind::Ampersand) {
             let rhs = match self.parse_equality_expr() {
                 None => {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected equality expression"),
@@ -1354,7 +1354,7 @@ impl<'a> Parser<'a> {
 
             let rhs = match self.parse_relational_expr() {
                 None => {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected equality expression"),
@@ -1398,7 +1398,7 @@ impl<'a> Parser<'a> {
             let op = self.lexer.lex();
             let rhs = match self.parse_shift_expr() {
                 None => {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         op.origin,
                         String::from("expected equality expression"),
@@ -1436,7 +1436,7 @@ impl<'a> Parser<'a> {
         while let TokenKind::LtLt | TokenKind::GtGt = self.peek1().kind {
             let op = self.lexer.lex();
             let rhs = self.parse_additive_expr().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingExpr,
                     op.origin,
                     String::from("expected additive expression after shift operator"),
@@ -1481,7 +1481,7 @@ impl<'a> Parser<'a> {
 
                 self.expect_token_one(TokenKind::LeftParen, "opening parenthesis in if expression");
                 let cond = self.parse_expr().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingExpr,
                         self.current_or_last_origin_for_err(),
                         String::from("expected expression in if"),
@@ -1498,7 +1498,7 @@ impl<'a> Parser<'a> {
                     "closing parenthesis in if expression",
                 );
                 let then_block = self.parse_statement_or_block().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingStatementOrBlock,
                         self.current_or_last_origin_for_err(),
                         String::from("expected statement or block after if condition"),
@@ -1510,7 +1510,7 @@ impl<'a> Parser<'a> {
                 let else_block: Option<NodeId> =
                     self.match_kind(TokenKind::KeywordElse).map(|_else_token| {
                         self.parse_statement_or_block().unwrap_or_else(|| {
-                            self.add_error_with_explanation(
+                            self.error(
                                 ErrorKind::MissingStatementOrBlock,
                                 self.current_or_last_origin_for_err(),
                                 String::from("expected statement or block after else"),
@@ -1584,7 +1584,7 @@ impl<'a> Parser<'a> {
             // Sync to the expected token: if it appears later in the input (e.g. a missing
             // `)` with the `)` still present further ahead), we land just before it so the
             // outer structure can still close cleanly.
-            self.add_error_with_explanation(
+            self.error(
                 ErrorKind::MissingExpectedToken(token_kind),
                 self.current_or_last_origin_for_err(),
                 format!("failed to parse {}: missing {:?}", context, token_kind),
@@ -1668,7 +1668,7 @@ impl<'a> Parser<'a> {
                     stmts.push(stmt);
                 }
                 TokenKind::Eof => {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingStatement,
                         self.current_or_last_origin_for_err(),
                         "reached EOF while parsing statement, did you forget a semicolon or closing curly brace?"
@@ -1696,7 +1696,7 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     let expr = self.parse_expr().unwrap_or_else(|| {
-                        self.add_error_with_explanation(
+                        self.error(
                             ErrorKind::MissingExpr,
                             self.current_or_last_origin_for_err(),
                             String::from("expected expression in statement list"),
@@ -1750,7 +1750,7 @@ impl<'a> Parser<'a> {
 
         while let Some(comma) = self.match_kind(TokenKind::Comma) {
             let specifier = self.parse_probe_specifier().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingProbeSpecifier,
                     comma.origin,
                     String::from("expected probe specifier following comma"),
@@ -1818,7 +1818,7 @@ impl<'a> Parser<'a> {
             return Some(node_id);
         }
 
-        self.add_error_with_explanation(
+        self.error(
             ErrorKind::MissingPredicateOrAction,
             self.current_or_last_origin_for_err(),
             String::from("a predicate or action must follow a probe specifier in file mode"),
@@ -1864,7 +1864,7 @@ impl<'a> Parser<'a> {
         let tok = self.match_kind(TokenKind::KeywordInline)?;
 
         let decl_specifiers = self.parse_declaration_specifiers().unwrap_or_else(|| {
-            self.add_error_with_explanation(
+            self.error(
                 ErrorKind::MissingDeclarationSpecifiers,
                 tok.origin,
                 String::from("expected declaration specifiers"),
@@ -1873,7 +1873,7 @@ impl<'a> Parser<'a> {
             self.new_node_unknown()
         });
         let declarator = self.parse_declarator().unwrap_or_else(|| {
-            self.add_error_with_explanation(
+            self.error(
                 ErrorKind::MissingDeclarator,
                 tok.origin,
                 String::from("expected declarator"),
@@ -1885,7 +1885,7 @@ impl<'a> Parser<'a> {
         self.expect_token_one(TokenKind::Eq, "equal sign after declarator");
 
         let expr = self.parse_assignment_expr().unwrap_or_else(|| {
-            self.add_error_with_explanation(
+            self.error(
                 ErrorKind::MissingExpr,
                 tok.origin,
                 String::from("expected expression after equal sign"),
@@ -1984,7 +1984,7 @@ impl<'a> Parser<'a> {
             }
 
             // Catch-all: sync past the unrecognised token to a statement boundary.
-            self.add_error_with_explanation(
+            self.error(
                 ErrorKind::ParseProgram,
                 self.current_or_last_origin_for_err(),
                 format!(
@@ -2093,7 +2093,7 @@ impl<'a> Parser<'a> {
         let mut declarators = vec![init_declarator];
         while let Some(comma) = self.match_kind(TokenKind::Comma) {
             let declarator = self.parse_init_declarator().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingInitDeclarator,
                     comma.origin,
                     String::from("expected init declarator after comma"),
@@ -2236,7 +2236,7 @@ impl<'a> Parser<'a> {
             return None;
         }
         let direct_declarator = direct_declarator.unwrap_or_else(|| {
-            self.add_error_with_explanation(
+            self.error(
                 ErrorKind::MissingDirectDeclarator,
                 self.current_or_last_origin_for_err(),
                 String::from("expected directed declarator in declaration"),
@@ -2284,7 +2284,7 @@ impl<'a> Parser<'a> {
             TokenKind::LeftParen => {
                 let left_paren = self.lexer.lex();
                 let decl = self.parse_declarator().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingDeclarator,
                         left_paren.origin,
                         String::from("expected declarator after parenthesis"),
@@ -2363,7 +2363,7 @@ impl<'a> Parser<'a> {
         let mut end_origin = name_tok.map(|t| t.origin).unwrap_or(enum_tok.origin);
         let enumerator_list: Option<NodeId> = if let Some(left_curly) = left_curly {
             let enumerator_list = self.parse_enumerator_list().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingEnumerators,
                     left_curly.origin,
                     String::from("expected at least one enumerator in enum definition"),
@@ -2398,7 +2398,7 @@ impl<'a> Parser<'a> {
         let mut enumerators = vec![enumerator];
         while let Some(comma) = self.match_kind(TokenKind::Comma) {
             let enumerator = self.parse_enumerator().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingEnumerator,
                     comma.origin,
                     String::from("expected enumerator following comma"),
@@ -2425,7 +2425,7 @@ impl<'a> Parser<'a> {
         let identifier_tok = self.match_kind(TokenKind::Identifier)?;
         let expr = self.match_kind(TokenKind::Eq).map(|eq| {
             self.parse_conditional_expr().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingExpr,
                     eq.origin,
                     String::from("expected expression following enumerator"),
@@ -2475,7 +2475,7 @@ impl<'a> Parser<'a> {
         let mut end_origin = name_tok.map(|t| t.origin).unwrap_or(tok.origin);
         let decl_list = if let Some(left_curly) = left_curly {
             let decl_list = self.parse_struct_declaration_list().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingStructDeclarationList,
                     left_curly.origin,
                     String::from("expected unary expression after opening curly brace"),
@@ -2554,7 +2554,7 @@ impl<'a> Parser<'a> {
         let mut decls = vec![decl];
         while let Some(comma) = self.match_kind(TokenKind::Comma) {
             let decl = self.parse_struct_declarator().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingStructFieldDeclarator,
                     comma.origin,
                     String::from(
@@ -2584,7 +2584,7 @@ impl<'a> Parser<'a> {
 
         let const_expr = if let Some(colon) = self.match_kind(TokenKind::Colon) {
             let expr = self.parse_const_expr().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingConstantExpr,
                     colon.origin,
                     String::from(
@@ -2629,7 +2629,7 @@ impl<'a> Parser<'a> {
                 let tok = self.lexer.lex();
 
                 let abstract_decl = self.parse_abstract_declarator().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingAbstractDeclarator,
                         tok.origin,
                         String::from("expected abstract declarator after parenthesis"),
@@ -2649,7 +2649,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::LeftParen => {
                 let func = self.parse_function().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingFunction,
                         self.current_or_last_origin_for_err(),
                         String::from("expected function after opening parenthesis"),
@@ -2661,7 +2661,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::LeftSquareBracket => {
                 let array = self.parse_array().unwrap_or_else(|| {
-                    self.add_error_with_explanation(
+                    self.error(
                         ErrorKind::MissingArray,
                         self.current_or_last_origin_for_err(),
                         String::from("expected array after opening square bracket"),
@@ -2680,7 +2680,7 @@ impl<'a> Parser<'a> {
                 TokenKind::LeftSquareBracket => {
                     let origin = self.peek1().origin;
                     let array = self.parse_array().unwrap_or_else(|| {
-                        self.add_error_with_explanation(
+                        self.error(
                             ErrorKind::MissingArray,
                             self.current_or_last_origin_for_err(),
                             String::from("expected array after opening square bracket"),
@@ -2707,7 +2707,7 @@ impl<'a> Parser<'a> {
                     let origin = self.peek1().origin;
 
                     let func = self.parse_array().unwrap_or_else(|| {
-                        self.add_error_with_explanation(
+                        self.error(
                             ErrorKind::MissingFunction,
                             self.current_or_last_origin_for_err(),
                             String::from("expected function after opening parenthesis"),
@@ -2806,7 +2806,7 @@ impl<'a> Parser<'a> {
         }
 
         let params = self.parse_parameter_list().unwrap_or_else(|| {
-            self.add_error_with_explanation(
+            self.error(
                 ErrorKind::MissingFunctionParameters,
                 self.current_or_last_origin_for_err(),
                 String::from("missing function parameters"),
@@ -2847,7 +2847,7 @@ impl<'a> Parser<'a> {
 
         while let Some(comma) = self.match_kind(TokenKind::Comma) {
             let param = self.parse_parameter_declaration().unwrap_or_else(|| {
-                self.add_error_with_explanation(
+                self.error(
                     ErrorKind::MissingFunctionParameter,
                     comma.origin,
                     String::from("expected function parameter after comma"),
@@ -2904,7 +2904,7 @@ impl<'a> Parser<'a> {
             specifiers.push(spec);
         }
         if specifiers.is_empty() {
-            self.add_error_with_explanation(
+            self.error(
                 ErrorKind::MissingParameterDeclarationSpecifiers,
                 self.current_or_last_origin_for_err(),
                 String::from("expected parameter declaration specifiers"),
