@@ -436,11 +436,11 @@ impl<'a> Lexer<'a> {
         match self.state {
             // In expression context, backtick is the D kernel-scoping operator (e.g. `kmem_alloc`),
             // so it is valid inside an identifier.
-            LexerState::InsideClauseAndExpr => c.is_alphanumeric() || c == '_' || c == '`',
+            LexerState::InsideClauseAndExpr => c.is_ascii_alphanumeric() || c == '_' || c == '`',
             // In outer declarations, keywords are lexed as identifiers, but they never contain backtick.
             // Backtick can appear only inside probe specifiers (via `is_character_probe_specifier_rest`).
-            LexerState::ProgramOuterScope => c.is_alphanumeric() || c == '_',
-            LexerState::InsideControlDirective(_) => !(c.is_whitespace() || c == '"'),
+            LexerState::ProgramOuterScope => c.is_ascii_alphanumeric() || c == '_',
+            LexerState::InsideControlDirective(_) => !(c.is_ascii_whitespace() || c == '"'),
         }
     }
 
@@ -448,12 +448,12 @@ impl<'a> Lexer<'a> {
         match self.state {
             // Backtick is a valid leading character for kernel-scoped identifiers in expression context.
             LexerState::InsideClauseAndExpr => {
-                c.is_alphanumeric() || c == '_' || c == '@' || c == '`'
+                c.is_ascii_alphanumeric() || c == '_' || c == '@' || c == '`'
             }
             // In outer declarations, a leading backtick is a syntax error per the DTrace reference lexer
             // (`RGX_PSPEC` first-char class excludes backtick; `<S2>. yyerror(...)`).
-            LexerState::ProgramOuterScope => c.is_alphanumeric() || c == '_' || c == '@',
-            LexerState::InsideControlDirective(_) => !(c.is_whitespace() || c == '"'),
+            LexerState::ProgramOuterScope => c.is_ascii_alphanumeric() || c == '_' || c == '@',
+            LexerState::InsideControlDirective(_) => !(c.is_ascii_whitespace() || c == '"'),
         }
     }
 
@@ -1705,7 +1705,7 @@ impl<'a> Lexer<'a> {
                 }
             }
             ((Some(c), _, _), _) if c.is_ascii_digit() => self.lex_literal_number(),
-            ((Some(c), _, _), _) if c.is_whitespace() => {
+            ((Some(c), _, _), _) if c.is_ascii_whitespace() => {
                 self.advance(1);
                 self.lex()
             }
