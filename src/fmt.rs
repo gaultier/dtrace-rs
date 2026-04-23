@@ -528,4 +528,73 @@ syscall::close:entry
 "
         );
     }
+
+    #[test]
+    fn test_postfix_increment() {
+        let input = "BEGIN { x++; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x++;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_postfix_decrement() {
+        let input = "BEGIN { x--; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x--;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_ternary_expr() {
+        let input = "BEGIN { x = a ? b : c; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = a ? b : c;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_stringof_expr() {
+        // `stringof y` (no parens) parses as `StringofExpr(Identifier)`. The formatter always
+        // emits the parenthesised form `stringof(y)` as a canonical normalisation.
+        let input = "BEGIN { x = stringof y; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = stringof(y);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_offsetof() {
+        // Using a plain type specifier avoids struct-declaration formatting, which is not yet
+        // implemented. The offsetof formatter only needs the type_name node and the field token.
+        let input = "BEGIN { n = offsetof(int, x); }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  n = offsetof(int, x);
+}
+"
+        );
+    }
 }
