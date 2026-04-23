@@ -6098,4 +6098,58 @@ mod tests {
             assert!(lexer.errors.is_empty(), "input={input}");
         }
     }
+
+    #[test]
+    fn test_lex_identifier_rejects_non_ascii_leading_char() {
+        // A non-ASCII character (e.g. 'é') must not be accepted as the start of an identifier.
+        let input = "é";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        while lexer.lex().kind != TokenKind::Eof {}
+        assert!(
+            !lexer.errors.is_empty(),
+            "expected an error for a non-ASCII leading character in an identifier"
+        );
+    }
+
+    #[test]
+    fn test_lex_identifier_rejects_non_ascii_continuation_char() {
+        // A non-ASCII character must not be accepted as an identifier continuation (e.g. `foö`
+        // should lex as the ASCII identifier `fo` followed by an unknown token).
+        // Using `InsideClauseAndExpr` so the token kind is `Identifier`, not `ProbeSpecifier`.
+        let input = "foö";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let id_token = lexer.lex();
+        assert_eq!(id_token.kind, TokenKind::Identifier);
+        assert_eq!(str_from_source(input, id_token.origin), "fo");
+        // The non-ASCII continuation character produces an unknown token and an error.
+        let unknown = lexer.lex();
+        assert!(
+            matches!(unknown.kind, TokenKind::Unknown(_)),
+            "expected Unknown token for non-ASCII continuation, got {:?}",
+            unknown.kind
+        );
+        assert!(
+            !lexer.errors.is_empty(),
+            "expected an error for a non-ASCII continuation character"
+        );
+    }
+
+    #[test]
+    fn test_lex_non_ascii_whitespace_is_not_skipped() {
+        // Non-ASCII whitespace (e.g. non-breaking space U+00A0) must not be treated as
+        // whitespace and silently skipped; it should produce an unknown token.
+        let input = "\u{00A0}foo";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let first = lexer.lex();
+        assert!(
+            matches!(first.kind, TokenKind::Unknown(_)),
+            "expected Unknown token for non-ASCII whitespace, got {:?}",
+            first.kind
+        );
+        assert!(
+            !lexer.errors.is_empty(),
+            "expected an error for non-ASCII whitespace"
+        );
+    }
 }
