@@ -612,19 +612,33 @@ impl<'a> Parser<'a> {
                 ..
             } => {
                 let op = self.lexer.lex();
-                // Parenthesis is optional but must be closed if present.
                 let left_paren = self.match_kind(TokenKind::LeftParen);
-                let operand = self
-                    .parse_type_name()
-                    .or_else(|| self.parse_unary_expr())
-                    .unwrap_or_else(|| {
+
+                let operand = if left_paren.is_none() {
+                    // Parenthesis absent: must be a unary expression.
+                    self.parse_unary_expr().unwrap_or_else(|| {
                         self.add_error_with_explanation(
-                            ErrorKind::MissingExprOrTypename,
+                            ErrorKind::MissingExpr,
                             left_paren.map(|t| t.origin).unwrap_or(op.origin),
-                            String::from("expected type name after `sizeof(`"),
+                            String::from("expected expression after `sizeof`"),
                         );
                         self.new_node_unknown()
-                    });
+                    })
+                } else {
+                    // Parenthesis present: could be a unary expression or a typename.
+                    self.parse_type_name()
+                        .or_else(|| self.parse_unary_expr())
+                        .unwrap_or_else(|| {
+                            self.add_error_with_explanation(
+                                ErrorKind::MissingExprOrTypename,
+                                left_paren.map(|t| t.origin).unwrap_or(op.origin),
+                                String::from("expected type name or expression after `sizeof(`"),
+                            );
+                            self.new_node_unknown()
+                        })
+                };
+                // Bottom line: `sizeof typename` e.g. `sizeof int` is forbidden.
+
                 let end_origin = if left_paren.is_some() {
                     self.expect_token_one(TokenKind::RightParen, "matching parenthesis for sizeof")
                         .map(|t| t.origin)

@@ -19,4 +19,8 @@ BEGIN {
   print(offsetof(union PersonOrColor, c));
   print(sizeof(struct Outer));
   print(offsetof(struct Outer, foo));
+  print(sizeof(-2));
+  print(sizeof -2);
+  print(sizeof(int));
+  print(sizeof int);
 }
