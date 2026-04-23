@@ -3769,7 +3769,7 @@ mod tests {
         };
         assert_eq!(specs.len(), 1);
         // The sole specifier must be an anonymous union (no name token).
-        let NodeKind::StructDeclaration(None, Some(_)) = parser.nodes[specs[0]].kind else {
+        let NodeKind::UnionDeclaration(None, Some(_)) = parser.nodes[specs[0]].kind else {
             panic!("expected anonymous StructDeclaration (union with no name) in specifier");
         };
 
