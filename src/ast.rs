@@ -51,7 +51,7 @@ pub enum NodeKind {
     PostfixArguments(NodeId, Option<NodeId>),
     TernaryExpr(NodeId, NodeId, NodeId),
     PostfixArrayAccess(NodeId, NodeId),
-    FieldAccess(NodeId, TokenKind, Token),
+    FieldAccess(NodeId, Token, Token),
     TypeName(NodeId, Option<NodeId>),
     OffsetOf(NodeId, Token),
     Declaration(NodeId, Option<NodeId>),
@@ -901,7 +901,7 @@ impl<'a> Parser<'a> {
                     let op = self.lexer.lex();
                     if let Some(keyword_as_ident) = self.parse_keyword_as_ident() {
                         lhs = self.new_node(Node {
-                            kind: NodeKind::FieldAccess(lhs, op.kind, keyword_as_ident),
+                            kind: NodeKind::FieldAccess(lhs, op, keyword_as_ident),
                             origin: lhs_origin.merge(keyword_as_ident.origin),
                         });
                     } else {
@@ -918,7 +918,7 @@ impl<'a> Parser<'a> {
                             ],
                         );
                         lhs = self.new_node(Node {
-                            kind: NodeKind::FieldAccess(lhs, op.kind, Token::default()),
+                            kind: NodeKind::FieldAccess(lhs, op, Token::default()),
                             origin: lhs_origin.merge(op.origin),
                         });
                     }

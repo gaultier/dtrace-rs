@@ -188,8 +188,14 @@ impl<'a, W: Write> Formatter<'a, W> {
                 self.w.write_all(b" : ")?;
                 self.fmt(rhs, indent)?;
             }
-            NodeKind::FieldAccess(_node_id, _, _) => {
-                todo!()
+            NodeKind::FieldAccess(node_id, dot_or_arrow, ident) => {
+                self.fmt(node_id, indent)?;
+
+                let s = lex::str_from_source(self.input, dot_or_arrow.origin);
+                self.w.write_all(s.as_bytes())?;
+
+                let s = lex::str_from_source(self.input, ident.origin);
+                self.w.write_all(s.as_bytes())?;
             }
             NodeKind::TypeName(specifier, declarator) => {
                 self.fmt(specifier, indent)?;
