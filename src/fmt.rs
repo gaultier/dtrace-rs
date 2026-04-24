@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn test_probe_no_pred_no_body() {
-        let input = "syscall::open:entry {}";
+        let input = "syscall::open:entry  {  }";
         assert_eq!(
             fmt(input),
             "syscall::open:entry
@@ -361,7 +361,7 @@ mod tests {
 
     #[test]
     fn test_probe_with_predicate() {
-        let input = "syscall::open:entry / pid == 42 / {}";
+        let input = "syscall::open:entry  /  pid  ==  42  /  {  }";
         assert_eq!(
             fmt(input),
             "syscall::open:entry
@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn test_probe_with_body() {
-        let input = "syscall::open:entry { x = 1; }";
+        let input = "syscall::open:entry  {  x  =  1  ;  }";
         assert_eq!(
             fmt(input),
             "syscall::open:entry
@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn test_multiple_statements_in_body() {
-        let input = "syscall::open:entry { x = 1; y = 2; }";
+        let input = "syscall::open:entry  {  x  =  1  ;  y  =  2  ;  }";
         assert_eq!(
             fmt(input),
             "syscall::open:entry
@@ -401,7 +401,7 @@ mod tests {
 
     #[test]
     fn test_if_with_block_body() {
-        let input = "syscall::open:entry { if (x == 1) { y = 2; } }";
+        let input = "syscall::open:entry  {  if  (  x  ==  1  )  {  y  =  2  ;  }  }";
         assert_eq!(
             fmt(input),
             "syscall::open:entry
@@ -416,7 +416,7 @@ mod tests {
 
     #[test]
     fn test_multiple_probe_specifiers() {
-        let input = "BEGIN, END {}";
+        let input = "BEGIN  ,  END  {  }";
         assert_eq!(
             fmt(input),
             "BEGIN,
@@ -429,7 +429,7 @@ END
 
     #[test]
     fn test_comma_expr() {
-        let input = "BEGIN { a = 1, 2; }";
+        let input = "BEGIN  {  a  =  1  ,  2  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -442,7 +442,7 @@ END
 
     #[test]
     fn test_function_call_no_args() {
-        let input = "BEGIN { print(); }";
+        let input = "BEGIN  {  print  (  )  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -455,7 +455,7 @@ END
 
     #[test]
     fn test_function_call_single_arg() {
-        let input = "BEGIN { print(a); }";
+        let input = "BEGIN  {  print  (  a  )  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -468,7 +468,7 @@ END
 
     #[test]
     fn test_multiple_probe_specifiers_with_body() {
-        let input = "BEGIN, END { a = 1, 2; print(a); }";
+        let input = "BEGIN  ,  END  {  a  =  1  ,  2  ;  print  (  a  )  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN,
@@ -483,7 +483,7 @@ END
 
     #[test]
     fn test_sizeof_simple_type() {
-        let input = "BEGIN { x = sizeof(int); }";
+        let input = "BEGIN  {  x  =  sizeof  (  int  )  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -497,7 +497,7 @@ END
     #[test]
     fn test_sizeof_qualified_type() {
         // `const` is a type qualifier; the formatter must join qualifier and specifier with a space.
-        let input = "BEGIN { x = sizeof(const int); }";
+        let input = "BEGIN  {  x  =  sizeof  (  const  int  )  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -510,10 +510,9 @@ END
 
     #[test]
     fn test_sizeof_expr() {
-        // `sizeof x` (no parens) takes the unary-expression path in the parser, producing
-        // `Sizeof(Identifier)` rather than `Sizeof(TypeName(...))`. The formatter normalizes
-        // both forms to `sizeof(...)`.
-        let input = "BEGIN { x = sizeof y; }";
+        // `sizeof y` (no parens) produces `Sizeof(Identifier, false)`. The formatter preserves
+        // the no-paren form and the single space between the keyword and operand.
+        let input = "BEGIN  {  x  =  sizeof   y  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -526,7 +525,7 @@ END
 
     #[test]
     fn test_multiple_probes() {
-        let input = "syscall::open:entry { x = 1; } syscall::close:entry { x = 2; }";
+        let input = "syscall::open:entry  {  x  =  1  ;  }  syscall::close:entry  {  x  =  2  ;  }";
         assert_eq!(
             fmt(input),
             "syscall::open:entry
@@ -543,7 +542,7 @@ syscall::close:entry
 
     #[test]
     fn test_unary_minus() {
-        let input = "BEGIN { x = -y; }";
+        let input = "BEGIN  {  x  =  -  y  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -556,7 +555,7 @@ syscall::close:entry
 
     #[test]
     fn test_unary_logical_not() {
-        let input = "BEGIN { x = !y; }";
+        let input = "BEGIN  {  x  =  !  y  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -569,7 +568,7 @@ syscall::close:entry
 
     #[test]
     fn test_unary_bitwise_not() {
-        let input = "BEGIN { x = ~y; }";
+        let input = "BEGIN  {  x  =  ~  y  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -582,7 +581,7 @@ syscall::close:entry
 
     #[test]
     fn test_unary_deref() {
-        let input = "BEGIN { x = *y; }";
+        let input = "BEGIN  {  x  =  *  y  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -595,7 +594,7 @@ syscall::close:entry
 
     #[test]
     fn test_unary_address_of() {
-        let input = "BEGIN { x = &y; }";
+        let input = "BEGIN  {  x  =  &  y  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -608,7 +607,7 @@ syscall::close:entry
 
     #[test]
     fn test_unary_prefix_increment() {
-        let input = "BEGIN { ++x; }";
+        let input = "BEGIN  {  ++  x  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -621,7 +620,7 @@ syscall::close:entry
 
     #[test]
     fn test_unary_prefix_decrement() {
-        let input = "BEGIN { --x; }";
+        let input = "BEGIN  {  --  x  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -636,7 +635,7 @@ syscall::close:entry
     fn test_unary_paren_expr() {
         // Parenthesised expressions are stored as `Unary(LeftParen, inner)` and require the
         // closing `)` to be emitted explicitly, unlike all other prefix operators.
-        let input = "BEGIN { x = (y); }";
+        let input = "BEGIN  {  x  =  (  y  )  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -649,7 +648,7 @@ syscall::close:entry
 
     #[test]
     fn test_postfix_increment() {
-        let input = "BEGIN { x++; }";
+        let input = "BEGIN  {  x  ++  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -662,7 +661,7 @@ syscall::close:entry
 
     #[test]
     fn test_postfix_decrement() {
-        let input = "BEGIN { x--; }";
+        let input = "BEGIN  {  x  --  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -675,7 +674,7 @@ syscall::close:entry
 
     #[test]
     fn test_ternary_expr() {
-        let input = "BEGIN { x = a ? b : c; }";
+        let input = "BEGIN  {  x  =  a  ?  b  :  c  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -688,7 +687,7 @@ syscall::close:entry
 
     #[test]
     fn test_stringof_no_paren_expr() {
-        let input = "BEGIN { x = stringof y; }";
+        let input = "BEGIN  {  x  =  stringof   y  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -701,7 +700,7 @@ syscall::close:entry
 
     #[test]
     fn test_stringof_paren_expr() {
-        let input = "BEGIN { x = stringof  ( y  ) ; }";
+        let input = "BEGIN  {  x  =  stringof  (  y  )  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
@@ -716,7 +715,7 @@ syscall::close:entry
     fn test_offsetof() {
         // Using a plain type specifier avoids struct-declaration formatting, which is not yet
         // implemented. The offsetof formatter only needs the type_name node and the field token.
-        let input = "BEGIN { n = offsetof(int, x); }";
+        let input = "BEGIN  {  n  =  offsetof  (  int  ,  x  )  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
