@@ -5,13 +5,17 @@ use std::{
 
 use lsp_types::{
     Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, DidChangeTextDocumentParams,
-    DidOpenTextDocumentParams, Hover, HoverContents, HoverParams, HoverProviderCapability,
-    Location, MarkedString, PositionEncodingKind, PublishDiagnosticsParams, ServerCapabilities,
-    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions, Uri,
+    DidOpenTextDocumentParams, DocumentFormattingParams, Hover, HoverContents, HoverParams,
+    HoverProviderCapability, Location, MarkedString, OneOf, PositionEncodingKind,
+    PublishDiagnosticsParams, Range, ServerCapabilities, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TextDocumentSyncOptions, TextEdit, Uri,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{CompileResult, compile, origin::Origin};
+use crate::{
+    CompileResult, compile, fmt,
+    origin::{Origin, Position},
+};
 
 enum State {
     Initial,
@@ -235,6 +239,7 @@ fn make_server_capabilities() -> ServerCapabilities {
                 ..Default::default()
             },
         )),
+        document_formatting_provider: Some(OneOf::Left(true)),
         ..Default::default()
     }
 }
@@ -491,6 +496,11 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
             id,
             params,
         }) if m == "textDocument/hover" => hover(state, id, params),
+        Message::Request(Request {
+            method: m,
+            id,
+            params,
+        }) if m == "textDocument/formatting" => formatting(state, id, params),
         Message::Notification(Notification { method: m, params })
             if m == "textDocument/didOpen" =>
         {
@@ -510,6 +520,79 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
         Message::Response(_response) => Ok(None),
         Message::Notification(_notification) => Ok(None),
     }
+}
+
+fn formatting(
+    state: &mut State,
+    id: RequestId,
+    params: serde_json::Value,
+) -> Result<Option<Message>, io::Error> {
+    let docs = match state {
+        State::Initialized { docs, .. } => Ok(docs),
+        _ => Err(io::Error::new(io::ErrorKind::InvalidData, "invalid state")),
+    }?;
+    let params: DocumentFormattingParams = serde_json::from_value(params).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid params: {}", err),
+        )
+    })?;
+    let (text, compiled) = docs.get(&params.text_document.uri).ok_or(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "unknown document",
+    ))?;
+
+    let root = if let Some(root) = compiled.ast_root {
+        root
+    } else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "ast root not found",
+        ));
+    };
+
+    let mut formatted_bytes = Vec::with_capacity(1024);
+    match fmt::format(&mut formatted_bytes, root, &compiled.ast_nodes, text) {
+        Ok(_) => {}
+        Err(err) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to format: {}", err),
+            ));
+        }
+    };
+    let formatted = String::from_utf8(formatted_bytes).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("failed to format: {}", err),
+        )
+    })?;
+
+    let text_edit = [TextEdit {
+        range: Range {
+            start: lsp_types::Position {
+                line: 0,
+                character: 0,
+            },
+            end: lsp_types::Position {
+                line: 0,      // FIXME
+                character: 0, // FIXME
+            },
+        },
+        new_text: formatted,
+    }];
+    let resp = serde_json::to_value(&text_edit).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid params: {}", err),
+        )
+    })?;
+
+    Ok(Some(Message::Response(Response {
+        id,
+        result: Some(resp),
+        error: None,
+    })))
 }
 
 pub fn run(reader: &mut dyn BufRead, writer: &mut impl Write) {
