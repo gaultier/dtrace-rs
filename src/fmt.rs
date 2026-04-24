@@ -2,7 +2,7 @@ use std::io::Write;
 
 use crate::{
     ast::{Node, NodeId, NodeKind},
-    lex,
+    lex::{self, TokenKind},
 };
 
 struct Formatter<'a, W> {
@@ -163,10 +163,12 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.w.write_all(b")")?;
                 }
             }
-            NodeKind::StringofExpr(node_id) => {
-                self.w.write_all(b"stringof(")?;
+            NodeKind::StringofExpr(node_id, with_paren) => {
+                self.w.write_all(b"stringof")?;
+                if !with_paren {
+                    self.w.write_all(b" ")?;
+                }
                 self.fmt(node_id, indent)?;
-                self.w.write_all(b")")?;
             }
             NodeKind::PostfixIncDecrement(node_id, token) => {
                 self.fmt(node_id, indent)?;
@@ -285,7 +287,17 @@ impl<'a, W: Write> Formatter<'a, W> {
             NodeKind::ParameterDeclarationSpecifiers(_node_ids) => {
                 todo!()
             }
-            NodeKind::Unary(_token_kind, _node_id) => todo!(),
+            NodeKind::Unary(token, node_id) => {
+                let s = lex::str_from_source(self.input, token.origin);
+                self.w.write_all(s.as_bytes())?;
+                self.fmt(node_id, indent)?;
+
+                if token.kind == TokenKind::LeftParen {
+                    // Need to close the parenthesis manually - all other operators are prefix
+                    // operators, so no need there.
+                    self.w.write_all(b")")?;
+                }
+            }
             NodeKind::ArgumentsDeclaration(_node_ids) => todo!(),
             NodeKind::InlineDefinition(_node_id, _node_id1, _node_id2) => todo!(),
             NodeKind::ArgumentsExpr(_node_ids) => todo!(),
@@ -569,10 +581,21 @@ syscall::close:entry
     }
 
     #[test]
-    fn test_stringof_expr() {
-        // `stringof y` (no parens) parses as `StringofExpr(Identifier)`. The formatter always
-        // emits the parenthesised form `stringof(y)` as a canonical normalisation.
+    fn test_stringof_no_paren_expr() {
         let input = "BEGIN { x = stringof y; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = stringof y;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_stringof_paren_expr() {
+        let input = "BEGIN { x = stringof  ( y  ) ; }";
         assert_eq!(
             fmt(input),
             "BEGIN

@@ -31,13 +31,13 @@ pub enum NodeKind {
     BinaryOp(NodeId, Token, NodeId),
     Identifier(String),
     Aggregation,
-    Unary(TokenKind, NodeId),
+    Unary(Token, NodeId),
     Assignment(NodeId, Token, NodeId),
     ArgumentsExpr(Vec<NodeId>),
     ArgumentsDeclaration(Option<NodeId>),
     CommaExpr(Vec<NodeId>),
     Sizeof(NodeId, bool /* with parenthesis */),
-    StringofExpr(NodeId),
+    StringofExpr(NodeId, bool /* with parenthesis */),
     TranslationUnit(Vec<NodeId>),
     If {
         cond: NodeId,
@@ -391,7 +391,7 @@ impl<'a> Parser<'a> {
                     .map(|t| t.origin)
                     .unwrap_or_else(|| self.origin(e));
                 Some(self.new_node(Node {
-                    kind: NodeKind::Unary(TokenKind::LeftParen, e),
+                    kind: NodeKind::Unary(left_paren, e),
                     origin: left_paren.origin.merge(end_origin),
                 }))
             }
@@ -601,7 +601,7 @@ impl<'a> Parser<'a> {
                 });
                 let unary_origin = self.origin(unary);
                 Some(self.new_node(Node {
-                    kind: NodeKind::Unary(op.kind, unary),
+                    kind: NodeKind::Unary(op, unary),
                     origin: op.origin.merge(unary_origin),
                 }))
             }
@@ -623,7 +623,7 @@ impl<'a> Parser<'a> {
                 };
                 let node_origin = self.origin(node);
                 Some(self.new_node(Node {
-                    kind: NodeKind::Unary(op.kind, node),
+                    kind: NodeKind::Unary(op, node),
                     origin: op.origin.merge(node_origin),
                 }))
             }
@@ -688,6 +688,7 @@ impl<'a> Parser<'a> {
             } => {
                 let op = self.lexer.lex();
 
+                let with_paren = self.peek1().kind == TokenKind::LeftParen;
                 let unary = self.parse_unary_expr().unwrap_or_else(|| {
                     self.error(
                         ErrorKind::MissingExpr,
@@ -700,7 +701,7 @@ impl<'a> Parser<'a> {
                 let unary_origin = self.origin(unary);
 
                 Some(self.new_node(Node {
-                    kind: NodeKind::StringofExpr(unary),
+                    kind: NodeKind::StringofExpr(unary, with_paren),
                     origin: op.origin.merge(unary_origin),
                 }))
             }
@@ -3011,7 +3012,7 @@ pub fn log(
             }
         }
         NodeKind::Sizeof(node_id, _) => log(nodes, *node_id, indent + 2, file_id_to_name),
-        NodeKind::StringofExpr(node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
+        NodeKind::StringofExpr(node_id, _) => log(nodes, *node_id, indent + 2, file_id_to_name),
         NodeKind::PostfixIncDecrement(node_id, _token_kind) => {
             log(nodes, *node_id, indent + 2, file_id_to_name)
         }
@@ -3515,7 +3516,13 @@ mod tests {
         assert!(with_paren);
         assert!(matches!(
             parser.nodes[operand_id].kind,
-            NodeKind::Unary(TokenKind::Minus, _)
+            NodeKind::Unary(
+                Token {
+                    kind: TokenKind::Minus,
+                    ..
+                },
+                _
+            )
         ));
     }
 
@@ -3533,7 +3540,13 @@ mod tests {
         assert!(!with_paren);
         assert!(matches!(
             parser.nodes[operand_id].kind,
-            NodeKind::Unary(TokenKind::Minus, _)
+            NodeKind::Unary(
+                Token {
+                    kind: TokenKind::Minus,
+                    ..
+                },
+                _
+            )
         ));
     }
 
