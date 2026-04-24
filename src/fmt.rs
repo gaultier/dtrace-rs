@@ -309,7 +309,14 @@ impl<'a, W: Write> Formatter<'a, W> {
             }
             NodeKind::ArgumentsDeclaration(_node_ids) => todo!(),
             NodeKind::InlineDefinition(_node_id, _node_id1, _node_id2) => todo!(),
-            NodeKind::ArgumentsExpr(_node_ids) => todo!(),
+            NodeKind::ArgumentsExpr(node_ids) => {
+                for (i, node_id) in node_ids.iter().enumerate() {
+                    self.fmt(*node_id, indent)?;
+                    if i != node_ids.len() - 1 {
+                        self.w.write_all(b", ")?;
+                    }
+                }
+            }
             NodeKind::ParameterTypeList {
                 params: _,
                 ellipsis: _,
