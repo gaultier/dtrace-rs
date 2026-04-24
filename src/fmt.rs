@@ -343,7 +343,7 @@ mod tests {
         (parser, root_id)
     }
 
-    pub(crate) fn fmt(input: &'static str) -> String {
+    fn fmt(input: &'static str) -> String {
         let (parser, root_id) = parse_program(input);
         let mut out = Vec::new();
         format(&mut out, root_id, &parser.nodes, input).unwrap();
