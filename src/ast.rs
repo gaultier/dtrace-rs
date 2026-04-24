@@ -50,7 +50,7 @@ pub enum NodeKind {
     EmptyStmt,
     PostfixArguments(NodeId, Option<NodeId>),
     TernaryExpr(NodeId, NodeId, NodeId),
-    PostfixArrayAccess(NodeId, Option<NodeId>),
+    PostfixArrayAccess(NodeId, NodeId),
     FieldAccess(NodeId, TokenKind, Token),
     TypeName(NodeId, Option<NodeId>),
     OffsetOf(NodeId, Token),
@@ -852,7 +852,17 @@ impl<'a> Parser<'a> {
                     let lhs_origin = self.origin(lhs);
                     let op = self.lexer.lex();
 
-                    let rhs = self.parse_argument_expr_list();
+                    let rhs = self.parse_argument_expr_list().unwrap_or_else(|| {
+                        self.error(
+                            ErrorKind::MissingExpr,
+                            op.origin,
+                            String::from(
+                                "expected expression after left square bracket (array access)",
+                            ),
+                            &[TokenKind::RightSquareBracket],
+                        );
+                        self.new_node_unknown()
+                    });
                     let right_bracket = self.expect(
                         TokenKind::RightSquareBracket,
                         "matching square bracket in argument list",
@@ -3018,10 +3028,14 @@ pub fn log(
         }
         NodeKind::ExprStmt(node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
         NodeKind::EmptyStmt => {}
-        NodeKind::PostfixArrayAccess(primary, args) | NodeKind::PostfixArguments(primary, args) => {
+        NodeKind::PostfixArrayAccess(primary, args) => {
             log(nodes, *primary, indent + 2, file_id_to_name);
-            if let Some(node_id) = args {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+            log(nodes, *args, indent + 2, file_id_to_name);
+        }
+        NodeKind::PostfixArguments(primary, args) => {
+            log(nodes, *primary, indent + 2, file_id_to_name);
+            if let Some(args) = args {
+                log(nodes, *args, indent + 2, file_id_to_name);
             }
         }
         NodeKind::TernaryExpr(lhs, mhs, rhs) => {

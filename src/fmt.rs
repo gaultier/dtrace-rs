@@ -175,8 +175,11 @@ impl<'a, W: Write> Formatter<'a, W> {
                 let s = lex::str_from_source(self.input, token.origin);
                 self.w.write_all(s.as_bytes())?;
             }
-            NodeKind::PostfixArrayAccess(_primary, _args) => {
-                todo!()
+            NodeKind::PostfixArrayAccess(primary, args) => {
+                self.fmt(primary, indent)?;
+                self.w.write_all(b"[")?;
+                self.fmt(args, indent)?;
+                self.w.write_all(b"]")?;
             }
             NodeKind::TernaryExpr(lhs, mhs, rhs) => {
                 self.fmt(lhs, indent)?;
