@@ -552,15 +552,12 @@ fn formatting(
     };
 
     let mut formatted_bytes = Vec::with_capacity(1024);
-    match fmt::format(&mut formatted_bytes, root, &compiled.ast_nodes, text) {
-        Ok(_) => {}
-        Err(err) => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("failed to format: {}", err),
-            ));
-        }
-    };
+    fmt::format(&mut formatted_bytes, root, &compiled.ast_nodes, text).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("failed to format: {}", err),
+        )
+    })?;
     let formatted = String::from_utf8(formatted_bytes).map_err(|err| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -568,19 +565,26 @@ fn formatting(
         )
     })?;
 
-    let text_edit = [TextEdit {
-        range: Range {
-            start: lsp_types::Position {
-                line: 0,
-                character: 0,
+    let text_edit = if formatted == *text {
+        vec![]
+    } else {
+        vec![TextEdit {
+            range: Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: lsp_types::Position {
+                    line: text.bytes().filter(|&b| b == b'\n').count() as u32,
+                    character: text
+                        .rfind('\n')
+                        .map_or(text.len(), |pos| text.len() - pos - 1)
+                        as u32,
+                },
             },
-            end: lsp_types::Position {
-                line: 0,      // FIXME
-                character: 0, // FIXME
-            },
-        },
-        new_text: formatted,
-    }];
+            new_text: formatted,
+        }]
+    };
     let resp = serde_json::to_value(&text_edit).map_err(|err| {
         io::Error::new(
             io::ErrorKind::InvalidData,
