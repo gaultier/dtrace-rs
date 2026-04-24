@@ -3470,7 +3470,7 @@ mod tests {
                 parser.nodes[root_id].kind
             );
         };
-        assert_eq!(dot, TokenKind::Dot);
+        assert_eq!(dot.kind, TokenKind::Dot);
         assert_eq!(
             origin_str(input, &parser, root_id),
             "curthread->last_processor->runq.count"
@@ -3481,7 +3481,7 @@ mod tests {
         else {
             panic!("expected FieldAccess for ->runq");
         };
-        assert_eq!(arrow, TokenKind::Arrow);
+        assert_eq!(arrow.kind, TokenKind::Arrow);
         assert_eq!(
             origin_str(input, &parser, arrow_runq),
             "curthread->last_processor->runq"

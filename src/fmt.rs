@@ -728,6 +728,60 @@ syscall::close:entry
     }
 
     #[test]
+    fn test_field_access_dot() {
+        let input = "BEGIN  {  x  =  a  .  b  ;  }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = a.b;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_field_access_arrow() {
+        let input = "BEGIN  {  x  =  a  ->  b  ;  }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = a->b;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_field_access_chained() {
+        // Each access level is a separate `FieldAccess` node wrapping the previous one.
+        let input = "BEGIN  {  x  =  a  .  b  .  c  ;  }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = a.b.c;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_function_call_multiple_args() {
+        // Two or more arguments are stored as `ArgumentsExpr`; single arguments are not.
+        let input = "BEGIN  {  print  (  a  ,  b  ,  c  )  ;  }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  print(a, b, c);
+}
+"
+        );
+    }
+
+    #[test]
     fn test_array_access() {
         let input = "BEGIN  {  x  =  a  [  1  ]  ;  }";
         assert_eq!(
