@@ -715,6 +715,33 @@ syscall::close:entry
     }
 
     #[test]
+    fn test_array_access() {
+        let input = "BEGIN  {  x  =  a  [  1  ]  ;  }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = a[1];
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_array_access_nested() {
+        // Each `[]` level is a separate `PostfixArrayAccess` node; both must be formatted.
+        let input = "BEGIN  {  x  =  a  [  i  ]  [  j  ]  ;  }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = a[i][j];
+}
+"
+        );
+    }
+
+    #[test]
     fn test_offsetof() {
         // Using a plain type specifier avoids struct-declaration formatting, which is not yet
         // implemented. The offsetof formatter only needs the type_name node and the field token.
