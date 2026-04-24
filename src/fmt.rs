@@ -542,6 +542,112 @@ syscall::close:entry
     }
 
     #[test]
+    fn test_unary_minus() {
+        let input = "BEGIN { x = -y; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = -y;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_unary_logical_not() {
+        let input = "BEGIN { x = !y; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = !y;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_unary_bitwise_not() {
+        let input = "BEGIN { x = ~y; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = ~y;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_unary_deref() {
+        let input = "BEGIN { x = *y; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = *y;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_unary_address_of() {
+        let input = "BEGIN { x = &y; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = &y;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_unary_prefix_increment() {
+        let input = "BEGIN { ++x; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  ++x;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_unary_prefix_decrement() {
+        let input = "BEGIN { --x; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  --x;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_unary_paren_expr() {
+        // Parenthesised expressions are stored as `Unary(LeftParen, inner)` and require the
+        // closing `)` to be emitted explicitly, unlike all other prefix operators.
+        let input = "BEGIN { x = (y); }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = (y);
+}
+"
+        );
+    }
+
+    #[test]
     fn test_postfix_increment() {
         let input = "BEGIN { x++; }";
         assert_eq!(
