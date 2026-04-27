@@ -3,7 +3,6 @@
 - ast: provider definition
 - name resolving
 - type checking
-- fmt
 - lsp:
   + semantic tokens (for syntax highlighting)
   + completion
