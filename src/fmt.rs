@@ -762,7 +762,9 @@ mod tests {
 
     fn fmt(input: &str) -> String {
         let lexer = Lexer::new(FILE_ID, input);
+        assert!(lexer.errors.is_empty());
         let mut parser = Parser::new(lexer);
+        assert!(parser.lexer.errors.is_empty());
         let root_id = parser.parse().unwrap();
         let mut out = Vec::new();
         format(
