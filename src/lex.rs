@@ -52,16 +52,29 @@ pub struct PragmaAttribute {
 
 #[derive(Debug, Serialize, PartialEq)]
 pub enum ControlDirectiveKind {
-    Line(usize, Option<String>, Option<usize>),
+    Line {
+        line_num: usize,
+        file: Option<String>,
+        trailing_num: Option<usize>,
+    },
     PragmaError(String),
-    PragmaBinding(Version, String),
-    PragmaDependsOn(PragmaDependsOnKind, String),
+    PragmaBinding {
+        version: Version,
+        identifier: String,
+    },
+    PragmaDependsOn {
+        kind: PragmaDependsOnKind,
+        name: String,
+    },
     PragmaAttributes {
         attribute: PragmaAttribute,
         name: String,
     },
     Ignored,
-    PragmaOption(String, Option<String>),
+    PragmaOption {
+        name: String,
+        value: Option<String>,
+    },
     Shebang(String),
 }
 
@@ -1906,7 +1919,11 @@ impl<'a> Lexer<'a> {
             origin: origin
                 .start
                 .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
-            kind: ControlDirectiveKind::Line(line_num, file_src, trailing_num),
+            kind: ControlDirectiveKind::Line {
+                line_num,
+                file: file_src,
+                trailing_num,
+            },
         })
     }
 
@@ -2172,7 +2189,10 @@ impl<'a> Lexer<'a> {
                     origin: origin
                         .start
                         .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
-                    kind: ControlDirectiveKind::PragmaBinding(version, identifier),
+                    kind: ControlDirectiveKind::PragmaBinding {
+                        version,
+                        identifier,
+                    },
                 })
             }
             _ => Err(Error::new(
@@ -2209,10 +2229,10 @@ impl<'a> Lexer<'a> {
                         })
                     } else {
                         Ok(ControlDirective {
-                            kind: ControlDirectiveKind::PragmaOption(
-                                key.to_owned(),
-                                Some(value.to_owned()),
-                            ),
+                            kind: ControlDirectiveKind::PragmaOption {
+                                name: key.to_owned(),
+                                value: Some(value.to_owned()),
+                            },
                             origin: origin.start.extend_to_inclusive(
                                 tokens.last().map_or(origin.end, |t| t.origin.end),
                             ),
@@ -2220,7 +2240,10 @@ impl<'a> Lexer<'a> {
                     }
                 } else {
                     Ok(ControlDirective {
-                        kind: ControlDirectiveKind::PragmaOption(s.to_owned(), None),
+                        kind: ControlDirectiveKind::PragmaOption {
+                            name: s.to_owned(),
+                            value: None,
+                        },
                         origin: origin.start.extend_to_inclusive(
                             tokens.last().map_or(origin.end, |t| t.origin.end),
                         ),
@@ -2287,7 +2310,10 @@ impl<'a> Lexer<'a> {
         };
 
         Ok(ControlDirective {
-            kind: ControlDirectiveKind::PragmaDependsOn(kind, name.to_owned()),
+            kind: ControlDirectiveKind::PragmaDependsOn {
+                kind,
+                name: name.to_owned(),
+            },
             origin: origin
                 .start
                 .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
@@ -5323,7 +5349,10 @@ mod tests {
         assert_eq!(lexer.control_directives.len(), 1);
         assert_eq!(
             lexer.control_directives[0].kind,
-            ControlDirectiveKind::PragmaOption(String::from("quiet"), None)
+            ControlDirectiveKind::PragmaOption {
+                name: String::from("quiet"),
+                value: None,
+            }
         );
         assert!(
             lexer.errors.is_empty(),
@@ -5342,7 +5371,10 @@ mod tests {
         assert_eq!(lexer.control_directives.len(), 1);
         assert_eq!(
             lexer.control_directives[0].kind,
-            ControlDirectiveKind::PragmaOption(String::from("bufsize"), Some(String::from("4m")))
+            ControlDirectiveKind::PragmaOption {
+                name: String::from("bufsize"),
+                value: Some(String::from("4m")),
+            }
         );
         assert!(
             lexer.errors.is_empty(),
@@ -5382,7 +5414,11 @@ mod tests {
         assert_eq!(lexer.control_directives.len(), 1);
         assert_eq!(
             lexer.control_directives[0].kind,
-            ControlDirectiveKind::Line(42, None, None)
+            ControlDirectiveKind::Line {
+                line_num: 42,
+                file: None,
+                trailing_num: None,
+            }
         );
         assert!(
             lexer.errors.is_empty(),
@@ -5400,7 +5436,11 @@ mod tests {
         assert_eq!(lexer.control_directives.len(), 1);
         assert_eq!(
             lexer.control_directives[0].kind,
-            ControlDirectiveKind::Line(10, Some(String::from("foo.d")), None)
+            ControlDirectiveKind::Line {
+                line_num: 10,
+                file: Some(String::from("foo.d")),
+                trailing_num: None,
+            }
         );
         assert!(
             lexer.errors.is_empty(),
@@ -5418,10 +5458,10 @@ mod tests {
         assert_eq!(lexer.control_directives.len(), 1);
         assert_eq!(
             lexer.control_directives[0].kind,
-            ControlDirectiveKind::PragmaDependsOn(
-                PragmaDependsOnKind::Provider,
-                String::from("dtrace")
-            )
+            ControlDirectiveKind::PragmaDependsOn {
+                kind: PragmaDependsOnKind::Provider,
+                name: String::from("dtrace"),
+            }
         );
         assert!(
             lexer.errors.is_empty(),
