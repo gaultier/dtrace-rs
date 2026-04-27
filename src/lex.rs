@@ -115,7 +115,7 @@ pub struct Version {
     pub patch: Option<u16>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq)]
 pub enum CommentKind {
     SingleLine,
     MultiLine,

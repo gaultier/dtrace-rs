@@ -552,7 +552,14 @@ fn formatting(
     };
 
     let mut formatted_bytes = Vec::with_capacity(1024);
-    fmt::format(&mut formatted_bytes, root, &compiled.ast_nodes, text).map_err(|err| {
+    fmt::format(
+        &mut formatted_bytes,
+        root,
+        &compiled.ast_nodes,
+        &compiled.comments,
+        text,
+    )
+    .map_err(|err| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!("failed to format: {}", err),

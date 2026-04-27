@@ -2,18 +2,49 @@ use std::io::Write;
 
 use crate::{
     ast::{Node, NodeId, NodeKind},
-    lex::{self, TokenKind},
+    lex::{self, Comment, CommentKind, TokenKind},
 };
 
 struct Formatter<'a, W> {
     w: &'a mut W,
     nodes: &'a [Node],
+    /// All comments from the lexer, sorted by source position.
+    comments: &'a [Comment],
+    /// Index of the next comment not yet emitted.
+    comment_idx: usize,
     input: &'a str,
 }
 
 impl<'a, W: Write> Formatter<'a, W> {
     fn indent(&mut self, n: usize) -> std::io::Result<()> {
         write!(self.w, "{:width$}", "", width = n)
+    }
+
+    /// Emits every not-yet-emitted comment whose start byte is strictly less than
+    /// `before_byte`, each preceded by `indent` spaces and followed by a newline.
+    /// Single-line comments (`//`) do not include their terminating newline in the
+    /// origin, so one is appended. Multi-line comments (`/* … */`) are emitted verbatim
+    /// followed by a newline.
+    fn emit_pending_comments(&mut self, before_byte: u32, indent: usize) -> std::io::Result<()> {
+        while self.comment_idx < self.comments.len() {
+            let comment = &self.comments[self.comment_idx];
+            if comment.origin.start.byte_offset >= before_byte {
+                break;
+            }
+            self.indent(indent)?;
+            let text = lex::str_from_source(self.input, comment.origin);
+            self.w.write_all(text.as_bytes())?;
+            // `//` comments stop before the newline; `/* */` comments do not include
+            // a trailing newline either, so we always add one.
+            self.w.write_all(b"\n")?;
+            // Blank line after multi-line comments to visually separate them from
+            // the next declaration or statement.
+            if comment.kind == CommentKind::MultiLine {
+                self.w.write_all(b"\n")?;
+            }
+            self.comment_idx += 1;
+        }
+        Ok(())
     }
 
     /// Returns `true` if the innermost `Pointer` chain ends with a type-qualifier keyword
@@ -72,11 +103,15 @@ impl<'a, W: Write> Formatter<'a, W> {
             }
             NodeKind::Block(node_ids) => {
                 self.w.write_all(b"{\n")?;
-                for id in node_ids {
+                for id in &node_ids {
+                    let start_byte = self.nodes[*id].origin.start.byte_offset;
+                    self.emit_pending_comments(start_byte, indent + 2)?;
                     self.indent(indent + 2)?;
-                    self.fmt(id, indent + 2)?;
+                    self.fmt(*id, indent + 2)?;
                     self.w.write_all(b"\n")?;
                 }
+                // Flush any comments between the last statement and the closing `}`.
+                self.emit_pending_comments(origin.end.byte_offset + 1, indent + 2)?;
                 self.indent(indent)?;
                 self.w.write_all(b"}")?;
             }
@@ -131,6 +166,8 @@ impl<'a, W: Write> Formatter<'a, W> {
             }
             NodeKind::TranslationUnit(decls) => {
                 for (i, decl) in decls.iter().enumerate() {
+                    let start_byte = self.nodes[*decl].origin.start.byte_offset;
+                    self.emit_pending_comments(start_byte, indent)?;
                     self.fmt(*decl, indent)?;
                     // Separate top-level declarations with a blank line so the output
                     // matches conventional C/D style.
@@ -138,6 +175,8 @@ impl<'a, W: Write> Formatter<'a, W> {
                         self.w.write_all(b"\n")?;
                     }
                 }
+                // Flush any trailing comments that appear after the last declaration.
+                self.emit_pending_comments(u32::MAX, indent)?;
             }
             NodeKind::Cast(type_name, inner) => {
                 write!(self.w, "({})", &type_name)?;
@@ -522,34 +561,39 @@ pub fn format<W: Write>(
     w: &mut W,
     node_id: NodeId,
     nodes: &[Node],
+    comments: &[lex::Comment],
     input: &str,
 ) -> std::io::Result<()> {
-    Formatter { w, nodes, input }.fmt(node_id, 0)
+    Formatter {
+        w,
+        nodes,
+        comments,
+        comment_idx: 0,
+        input,
+    }
+    .fmt(node_id, 0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        ast::{NodeId, Parser},
-        lex::Lexer,
-    };
+    use crate::{ast::Parser, lex::Lexer};
 
     const FILE_ID: u32 = 1;
-
-    fn parse_program(input: &'static str) -> (Parser<'static>, NodeId) {
-        let lexer = Lexer::new(FILE_ID, input);
-        let mut parser = Parser::new(lexer);
-        let root_id = parser.parse().unwrap();
-        (parser, root_id)
-    }
 
     fn fmt(input: &str) -> String {
         let lexer = Lexer::new(FILE_ID, input);
         let mut parser = Parser::new(lexer);
         let root_id = parser.parse().unwrap();
         let mut out = Vec::new();
-        format(&mut out, root_id, &parser.nodes, input).unwrap();
+        format(
+            &mut out,
+            root_id,
+            &parser.nodes,
+            &parser.lexer.comments,
+            input,
+        )
+        .unwrap();
         String::from_utf8(out).unwrap()
     }
 
@@ -1187,6 +1231,32 @@ syscall::close:entry
             "struct Node {
   int *value;
 };
+"
+        );
+    }
+
+    #[test]
+    fn test_single_line_comment_top_level() {
+        let input = "// A comment\nint  x  ;";
+        assert_eq!(fmt(input), "// A comment\nint x;\n");
+    }
+
+    #[test]
+    fn test_multi_line_comment_top_level() {
+        let input = "/* A comment */\nint  x  ;";
+        assert_eq!(fmt(input), "/* A comment */\n\nint x;\n");
+    }
+
+    #[test]
+    fn test_single_line_comment_in_probe_body() {
+        let input = "BEGIN  {  // A comment\n  x  =  1  ;  }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  // A comment
+  x = 1;
+}
 "
         );
     }
