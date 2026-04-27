@@ -16,6 +16,22 @@ impl<'a, W: Write> Formatter<'a, W> {
         write!(self.w, "{:width$}", "", width = n)
     }
 
+    /// Returns `true` if the innermost `Pointer` chain ends with a type-qualifier keyword
+    /// rather than a bare `*`. Callers use this to decide whether a space is needed between
+    /// a pointer and the following declarator name (e.g. `* const x` vs. `*x`).
+    fn pointer_ends_with_qualifier(nodes: &[Node], ptr_id: NodeId) -> bool {
+        match &nodes[ptr_id].kind {
+            NodeKind::Pointer(qualifiers, inner) => {
+                if let Some(inner_ptr) = inner {
+                    Self::pointer_ends_with_qualifier(nodes, *inner_ptr)
+                } else {
+                    !qualifiers.is_empty()
+                }
+            }
+            _ => false,
+        }
+    }
+
     /// Formats an `if`/`else` branch, always emitting surrounding braces. If `node_id`
     /// is already a `Block`, its children are inlined directly to avoid double braces.
     fn fmt_branch(&mut self, node_id: NodeId, indent: usize) -> std::io::Result<()> {
@@ -212,20 +228,55 @@ impl<'a, W: Write> Formatter<'a, W> {
                 self.w.write_all(s.as_bytes())?;
                 self.w.write_all(b")")?;
             }
-            NodeKind::Declaration(_decl_specifiers, _init_declarator_list) => {
-                todo!()
+            NodeKind::Declaration(decl_specifiers, init_declarator_list) => {
+                self.fmt(decl_specifiers, indent)?;
+                if let Some(init_decl_list) = init_declarator_list {
+                    self.w.write_all(b" ")?;
+                    self.fmt(init_decl_list, indent)?;
+                }
+                self.w.write_all(b";\n")?;
             }
-            NodeKind::DeclarationSpecifiers(_node_ids) => {
-                todo!()
+            NodeKind::DeclarationSpecifiers(node_ids) => {
+                for (i, id) in node_ids.iter().enumerate() {
+                    if i > 0 {
+                        self.w.write_all(b" ")?;
+                    }
+                    self.fmt(*id, indent)?;
+                }
             }
-            NodeKind::DirectDeclarator(_base, _suffix) => {
-                todo!()
+            NodeKind::DirectDeclarator(base, suffix) => {
+                // Parenthesised declarators (e.g. function-pointer `(*fp)`) require
+                // wrapping the inner declarator in parens at this level.
+                let needs_parens = matches!(self.nodes[base].kind, NodeKind::Declarator(..));
+                if needs_parens {
+                    self.w.write_all(b"(")?;
+                }
+                self.fmt(base, indent)?;
+                if needs_parens {
+                    self.w.write_all(b")")?;
+                }
+                if let Some(suffix_id) = suffix {
+                    self.fmt(suffix_id, indent)?;
+                }
             }
-            NodeKind::Declarator(_ptr, _declarator) => {
-                todo!()
+            NodeKind::Declarator(ptr, direct_declarator) => {
+                if let Some(ptr_id) = ptr {
+                    self.fmt(ptr_id, indent)?;
+                    // A qualifier keyword (e.g. `const`) at the end of the pointer chain
+                    // needs a space before the declarator name.
+                    if Self::pointer_ends_with_qualifier(self.nodes, ptr_id) {
+                        self.w.write_all(b" ")?;
+                    }
+                }
+                self.fmt(direct_declarator, indent)?;
             }
-            NodeKind::InitDeclarators(_node_ids) => {
-                todo!()
+            NodeKind::InitDeclarators(node_ids) => {
+                for (i, id) in node_ids.iter().enumerate() {
+                    if i > 0 {
+                        self.w.write_all(b", ")?;
+                    }
+                    self.fmt(*id, indent)?;
+                }
             }
             NodeKind::TypeQualifier(_)
             | NodeKind::DStorageClassSpecifier(_)
@@ -234,32 +285,94 @@ impl<'a, W: Write> Formatter<'a, W> {
                 let s = lex::str_from_source(self.input, origin);
                 self.w.write_all(s.as_bytes())?;
             }
-            NodeKind::EnumDeclaration(_token, _node_id) => {
-                todo!()
+            NodeKind::EnumDeclaration(name_tok, enumerator_list) => {
+                self.w.write_all(b"enum")?;
+                if let Some(name) = name_tok {
+                    let s = lex::str_from_source(self.input, name.origin);
+                    write!(self.w, " {}", s)?;
+                }
+                if let Some(enumerators_id) = enumerator_list {
+                    self.w.write_all(b" {\n")?;
+                    // `EnumeratorsDeclaration` adds indentation and newlines for each item.
+                    self.fmt(enumerators_id, indent + 2)?;
+                    self.indent(indent)?;
+                    self.w.write_all(b"}")?;
+                }
             }
-            NodeKind::EnumeratorDeclaration(_token, _node_id) => {
-                todo!()
+            NodeKind::EnumeratorDeclaration(identifier, expr) => {
+                self.w.write_all(identifier.as_bytes())?;
+                if let Some(expr_id) = expr {
+                    self.w.write_all(b" = ")?;
+                    self.fmt(expr_id, indent)?;
+                }
             }
-            NodeKind::EnumeratorsDeclaration(_node_ids) => {
-                todo!()
+            NodeKind::EnumeratorsDeclaration(node_ids) => {
+                for (i, id) in node_ids.iter().enumerate() {
+                    self.indent(indent)?;
+                    self.fmt(*id, indent)?;
+                    // Trailing comma only between items, not after the last one.
+                    if i != node_ids.len() - 1 {
+                        self.w.write_all(b",")?;
+                    }
+                    self.w.write_all(b"\n")?;
+                }
             }
-            NodeKind::UnionDeclaration(_, _node_id) => {
-                todo!()
+            NodeKind::UnionDeclaration(name_tok, decl_list) => {
+                self.w.write_all(b"union")?;
+                if let Some(name) = name_tok {
+                    let s = lex::str_from_source(self.input, name.origin);
+                    write!(self.w, " {}", s)?;
+                }
+                if let Some(fields_id) = decl_list {
+                    self.w.write_all(b" {\n")?;
+                    self.fmt(fields_id, indent + 2)?;
+                    self.indent(indent)?;
+                    self.w.write_all(b"}")?;
+                }
             }
-            NodeKind::StructDeclaration(_, _node_id) => {
-                todo!()
+            NodeKind::StructDeclaration(name_tok, decl_list) => {
+                self.w.write_all(b"struct")?;
+                if let Some(name) = name_tok {
+                    let s = lex::str_from_source(self.input, name.origin);
+                    write!(self.w, " {}", s)?;
+                }
+                if let Some(fields_id) = decl_list {
+                    self.w.write_all(b" {\n")?;
+                    self.fmt(fields_id, indent + 2)?;
+                    self.indent(indent)?;
+                    self.w.write_all(b"}")?;
+                }
             }
-            NodeKind::StructFieldsDeclaration(_node_ids) => {
-                todo!()
+            NodeKind::StructFieldsDeclaration(node_ids) => {
+                for id in &node_ids {
+                    self.indent(indent)?;
+                    self.fmt(*id, indent)?;
+                    self.w.write_all(b"\n")?;
+                }
             }
-            NodeKind::StructFieldDeclarator(_declarator, _const_expr) => {
-                todo!()
+            NodeKind::StructFieldDeclarator(declarator, const_expr) => {
+                self.fmt(declarator, indent)?;
+                if let Some(expr_id) = const_expr {
+                    // Bit-field width after a colon.
+                    self.w.write_all(b" : ")?;
+                    self.fmt(expr_id, indent)?;
+                }
             }
-            NodeKind::StructFieldDeclaration(_specifier_qualifier_list, _declarator_list) => {
-                todo!()
+            NodeKind::StructFieldDeclaration(specifier_qualifier_list, declarator_list) => {
+                self.fmt(specifier_qualifier_list, indent)?;
+                if let Some(decl_list_id) = declarator_list {
+                    self.w.write_all(b" ")?;
+                    self.fmt(decl_list_id, indent)?;
+                }
+                self.w.write_all(b";")?;
             }
-            NodeKind::StructFieldDeclaratorList(_node_ids) => {
-                todo!()
+            NodeKind::StructFieldDeclaratorList(node_ids) => {
+                for (i, id) in node_ids.iter().enumerate() {
+                    if i > 0 {
+                        self.w.write_all(b", ")?;
+                    }
+                    self.fmt(*id, indent)?;
+                }
             }
             NodeKind::SpecifierQualifierList(node_ids) => {
                 for (i, node_id) in node_ids.iter().enumerate() {
@@ -269,32 +382,75 @@ impl<'a, W: Write> Formatter<'a, W> {
                     }
                 }
             }
-            NodeKind::Xlate(_type_name, _expr) => {
-                todo!()
+            NodeKind::Xlate(type_name, expr) => {
+                self.w.write_all(b"xlate <")?;
+                self.fmt(type_name, indent)?;
+                self.w.write_all(b">(")?;
+                self.fmt(expr, indent)?;
+                self.w.write_all(b")")?;
             }
-            NodeKind::DirectAbstractDeclarator(_node_id) => {
-                todo!()
+            NodeKind::DirectAbstractDeclarator(node_id) => {
+                self.w.write_all(b"(")?;
+                self.fmt(node_id, indent)?;
+                self.w.write_all(b")")?;
             }
-            NodeKind::DirectAbstractArray(_base, _suffix) => {
-                todo!()
+            NodeKind::DirectAbstractArray(base, suffix) => {
+                if let Some(base_id) = base {
+                    self.fmt(base_id, indent)?;
+                }
+                self.fmt(suffix, indent)?;
             }
-            NodeKind::DirectAbstractFunction(_base, _suffix) => {
-                todo!()
+            NodeKind::DirectAbstractFunction(base, suffix) => {
+                if let Some(base_id) = base {
+                    self.fmt(base_id, indent)?;
+                }
+                self.fmt(suffix, indent)?;
             }
-            NodeKind::AbstractDeclarator(_ptr, _abstract_decl) => {
-                todo!()
+            NodeKind::AbstractDeclarator(ptr, abstract_decl) => {
+                if let Some(ptr_id) = ptr {
+                    self.fmt(ptr_id, indent)?;
+                    if let Some(decl_id) = abstract_decl {
+                        if Self::pointer_ends_with_qualifier(self.nodes, ptr_id) {
+                            self.w.write_all(b" ")?;
+                        }
+                        self.fmt(decl_id, indent)?;
+                    }
+                } else if let Some(decl_id) = abstract_decl {
+                    self.fmt(decl_id, indent)?;
+                }
             }
-            NodeKind::Pointer(_type_qualifiers, _ptr) => {
-                todo!()
+            NodeKind::Pointer(type_qualifiers, ptr) => {
+                self.w.write_all(b"*")?;
+                for qual_id in &type_qualifiers {
+                    self.w.write_all(b" ")?;
+                    self.fmt(*qual_id, indent)?;
+                }
+                if let Some(ptr_id) = ptr {
+                    self.fmt(ptr_id, indent)?;
+                }
             }
-            NodeKind::Array(_params) => {
-                todo!()
+            NodeKind::Array(params) => {
+                self.w.write_all(b"[")?;
+                if let Some(params_id) = params {
+                    self.fmt(params_id, indent)?;
+                }
+                self.w.write_all(b"]")?;
             }
-            NodeKind::Parameters(_node_ids) => {
-                todo!()
+            NodeKind::Parameters(node_ids) => {
+                for (i, id) in node_ids.iter().enumerate() {
+                    if i > 0 {
+                        self.w.write_all(b", ")?;
+                    }
+                    self.fmt(*id, indent)?;
+                }
             }
-            NodeKind::ParameterDeclarationSpecifiers(_node_ids) => {
-                todo!()
+            NodeKind::ParameterDeclarationSpecifiers(node_ids) => {
+                for (i, id) in node_ids.iter().enumerate() {
+                    if i > 0 {
+                        self.w.write_all(b" ")?;
+                    }
+                    self.fmt(*id, indent)?;
+                }
             }
             NodeKind::Unary(token, node_id) => {
                 let s = lex::str_from_source(self.input, token.origin);
@@ -307,8 +463,22 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.w.write_all(b")")?;
                 }
             }
-            NodeKind::ArgumentsDeclaration(_node_ids) => todo!(),
-            NodeKind::InlineDefinition(_node_id, _node_id1, _node_id2) => todo!(),
+            NodeKind::ArgumentsDeclaration(args) => {
+                self.w.write_all(b"(")?;
+                if let Some(args_id) = args {
+                    self.fmt(args_id, indent)?;
+                }
+                self.w.write_all(b")")?;
+            }
+            NodeKind::InlineDefinition(decl_specifiers, declarator, expr) => {
+                self.w.write_all(b"inline ")?;
+                self.fmt(decl_specifiers, indent)?;
+                self.w.write_all(b" ")?;
+                self.fmt(declarator, indent)?;
+                self.w.write_all(b" = ")?;
+                self.fmt(expr, indent)?;
+                self.w.write_all(b";\n")?;
+            }
             NodeKind::ArgumentsExpr(node_ids) => {
                 for (i, node_id) in node_ids.iter().enumerate() {
                     self.fmt(*node_id, indent)?;
@@ -317,14 +487,27 @@ impl<'a, W: Write> Formatter<'a, W> {
                     }
                 }
             }
-            NodeKind::ParameterTypeList {
-                params: _,
-                ellipsis: _,
-            } => todo!(),
+            NodeKind::ParameterTypeList { params, ellipsis } => {
+                if let Some(params_id) = params {
+                    self.fmt(params_id, indent)?;
+                    if ellipsis.is_some() {
+                        self.w.write_all(b", ")?;
+                    }
+                }
+                if let Some(ellipsis_id) = ellipsis {
+                    self.fmt(ellipsis_id, indent)?;
+                }
+            }
             NodeKind::ParameterDeclaration {
-                param_decl_specifiers: _,
-                declarator: _,
-            } => todo!(),
+                param_decl_specifiers,
+                declarator,
+            } => {
+                self.fmt(param_decl_specifiers, indent)?;
+                if let Some(decl_id) = declarator {
+                    self.w.write_all(b" ")?;
+                    self.fmt(decl_id, indent)?;
+                }
+            }
         }
         Ok(())
     }
@@ -810,8 +993,6 @@ syscall::close:entry
 
     #[test]
     fn test_offsetof() {
-        // Using a plain type specifier avoids struct-declaration formatting, which is not yet
-        // implemented. The offsetof formatter only needs the type_name node and the field token.
         let input = "BEGIN  {  n  =  offsetof  (  int  ,  x  )  ;  }";
         assert_eq!(
             fmt(input),
@@ -819,6 +1000,185 @@ syscall::close:entry
 {
   n = offsetof(int, x);
 }
+"
+        );
+    }
+
+    #[test]
+    fn test_declaration_simple() {
+        let input = "int x;";
+        assert_eq!(fmt(input), "int x;\n");
+    }
+
+    #[test]
+    fn test_declaration_const_qualified() {
+        let input = "const int x;";
+        assert_eq!(fmt(input), "const int x;\n");
+    }
+
+    #[test]
+    fn test_declaration_multiple_declarators() {
+        let input = "int x, y;";
+        assert_eq!(fmt(input), "int x, y;\n");
+    }
+
+    #[test]
+    fn test_declaration_pointer() {
+        let input = "int *x;";
+        assert_eq!(fmt(input), "int *x;\n");
+    }
+
+    #[test]
+    fn test_declaration_pointer_const() {
+        // The `* const` qualifier ends the pointer chain with a keyword, so a space is
+        // inserted between the qualifier and the declarator name.
+        let input = "int * const x;";
+        assert_eq!(fmt(input), "int * const x;\n");
+    }
+
+    #[test]
+    fn test_declaration_double_pointer() {
+        // A bare double pointer has no qualifiers, so no space is added.
+        let input = "int **x;";
+        assert_eq!(fmt(input), "int **x;\n");
+    }
+
+    #[test]
+    fn test_sizeof_pointer_type() {
+        // Abstract declarator with a plain pointer — no qualifier, so no extra space.
+        let input = "BEGIN { n = sizeof(int *); }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  n = sizeof(int *);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_sizeof_const_pointer_type() {
+        // Abstract declarator with a qualified pointer — space before the next component.
+        let input = "BEGIN { n = sizeof(int * const); }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  n = sizeof(int * const);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_inline_definition() {
+        let input = "inline int x = 42;";
+        assert_eq!(fmt(input), "inline int x = 42;\n");
+    }
+
+    #[test]
+    fn test_xlate_expr() {
+        let input = "BEGIN { x = xlate <int>(ptr); }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = xlate <int>(ptr);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_struct_declaration() {
+        let input = "struct Foo { int x; };";
+        assert_eq!(
+            fmt(input),
+            "struct Foo {
+  int x;
+};
+"
+        );
+    }
+
+    #[test]
+    fn test_struct_declaration_multiple_fields() {
+        let input = "struct Foo { int x; int y; };";
+        assert_eq!(
+            fmt(input),
+            "struct Foo {
+  int x;
+  int y;
+};
+"
+        );
+    }
+
+    #[test]
+    fn test_struct_forward_declaration() {
+        // A struct with no body is a forward declaration; no braces are emitted.
+        let input = "struct Foo;";
+        assert_eq!(fmt(input), "struct Foo;\n");
+    }
+
+    #[test]
+    fn test_union_declaration() {
+        let input = "union Bar { int i; char c; };";
+        assert_eq!(
+            fmt(input),
+            "union Bar {
+  int i;
+  char c;
+};
+"
+        );
+    }
+
+    #[test]
+    fn test_enum_declaration() {
+        let input = "enum Color { RED, GREEN, BLUE };";
+        assert_eq!(
+            fmt(input),
+            "enum Color {
+  RED,
+  GREEN,
+  BLUE
+};
+"
+        );
+    }
+
+    #[test]
+    fn test_enum_declaration_with_values() {
+        let input = "enum Color { RED = 0, GREEN = 1, BLUE = 2 };";
+        assert_eq!(
+            fmt(input),
+            "enum Color {
+  RED = 0,
+  GREEN = 1,
+  BLUE = 2
+};
+"
+        );
+    }
+
+    #[test]
+    fn test_enum_forward_reference() {
+        // An enum used by name only (forward reference, no body).
+        let input = "enum Color c;";
+        assert_eq!(fmt(input), "enum Color c;\n");
+    }
+
+    #[test]
+    fn test_struct_pointer_field() {
+        // Struct with a pointer field exercises `Declarator` with a non-null pointer.
+        let input = "struct Node { int *value; };";
+        assert_eq!(
+            fmt(input),
+            "struct Node {
+  int *value;
+};
 "
         );
     }
