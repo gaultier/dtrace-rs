@@ -1943,6 +1943,10 @@ impl<'a> Parser<'a> {
             .map(|t| t.origin)
             .unwrap_or_else(|| self.origin(expr));
 
+        // Reset back to outer scope so that subsequent pragmas and declarations are
+        // lexed correctly (matching the behaviour of `parse_declaration`).
+        self.lexer.begin(lex::LexerState::ProgramOuterScope);
+
         Some(self.new_node(Node {
             kind: NodeKind::InlineDefinition(decl_specifiers, declarator, expr),
             origin: tok.origin.merge(end_origin),

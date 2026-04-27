@@ -4,6 +4,7 @@
 #pragma  D  option  quiet
 #pragma  D  option  bufsize=4m
 #pragma  D  depends_on  module  isa
+#pragma  D  depends_on  library  procfs.d
 
 struct Point {
   int x;
@@ -25,6 +26,14 @@ enum Color {
 
 // Inline  constant  definition .
 inline int MAX_SIZE = 1024;
+#pragma  D  binding  "1.0"  MAX_SIZE
+
+inline char LEVEL = 1;
+
+inline string LABEL = "ok";
+#pragma  D  attributes  Stable/Stable/Common  LABEL
+
+inline int computed = x > 0 ? x : 0;
 
 int *ptr;
 
@@ -139,6 +148,10 @@ syscall::open:entry
   n = offsetof(int, field);
   x = xlate <int>(ptr);
   @n++;
+  x = NULL;
+  x = `global_sym;
+  x = (int)-1;
+  x = a == 1 ? 1 : a == 2 ? 2 : 3;
   x = 'a';
   x = "hello";
   x = "héllo";
