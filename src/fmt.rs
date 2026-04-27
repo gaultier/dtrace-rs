@@ -122,8 +122,8 @@ impl<'a, W: Write> Formatter<'a, W> {
         // When the source has a blank line between the last annotation and the following
         // node, preserve it in the output.  Multi-line comments are excluded because
         // `emit_one_comment` already appends a blank line unconditionally.
-        if !last_was_multiline_comment {
-            if let Some(end) = last_annotation_end {
+        if !last_was_multiline_comment
+            && let Some(end) = last_annotation_end {
                 // `origin.end.byte_offset` is the exclusive end (one past the last
                 // content byte), so the gap starts directly at `end`.
                 let gap_start = end as usize;
@@ -132,7 +132,6 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.w.write_all(b"\n")?;
                 }
             }
-        }
 
         Ok(())
     }

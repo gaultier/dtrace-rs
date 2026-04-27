@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     CompileResult, compile, fmt,
-    origin::{Origin, Position},
+    origin::Origin,
 };
 
 enum State {
