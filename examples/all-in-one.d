@@ -133,6 +133,9 @@ syscall::open:entry
   @n++;
   x = 'a';
   x = "hello";
+  x = "héllo";
+  x = "日本語";
+  x = "🎉";
   /* Conditional  statements . */
 
   if (x == 1) {
