@@ -95,6 +95,7 @@ fn main() {
                     &compiled.ast_nodes,
                     &compiled.comments,
                     &compiled.control_directives,
+                    &compiled.attributes,
                     &file_content,
                 )
                 .unwrap();

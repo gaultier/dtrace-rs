@@ -32,6 +32,7 @@ const int * const cptr;
 
 int **dptr;
 
+__attribute__((nodtrace));
 int foo(int a, int b);
 
 struct WithUnion {

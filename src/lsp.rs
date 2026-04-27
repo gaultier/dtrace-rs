@@ -555,6 +555,7 @@ fn formatting(
         &compiled.ast_nodes,
         &compiled.comments,
         &compiled.control_directives,
+        &compiled.attributes,
         text,
     )
     .map_err(|err| {

@@ -2,7 +2,9 @@ use std::io::Write;
 
 use crate::{
     ast::{Node, NodeId, NodeKind},
-    lex::{self, Comment, CommentKind, ControlDirective, ControlDirectiveKind, TokenKind},
+    lex::{
+        self, Attribute, Comment, CommentKind, ControlDirective, ControlDirectiveKind, TokenKind,
+    },
 };
 
 struct Formatter<'a, W> {
@@ -16,6 +18,10 @@ struct Formatter<'a, W> {
     directives: &'a [ControlDirective],
     /// Index of the next directive not yet emitted.
     directive_idx: usize,
+    /// All `__attribute__((...))` annotations from the lexer, sorted by source position.
+    attributes: &'a [Attribute],
+    /// Index of the next attribute not yet emitted.
+    attribute_idx: usize,
     input: &'a str,
 }
 
@@ -39,6 +45,17 @@ impl<'a, W: Write> Formatter<'a, W> {
             self.w.write_all(b"\n")?;
         }
         self.comment_idx += 1;
+        Ok(())
+    }
+
+    /// Emits one `__attribute__((...))` annotation at the current `attribute_idx`, advancing the index.
+    fn emit_one_attribute(&mut self, indent: usize) -> std::io::Result<()> {
+        let attr = &self.attributes[self.attribute_idx];
+        self.indent(indent)?;
+        let text = lex::str_from_source(self.input, attr.origin);
+        self.w.write_all(text.as_bytes())?;
+        self.w.write_all(b"\n")?;
+        self.attribute_idx += 1;
         Ok(())
     }
 
@@ -76,16 +93,16 @@ impl<'a, W: Write> Formatter<'a, W> {
         Ok(())
     }
 
-    /// Emits every not-yet-emitted comment or directive whose start byte is strictly
-    /// less than `before_byte`, in source order.  Both queues are advanced together so
-    /// the interleaved original order is preserved.
+    /// Emits every not-yet-emitted comment, directive, or `__attribute__` annotation whose
+    /// start byte is strictly less than `before_byte`, in source order.  All three queues
+    /// are advanced together so the interleaved original order is preserved.
     ///
     /// After all annotations are emitted, a blank line is inserted when the source
     /// contains one between the last annotation and the following node — except when
     /// the last annotation was a multi-line comment, which already appends a blank line
     /// unconditionally.
     fn emit_pending_annotations(&mut self, before_byte: u32, indent: usize) -> std::io::Result<()> {
-        // Inclusive byte offset of the last annotation emitted in this call, if any.
+        // Exclusive byte offset of the last annotation emitted in this call, if any.
         let mut last_annotation_end: Option<u32> = None;
         // Whether the very last annotation was a multi-line comment (which already emits
         // a trailing blank line, so we must not emit a second one).
@@ -102,20 +119,30 @@ impl<'a, W: Write> Formatter<'a, W> {
                 .get(self.directive_idx)
                 .map(|d| d.origin.start.byte_offset)
                 .unwrap_or(u32::MAX);
-            let next = next_comment.min(next_directive);
+            let next_attribute = self
+                .attributes
+                .get(self.attribute_idx)
+                .map(|a| a.origin.start.byte_offset)
+                .unwrap_or(u32::MAX);
+            let next = next_comment.min(next_directive).min(next_attribute);
             if next >= before_byte {
                 break;
             }
-            if next_comment <= next_directive {
+            if next_comment <= next_directive && next_comment <= next_attribute {
                 last_was_multiline_comment =
                     self.comments[self.comment_idx].kind == CommentKind::MultiLine;
                 last_annotation_end = Some(self.comments[self.comment_idx].origin.end.byte_offset);
                 self.emit_one_comment(indent)?;
-            } else {
+            } else if next_directive <= next_attribute {
                 last_was_multiline_comment = false;
                 last_annotation_end =
                     Some(self.directives[self.directive_idx].origin.end.byte_offset);
                 self.emit_one_directive(indent)?;
+            } else {
+                last_was_multiline_comment = false;
+                last_annotation_end =
+                    Some(self.attributes[self.attribute_idx].origin.end.byte_offset);
+                self.emit_one_attribute(indent)?;
             }
         }
 
@@ -709,6 +736,7 @@ pub fn format<W: Write>(
     nodes: &[Node],
     comments: &[lex::Comment],
     directives: &[lex::ControlDirective],
+    attributes: &[lex::Attribute],
     input: &str,
 ) -> std::io::Result<()> {
     Formatter {
@@ -718,6 +746,8 @@ pub fn format<W: Write>(
         comment_idx: 0,
         directives,
         directive_idx: 0,
+        attributes,
+        attribute_idx: 0,
         input,
     }
     .fmt(node_id, 0)
@@ -741,6 +771,7 @@ mod tests {
             &parser.nodes,
             &parser.lexer.comments,
             &parser.lexer.control_directives,
+            &parser.lexer.attributes,
             input,
         )
         .unwrap();
@@ -1454,6 +1485,25 @@ syscall::close:entry
         // emitted in the original source order.
         let input = "// A comment\n#pragma D option quiet\nint  x  ;";
         assert_eq!(fmt(input), "// A comment\n#pragma D option quiet\nint x;\n");
+    }
+
+    #[test]
+    fn test_attribute_before_declaration() {
+        // An `__attribute__((...))` annotation before a declaration must be emitted
+        // verbatim in its original source position, before the declaration.
+        let input = "__attribute__((nodtrace));\nint  x  ;";
+        assert_eq!(fmt(input), "__attribute__((nodtrace));\nint x;\n");
+    }
+
+    #[test]
+    fn test_attribute_interleaved_with_pragma() {
+        // When a pragma and an `__attribute__` both precede a declaration they must
+        // be emitted in the original source order.
+        let input = "#pragma D option quiet\n__attribute__((nodtrace));\nint  x  ;";
+        assert_eq!(
+            fmt(input),
+            "#pragma D option quiet\n__attribute__((nodtrace));\nint x;\n"
+        );
     }
 
     #[test]
