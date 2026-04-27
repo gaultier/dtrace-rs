@@ -5,6 +5,7 @@
 #pragma  D  option  bufsize=4m
 #pragma  D  depends_on  module  isa
 #pragma  D  depends_on  library  procfs.d
+#pragma  D  line  1
 
 struct Point {
   int x;
