@@ -32,8 +32,13 @@ const int * const cptr;
 
 int **dptr;
 
+// Whole line is skipped because `));` is followed by `;`.
 __attribute__((nodtrace));
 int foo(int a, int b);
+
+// Only the attribute is skipped because there is no trailing `;`.
+__attribute__((noreturn))
+int baz(int x);
 
 struct WithUnion {
   union Tag {
