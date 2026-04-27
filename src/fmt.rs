@@ -544,16 +544,7 @@ mod tests {
         (parser, root_id)
     }
 
-    fn fmt(input: &'static str) -> String {
-        let (parser, root_id) = parse_program(input);
-        let mut out = Vec::new();
-        format(&mut out, root_id, &parser.nodes, input).unwrap();
-        String::from_utf8(out).unwrap()
-    }
-
-    /// Like `fmt` but accepts a borrowed string, needed for the idempotency test where
-    /// the second pass formats the output of the first pass (a heap-allocated `String`).
-    fn fmt_str(input: &str) -> String {
+    fn fmt(input: &str) -> String {
         let lexer = Lexer::new(FILE_ID, input);
         let mut parser = Parser::new(lexer);
         let root_id = parser.parse().unwrap();
@@ -1206,8 +1197,8 @@ syscall::close:entry
         // format the result again (pass 2).  The two passes must produce identical
         // output: the formatter must be stable under repeated application.
         let input = include_str!("../examples/all-in-one.d");
-        let pass1 = fmt_str(input);
-        let pass2 = fmt_str(&pass1);
+        let pass1 = fmt(input);
+        let pass2 = fmt(&pass1);
         assert_eq!(
             pass1, pass2,
             "formatter output changed on second pass:\n{pass1}"
