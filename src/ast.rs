@@ -3004,7 +3004,7 @@ impl<'a> Parser<'a> {
             self.error(
                 ErrorKind::MissingTypeName,
                 xlator_tok.origin,
-                String::from("expected output type name after xlator"),
+                String::from("expected output type name after translator keyword"),
                 &[TokenKind::Lt, TokenKind::SemiColon],
             );
             self.new_node_unknown()

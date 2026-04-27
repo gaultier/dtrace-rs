@@ -55,6 +55,16 @@ struct HasPoint {
   int z;
 };
 
+translator int < struct foo * P > {
+  pr_pid = P->p_pid;
+  pr_ppid = P->p_ppid;
+};
+
+provider myprov {
+  probe start(int a, char *s) : (int);
+  probe stop();
+};
+
 BEGIN,
 END
 {
