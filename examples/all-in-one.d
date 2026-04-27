@@ -26,11 +26,13 @@ enum Color {
 
 // Inline  constant  definition .
 inline int MAX_SIZE = 1024;
+
 #pragma  D  binding  "1.0"  MAX_SIZE
 
 inline char LEVEL = 1;
 
 inline string LABEL = "ok";
+
 #pragma  D  attributes  Stable/Stable/Common  LABEL
 
 inline int computed = x > 0 ? x : 0;

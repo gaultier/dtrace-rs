@@ -527,13 +527,44 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if let Some(op) = self.match_kind(TokenKind::LeftParen) {
-            let typ = self.expect(TokenKind::Identifier, "type in cast");
-            let typ_str = if let Some(typ) = typ {
-                lex::str_from_source(self.lexer.input, typ.origin).to_owned()
+        // Peek ahead before consuming `(` so we can distinguish `(type)expr`
+        // casts from `(expr)` parenthesised primaries.  Only enter the cast
+        // branch when the token inside `(` is a type keyword or a plain
+        // identifier (used as a typedef name).
+        let is_cast = self.peek1().kind == TokenKind::LeftParen
+            && matches!(
+                self.peek2().kind,
+                TokenKind::Identifier
+                    | TokenKind::KeywordChar
+                    | TokenKind::KeywordConst
+                    | TokenKind::KeywordEnum
+                    | TokenKind::KeywordInt
+                    | TokenKind::KeywordLong
+                    | TokenKind::KeywordShort
+                    | TokenKind::KeywordSigned
+                    | TokenKind::KeywordString
+                    | TokenKind::KeywordStruct
+                    | TokenKind::KeywordUnsigned
+                    | TokenKind::KeywordUserland
+                    | TokenKind::KeywordVoid
+                    | TokenKind::KeywordVolatile
+            );
+
+        if is_cast {
+            let op = self.lexer.lex(); // consume `(`
+
+            // Plain identifiers (unresolved typedef names) are not yet handled by
+            // `parse_type_name`, so consume them directly.  All keyword-based types
+            // (including qualifiers and pointer declarators) go through `parse_type_name`.
+            let typ_str = if self.peek1().kind == TokenKind::Identifier {
+                let tok = self.lexer.lex();
+                lex::str_from_source(self.lexer.input, tok.origin).to_owned()
+            } else if let Some(tn) = self.parse_type_name() {
+                lex::str_from_source(self.lexer.input, self.origin(tn)).to_owned()
             } else {
                 String::new()
             };
+
             let right_paren = self.expect(TokenKind::RightParen, "closing cast right parenthesis");
             let node = self.parse_cast_expr().unwrap_or_else(|| {
                 self.error(
@@ -3932,6 +3963,33 @@ mod tests {
         let (parser, root_id) = parse_expr_input(input);
         assert!(matches!(parser.nodes[root_id].kind, NodeKind::Cast(..)));
         assert_eq!(origin_str(input, &parser, root_id), "(mytype)x");
+    }
+
+    #[test]
+    fn test_cast_keyword_type() {
+        // `(int)-1` must parse as a cast of unary-minus to int, not as an error.
+        let input = "(int)-1";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(
+            matches!(&parser.nodes[root_id].kind, NodeKind::Cast(t, _) if t == "int"),
+            "expected Cast(\"int\", ...), got {:?}",
+            parser.nodes[root_id].kind
+        );
+        assert_eq!(origin_str(input, &parser, root_id), "(int)-1");
+        assert!(parser.lexer.errors.is_empty(), "{:?}", parser.lexer.errors);
+    }
+
+    #[test]
+    fn test_cast_keyword_type_with_qualifier() {
+        // `(const int)x` must parse correctly with a qualifier in the cast type.
+        let input = "(const int)x";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(
+            matches!(&parser.nodes[root_id].kind, NodeKind::Cast(t, _) if t == "const int"),
+            "expected Cast(\"const int\", ...), got {:?}",
+            parser.nodes[root_id].kind
+        );
+        assert!(parser.lexer.errors.is_empty(), "{:?}", parser.lexer.errors);
     }
 
     #[test]
