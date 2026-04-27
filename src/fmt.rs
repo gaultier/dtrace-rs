@@ -784,7 +784,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                 self.w.write_all(b";")?;
             }
             NodeKind::ProviderDefinition { name, probes } => {
-                write!(self.w, "provider {} {{\n", name)?;
+                writeln!(self.w, "provider {} {{", name)?;
                 if let Some(probes_id) = probes {
                     self.fmt(probes_id, indent + 2)?;
                 }
