@@ -32,6 +32,14 @@ const int * const cptr;
 
 int **dptr;
 
+typedef int myint;
+
+unsigned int uval;
+
+void *vptr;
+
+volatile int vval;
+
 // Whole line is skipped because `));` is followed by `;`.
 __attribute__((nodtrace));
 int foo(int a, int b);
