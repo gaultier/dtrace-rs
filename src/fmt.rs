@@ -2,7 +2,7 @@ use std::io::Write;
 
 use crate::{
     ast::{Node, NodeId, NodeKind},
-    lex::{self, Comment, CommentKind, TokenKind},
+    lex::{self, Comment, CommentKind, ControlDirective, ControlDirectiveKind, TokenKind},
 };
 
 struct Formatter<'a, W> {
@@ -12,6 +12,10 @@ struct Formatter<'a, W> {
     comments: &'a [Comment],
     /// Index of the next comment not yet emitted.
     comment_idx: usize,
+    /// All control directives (pragmas, `#line`, shebangs) from the lexer, sorted by position.
+    directives: &'a [ControlDirective],
+    /// Index of the next directive not yet emitted.
+    directive_idx: usize,
     input: &'a str,
 }
 
@@ -20,29 +24,82 @@ impl<'a, W: Write> Formatter<'a, W> {
         write!(self.w, "{:width$}", "", width = n)
     }
 
-    /// Emits every not-yet-emitted comment whose start byte is strictly less than
-    /// `before_byte`, each preceded by `indent` spaces and followed by a newline.
-    /// Single-line comments (`//`) do not include their terminating newline in the
-    /// origin, so one is appended. Multi-line comments (`/* … */`) are emitted verbatim
-    /// followed by a newline.
-    fn emit_pending_comments(&mut self, before_byte: u32, indent: usize) -> std::io::Result<()> {
-        while self.comment_idx < self.comments.len() {
-            let comment = &self.comments[self.comment_idx];
-            if comment.origin.start.byte_offset >= before_byte {
-                break;
-            }
-            self.indent(indent)?;
-            let text = lex::str_from_source(self.input, comment.origin);
-            self.w.write_all(text.as_bytes())?;
-            // `//` comments stop before the newline; `/* */` comments do not include
-            // a trailing newline either, so we always add one.
+    /// Emits one comment at the current `comment_idx`, advancing the index.
+    fn emit_one_comment(&mut self, indent: usize) -> std::io::Result<()> {
+        let comment = &self.comments[self.comment_idx];
+        self.indent(indent)?;
+        let text = lex::str_from_source(self.input, comment.origin);
+        self.w.write_all(text.as_bytes())?;
+        // `//` comments stop before the newline; `/* */` does not include a trailing
+        // newline, so we always add one.
+        self.w.write_all(b"\n")?;
+        // Blank line after multi-line comments to visually separate them from the
+        // following declaration or statement.
+        if comment.kind == CommentKind::MultiLine {
             self.w.write_all(b"\n")?;
-            // Blank line after multi-line comments to visually separate them from
-            // the next declaration or statement.
-            if comment.kind == CommentKind::MultiLine {
+        }
+        self.comment_idx += 1;
+        Ok(())
+    }
+
+    /// Emits one directive at the current `directive_idx`, advancing the index.
+    fn emit_one_directive(&mut self, indent: usize) -> std::io::Result<()> {
+        let directive = &self.directives[self.directive_idx];
+        match &directive.kind {
+            ControlDirectiveKind::Ignored => {
+                // Null directives (`#` with nothing after) have a zero-length origin;
+                // skip them entirely.  Non-null ignored directives (`#ident`, unknown
+                // pragmas) are preserved verbatim.
+                let text = lex::str_from_source(self.input, directive.origin);
+                if !text.is_empty() {
+                    self.indent(indent)?;
+                    self.w.write_all(text.as_bytes())?;
+                    self.w.write_all(b"\n")?;
+                }
+            }
+            ControlDirectiveKind::PragmaError(msg) => {
+                // The lexer stores only the message portion in the origin, so
+                // reconstruct the full directive header.
+                self.indent(indent)?;
+                writeln!(self.w, "#pragma D error {}", msg)?;
+            }
+            _ => {
+                // All other directive kinds have origins that span from `#` to the
+                // end of the directive line, so the raw source text is complete.
+                self.indent(indent)?;
+                let text = lex::str_from_source(self.input, directive.origin);
+                self.w.write_all(text.as_bytes())?;
                 self.w.write_all(b"\n")?;
             }
-            self.comment_idx += 1;
+        }
+        self.directive_idx += 1;
+        Ok(())
+    }
+
+    /// Emits every not-yet-emitted comment or directive whose start byte is strictly
+    /// less than `before_byte`, in source order.  Both queues are advanced together so
+    /// the interleaved original order is preserved.
+    fn emit_pending_annotations(&mut self, before_byte: u32, indent: usize) -> std::io::Result<()> {
+        loop {
+            let next_comment = self
+                .comments
+                .get(self.comment_idx)
+                .map(|c| c.origin.start.byte_offset)
+                .unwrap_or(u32::MAX);
+            let next_directive = self
+                .directives
+                .get(self.directive_idx)
+                .map(|d| d.origin.start.byte_offset)
+                .unwrap_or(u32::MAX);
+            let next = next_comment.min(next_directive);
+            if next >= before_byte {
+                break;
+            }
+            if next_comment <= next_directive {
+                self.emit_one_comment(indent)?;
+            } else {
+                self.emit_one_directive(indent)?;
+            }
         }
         Ok(())
     }
@@ -105,13 +162,13 @@ impl<'a, W: Write> Formatter<'a, W> {
                 self.w.write_all(b"{\n")?;
                 for id in &node_ids {
                     let start_byte = self.nodes[*id].origin.start.byte_offset;
-                    self.emit_pending_comments(start_byte, indent + 2)?;
+                    self.emit_pending_annotations(start_byte, indent + 2)?;
                     self.indent(indent + 2)?;
                     self.fmt(*id, indent + 2)?;
                     self.w.write_all(b"\n")?;
                 }
-                // Flush any comments between the last statement and the closing `}`.
-                self.emit_pending_comments(origin.end.byte_offset + 1, indent + 2)?;
+                // Flush any annotations between the last statement and the closing `}`.
+                self.emit_pending_annotations(origin.end.byte_offset + 1, indent + 2)?;
                 self.indent(indent)?;
                 self.w.write_all(b"}")?;
             }
@@ -167,7 +224,7 @@ impl<'a, W: Write> Formatter<'a, W> {
             NodeKind::TranslationUnit(decls) => {
                 for (i, decl) in decls.iter().enumerate() {
                     let start_byte = self.nodes[*decl].origin.start.byte_offset;
-                    self.emit_pending_comments(start_byte, indent)?;
+                    self.emit_pending_annotations(start_byte, indent)?;
                     self.fmt(*decl, indent)?;
                     // Separate top-level declarations with a blank line so the output
                     // matches conventional C/D style.
@@ -175,8 +232,8 @@ impl<'a, W: Write> Formatter<'a, W> {
                         self.w.write_all(b"\n")?;
                     }
                 }
-                // Flush any trailing comments that appear after the last declaration.
-                self.emit_pending_comments(u32::MAX, indent)?;
+                // Flush any trailing annotations that appear after the last declaration.
+                self.emit_pending_annotations(u32::MAX, indent)?;
             }
             NodeKind::Cast(type_name, inner) => {
                 write!(self.w, "({})", &type_name)?;
@@ -562,6 +619,7 @@ pub fn format<W: Write>(
     node_id: NodeId,
     nodes: &[Node],
     comments: &[lex::Comment],
+    directives: &[lex::ControlDirective],
     input: &str,
 ) -> std::io::Result<()> {
     Formatter {
@@ -569,6 +627,8 @@ pub fn format<W: Write>(
         nodes,
         comments,
         comment_idx: 0,
+        directives,
+        directive_idx: 0,
         input,
     }
     .fmt(node_id, 0)
@@ -591,6 +651,7 @@ mod tests {
             root_id,
             &parser.nodes,
             &parser.lexer.comments,
+            &parser.lexer.control_directives,
             input,
         )
         .unwrap();
@@ -1259,6 +1320,36 @@ syscall::close:entry
 }
 "
         );
+    }
+
+    #[test]
+    fn test_pragma_option_before_declaration() {
+        // A pragma directive appearing before a top-level declaration must be emitted
+        // before that declaration, preserving its source order.
+        let input = "#pragma D option quiet\nint  x  ;";
+        assert_eq!(fmt(input), "#pragma D option quiet\nint x;\n");
+    }
+
+    #[test]
+    fn test_pragma_option_key_value_before_declaration() {
+        // A pragma with a `key=value` option must be preserved verbatim.
+        let input = "#pragma D option bufsize=4m\nint  x  ;";
+        assert_eq!(fmt(input), "#pragma D option bufsize=4m\nint x;\n");
+    }
+
+    #[test]
+    fn test_pragma_depends_on_before_declaration() {
+        // A `depends_on` pragma must be emitted before the following declaration.
+        let input = "#pragma D depends_on module isa\nint  x  ;";
+        assert_eq!(fmt(input), "#pragma D depends_on module isa\nint x;\n");
+    }
+
+    #[test]
+    fn test_pragma_interleaved_with_comment() {
+        // When a comment and a pragma both precede a declaration, they must be
+        // emitted in the original source order.
+        let input = "// A comment\n#pragma D option quiet\nint  x  ;";
+        assert_eq!(fmt(input), "// A comment\n#pragma D option quiet\nint x;\n");
     }
 
     #[test]

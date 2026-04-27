@@ -557,6 +557,7 @@ fn formatting(
         root,
         &compiled.ast_nodes,
         &compiled.comments,
+        &compiled.control_directives,
         text,
     )
     .map_err(|err| {

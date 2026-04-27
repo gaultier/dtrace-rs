@@ -1,6 +1,10 @@
 /* All-in-one  example  file .
    Every  grammar  construct  appears  here  at  least  once . */
 
+#pragma  D  option  quiet
+#pragma  D  option  bufsize=4m
+#pragma  D  depends_on  module  isa
+
 struct  Point  {  int  x  ;  int  y  ;  }  ;
 
 struct  Node  ;
