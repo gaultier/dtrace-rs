@@ -546,6 +546,17 @@ mod tests {
         String::from_utf8(out).unwrap()
     }
 
+    /// Like `fmt` but accepts a borrowed string, needed for the idempotency test where
+    /// the second pass formats the output of the first pass (a heap-allocated `String`).
+    fn fmt_str(input: &str) -> String {
+        let lexer = Lexer::new(FILE_ID, input);
+        let mut parser = Parser::new(lexer);
+        let root_id = parser.parse().unwrap();
+        let mut out = Vec::new();
+        format(&mut out, root_id, &parser.nodes, input).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
     #[test]
     fn test_probe_no_pred_no_body() {
         let input = "syscall::open:entry  {  }";
@@ -1181,5 +1192,16 @@ syscall::close:entry
 };
 "
         );
+    }
+
+    #[test]
+    fn test_all_in_one_idempotent() {
+        // Parse and format the comprehensive example file (pass 1), then parse and
+        // format the result again (pass 2).  The two passes must produce identical
+        // output: the formatter must be stable under repeated application.
+        let input = include_str!("../examples/all-in-one.d");
+        let pass1 = fmt_str(input);
+        let pass2 = fmt_str(&pass1);
+        assert_eq!(pass1, pass2, "formatter output changed on second pass:\n{pass1}");
     }
 }
