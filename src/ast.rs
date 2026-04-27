@@ -93,6 +93,33 @@ pub enum NodeKind {
         declarator: Option<NodeId>,
     },
     UnionDeclaration(Option<Token>, Option<NodeId>),
+    // translator_definition: "translator" from_type "<" to_type ident ">" "{" members? "}" ";"
+    TranslatorDefinition {
+        from_type: NodeId,
+        to_type: NodeId,
+        ident: String,
+        members: Option<NodeId>,
+    },
+    // translator_member_list: translator_member+
+    TranslatorMembers(Vec<NodeId>),
+    // translator_member: ident "=" assignment_expression ";"
+    TranslatorMember {
+        ident: String,
+        expr: NodeId,
+    },
+    // provider_definition: "provider" ident "{" probes? "}" ";"
+    ProviderDefinition {
+        name: String,
+        probes: Option<NodeId>,
+    },
+    // provider_probe_list: provider_probe+
+    ProviderProbes(Vec<NodeId>),
+    // provider_probe: "probe" ident function (":" function)? ";"
+    ProviderProbe {
+        name: String,
+        args: NodeId,
+        return_args: Option<NodeId>,
+    },
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -1849,8 +1876,13 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        // TODO: translator_definition.
-        // TODO: provider_definition.
+        if let Some(stmt) = self.parse_translator_definition() {
+            return Some(stmt);
+        }
+
+        if let Some(stmt) = self.parse_provider_definition() {
+            return Some(stmt);
+        }
 
         if let Some(stmt) = self.parse_inline_definition() {
             return Some(stmt);
@@ -2958,6 +2990,251 @@ impl<'a> Parser<'a> {
     fn parse_const_expr(&mut self) -> Option<NodeId> {
         self.parse_conditional_expr()
     }
+
+    // translator_definition → "translator" type_name "<" type_name IDENT ">"
+    //                         "{" translator_member_list? "}" ";" ;
+    fn parse_translator_definition(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let xlator_tok = self.match_kind(TokenKind::KeywordTranslator)?;
+
+        let from_type = self.parse_type_name().unwrap_or_else(|| {
+            self.error(
+                ErrorKind::MissingTypeName,
+                xlator_tok.origin,
+                String::from("expected output type name after xlator"),
+                &[TokenKind::Lt, TokenKind::SemiColon],
+            );
+            self.new_node_unknown()
+        });
+
+        let lt = self.expect(
+            TokenKind::Lt,
+            "< after output type in translator definition",
+        );
+
+        let to_type = self.parse_type_name().unwrap_or_else(|| {
+            self.error(
+                ErrorKind::MissingTypeName,
+                lt.map(|t| t.origin).unwrap_or(xlator_tok.origin),
+                String::from("expected input type name after < in translator definition"),
+                &[TokenKind::Identifier, TokenKind::Gt, TokenKind::SemiColon],
+            );
+            self.new_node_unknown()
+        });
+
+        let ident_tok = self.expect(
+            TokenKind::Identifier,
+            "input variable name in translator definition",
+        );
+        let ident = ident_tok
+            .map(|t| lex::str_from_source(self.lexer.input, t.origin).to_owned())
+            .unwrap_or_default();
+
+        self.expect(
+            TokenKind::Gt,
+            "> after input variable name in translator definition",
+        );
+        self.expect(TokenKind::LeftCurly, "{ to begin translator body");
+
+        let members = self.parse_translator_member_list();
+
+        let right_curly = self.expect(TokenKind::RightCurly, "} to end translator body");
+        let semicolon = self.expect(TokenKind::SemiColon, "; after translator definition");
+        let end_origin = semicolon
+            .map(|t| t.origin)
+            .or_else(|| right_curly.map(|t| t.origin))
+            .unwrap_or(xlator_tok.origin);
+
+        self.lexer.begin(lex::LexerState::ProgramOuterScope);
+
+        Some(self.new_node(Node {
+            kind: NodeKind::TranslatorDefinition {
+                from_type,
+                to_type,
+                ident,
+                members,
+            },
+            origin: xlator_tok.origin.merge(end_origin),
+        }))
+    }
+
+    // translator_member_list → translator_member+ ;
+    fn parse_translator_member_list(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let first = self.parse_translator_member()?;
+        let mut members = vec![first];
+
+        while let Some(m) = self.parse_translator_member() {
+            members.push(m);
+        }
+
+        let first_origin = self.origin(members[0]);
+        let last_origin = self.origin(*members.last().unwrap());
+        Some(self.new_node(Node {
+            kind: NodeKind::TranslatorMembers(members),
+            origin: first_origin.merge(last_origin),
+        }))
+    }
+
+    // translator_member → IDENT "=" assignment_expression ";" ;
+    fn parse_translator_member(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        // `}` closes the translator body.
+        if self.peek1().kind == TokenKind::RightCurly {
+            return None;
+        }
+
+        let ident_tok = self.match_kind(TokenKind::Identifier)?;
+        let ident = lex::str_from_source(self.lexer.input, ident_tok.origin).to_owned();
+
+        let eq = self.expect(TokenKind::Eq, "= after member name in translator member");
+
+        let expr = self.parse_assignment_expr().unwrap_or_else(|| {
+            self.error(
+                ErrorKind::MissingExpr,
+                eq.map(|t| t.origin).unwrap_or(ident_tok.origin),
+                String::from("expected expression after = in translator member"),
+                &[TokenKind::SemiColon, TokenKind::RightCurly],
+            );
+            self.new_node_unknown()
+        });
+
+        let semicolon = self.expect(TokenKind::SemiColon, "; after translator member");
+        let end_origin = semicolon
+            .map(|t| t.origin)
+            .unwrap_or_else(|| self.origin(expr));
+
+        Some(self.new_node(Node {
+            kind: NodeKind::TranslatorMember { ident, expr },
+            origin: ident_tok.origin.merge(end_origin),
+        }))
+    }
+
+    // provider_definition → "provider" IDENT "{" provider_probe_list? "}" ";" ;
+    fn parse_provider_definition(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let provider_tok = self.match_kind(TokenKind::KeywordProvider)?;
+
+        let name_tok = self.expect(
+            TokenKind::Identifier,
+            "provider name after provider keyword",
+        );
+        let name = name_tok
+            .map(|t| lex::str_from_source(self.lexer.input, t.origin).to_owned())
+            .unwrap_or_default();
+
+        self.expect(TokenKind::LeftCurly, "{ to begin provider body");
+
+        let probes = self.parse_provider_probe_list();
+
+        let right_curly = self.expect(TokenKind::RightCurly, "} to end provider body");
+        let semicolon = self.expect(TokenKind::SemiColon, "; after provider definition");
+        let end_origin = semicolon
+            .map(|t| t.origin)
+            .or_else(|| right_curly.map(|t| t.origin))
+            .unwrap_or(provider_tok.origin);
+
+        self.lexer.begin(lex::LexerState::ProgramOuterScope);
+
+        Some(self.new_node(Node {
+            kind: NodeKind::ProviderDefinition { name, probes },
+            origin: provider_tok.origin.merge(end_origin),
+        }))
+    }
+
+    // provider_probe_list → provider_probe+ ;
+    fn parse_provider_probe_list(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let first = self.parse_provider_probe()?;
+        let mut probes = vec![first];
+
+        while let Some(p) = self.parse_provider_probe() {
+            probes.push(p);
+        }
+
+        let first_origin = self.origin(probes[0]);
+        let last_origin = self.origin(*probes.last().unwrap());
+        Some(self.new_node(Node {
+            kind: NodeKind::ProviderProbes(probes),
+            origin: first_origin.merge(last_origin),
+        }))
+    }
+
+    // provider_probe → "probe" IDENT function (":" function)? ";" ;
+    fn parse_provider_probe(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        // `}` closes the provider body.
+        if self.peek1().kind == TokenKind::RightCurly {
+            return None;
+        }
+
+        let probe_tok = self.match_kind(TokenKind::KeywordProbe)?;
+
+        let name_tok = self.expect(TokenKind::Identifier, "probe name after probe keyword");
+        let name = name_tok
+            .map(|t| lex::str_from_source(self.lexer.input, t.origin).to_owned())
+            .unwrap_or_default();
+
+        let args = self.parse_function().unwrap_or_else(|| {
+            self.error(
+                ErrorKind::MissingFunction,
+                probe_tok.origin,
+                String::from("expected argument list after probe name"),
+                &[
+                    TokenKind::Colon,
+                    TokenKind::SemiColon,
+                    TokenKind::RightCurly,
+                ],
+            );
+            self.new_node_unknown()
+        });
+
+        let return_args = self.match_kind(TokenKind::Colon).map(|colon| {
+            self.parse_function().unwrap_or_else(|| {
+                self.error(
+                    ErrorKind::MissingFunction,
+                    colon.origin,
+                    String::from("expected return type list after : in probe"),
+                    &[TokenKind::SemiColon, TokenKind::RightCurly],
+                );
+                self.new_node_unknown()
+            })
+        });
+
+        let args_origin = self.origin(args);
+        let end_origin_before_semi = return_args.map(|r| self.origin(r)).unwrap_or(args_origin);
+        let semicolon = self.expect(TokenKind::SemiColon, "; after provider probe");
+        let end_origin = semicolon
+            .map(|t| t.origin)
+            .unwrap_or(end_origin_before_semi);
+
+        Some(self.new_node(Node {
+            kind: NodeKind::ProviderProbe {
+                name,
+                args,
+                return_args,
+            },
+            origin: probe_tok.origin.merge(end_origin),
+        }))
+    }
 }
 
 pub fn log(
@@ -3222,6 +3499,39 @@ pub fn log(
             log(nodes, *param_decl_specifiers, indent + 2, file_id_to_name);
             if let Some(node_id) = declarator {
                 log(nodes, *node_id, indent + 2, file_id_to_name);
+            }
+        }
+        NodeKind::TranslatorDefinition {
+            from_type,
+            to_type,
+            members,
+            ..
+        } => {
+            log(nodes, *from_type, indent + 2, file_id_to_name);
+            log(nodes, *to_type, indent + 2, file_id_to_name);
+            if let Some(m) = members {
+                log(nodes, *m, indent + 2, file_id_to_name);
+            }
+        }
+        NodeKind::TranslatorMembers(ids) | NodeKind::ProviderProbes(ids) => {
+            for id in ids {
+                log(nodes, *id, indent + 2, file_id_to_name);
+            }
+        }
+        NodeKind::TranslatorMember { expr, .. } => {
+            log(nodes, *expr, indent + 2, file_id_to_name);
+        }
+        NodeKind::ProviderDefinition { probes, .. } => {
+            if let Some(p) = probes {
+                log(nodes, *p, indent + 2, file_id_to_name);
+            }
+        }
+        NodeKind::ProviderProbe {
+            args, return_args, ..
+        } => {
+            log(nodes, *args, indent + 2, file_id_to_name);
+            if let Some(r) = return_args {
+                log(nodes, *r, indent + 2, file_id_to_name);
             }
         }
     }
@@ -4090,5 +4400,82 @@ mod tests {
         // `a` is at line 2, column 3.
         assert_eq!(parser.nodes[assign_id].origin.start.line, 2);
         assert_eq!(parser.nodes[assign_id].origin.start.column, 3);
+    }
+
+    #[test]
+    fn test_translator_definition_empty_body() {
+        let input = "translator int < struct foo *P > { };";
+        let compiled = crate::compile(input, 1);
+        assert!(
+            compiled.errors.is_empty(),
+            "expected no errors, got: {:?}",
+            compiled.errors
+        );
+    }
+
+    #[test]
+    fn test_translator_definition_with_member() {
+        let input = "translator int < struct foo *P > { pr_pid = P->p_pid; };";
+        let compiled = crate::compile(input, 1);
+        assert!(
+            compiled.errors.is_empty(),
+            "expected no errors, got: {:?}",
+            compiled.errors
+        );
+    }
+
+    #[test]
+    fn test_translator_definition_multiple_members() {
+        let input = "translator int < struct foo *P > { pr_pid = P->p_pid; pr_ppid = P->p_ppid; };";
+        let compiled = crate::compile(input, 1);
+        assert!(
+            compiled.errors.is_empty(),
+            "expected no errors, got: {:?}",
+            compiled.errors
+        );
+    }
+
+    #[test]
+    fn test_provider_definition_empty_body() {
+        let input = "provider myprov { };";
+        let compiled = crate::compile(input, 1);
+        assert!(
+            compiled.errors.is_empty(),
+            "expected no errors, got: {:?}",
+            compiled.errors
+        );
+    }
+
+    #[test]
+    fn test_provider_definition_single_probe_no_return() {
+        let input = "provider myprov { probe entry(int a); };";
+        let compiled = crate::compile(input, 1);
+        assert!(
+            compiled.errors.is_empty(),
+            "expected no errors, got: {:?}",
+            compiled.errors
+        );
+    }
+
+    #[test]
+    fn test_provider_definition_probe_with_return() {
+        let input = "provider myprov { probe entry(int a) : (int); };";
+        let compiled = crate::compile(input, 1);
+        assert!(
+            compiled.errors.is_empty(),
+            "expected no errors, got: {:?}",
+            compiled.errors
+        );
+    }
+
+    #[test]
+    fn test_provider_definition_multiple_probes() {
+        let input = "provider myprov { probe entry(int a); probe exit(int a) : (int); };";
+        let compiled = crate::compile(input, 1);
+        assert!(
+            compiled.errors.is_empty(),
+            "expected no errors, got: {:?}",
+            compiled.errors
+        );
     }
 }

@@ -12,10 +12,7 @@ use lsp_types::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    CompileResult, compile, fmt,
-    origin::Origin,
-};
+use crate::{CompileResult, compile, fmt, origin::Origin};
 
 enum State {
     Initial,

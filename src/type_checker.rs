@@ -296,6 +296,12 @@ pub fn check_node(
             param_decl_specifiers: _,
             declarator: _,
         } => todo!(),
+        NodeKind::TranslatorDefinition { .. } => todo!(),
+        NodeKind::TranslatorMembers(_) => todo!(),
+        NodeKind::TranslatorMember { .. } => todo!(),
+        NodeKind::ProviderDefinition { .. } => todo!(),
+        NodeKind::ProviderProbes(_) => todo!(),
+        NodeKind::ProviderProbe { .. } => todo!(),
     }
 }
 

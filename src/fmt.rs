@@ -122,16 +122,15 @@ impl<'a, W: Write> Formatter<'a, W> {
         // When the source has a blank line between the last annotation and the following
         // node, preserve it in the output.  Multi-line comments are excluded because
         // `emit_one_comment` already appends a blank line unconditionally.
-        if !last_was_multiline_comment
-            && let Some(end) = last_annotation_end {
-                // `origin.end.byte_offset` is the exclusive end (one past the last
-                // content byte), so the gap starts directly at `end`.
-                let gap_start = end as usize;
-                let gap_end = (before_byte as usize).min(self.input.len());
-                if gap_start < gap_end && self.input[gap_start..gap_end].contains("\n\n") {
-                    self.w.write_all(b"\n")?;
-                }
+        if !last_was_multiline_comment && let Some(end) = last_annotation_end {
+            // `origin.end.byte_offset` is the exclusive end (one past the last
+            // content byte), so the gap starts directly at `end`.
+            let gap_start = end as usize;
+            let gap_end = (before_byte as usize).min(self.input.len());
+            if gap_start < gap_end && self.input[gap_start..gap_end].contains("\n\n") {
+                self.w.write_all(b"\n")?;
             }
+        }
 
         Ok(())
     }
@@ -640,6 +639,64 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.w.write_all(b" ")?;
                     self.fmt(decl_id, indent)?;
                 }
+            }
+            NodeKind::TranslatorDefinition {
+                from_type,
+                to_type,
+                ident,
+                members,
+            } => {
+                self.w.write_all(b"translator ")?;
+                self.fmt(from_type, indent)?;
+                self.w.write_all(b" < ")?;
+                self.fmt(to_type, indent)?;
+                write!(self.w, " {} >", ident)?;
+                self.w.write_all(b" {\n")?;
+                if let Some(members_id) = members {
+                    self.fmt(members_id, indent + 2)?;
+                }
+                self.indent(indent)?;
+                self.w.write_all(b"};\n")?;
+            }
+            NodeKind::TranslatorMembers(ids) => {
+                for id in &ids {
+                    self.indent(indent)?;
+                    self.fmt(*id, indent)?;
+                    self.w.write_all(b"\n")?;
+                }
+            }
+            NodeKind::TranslatorMember { ident, expr } => {
+                write!(self.w, "{} = ", ident)?;
+                self.fmt(expr, indent)?;
+                self.w.write_all(b";")?;
+            }
+            NodeKind::ProviderDefinition { name, probes } => {
+                write!(self.w, "provider {} {{\n", name)?;
+                if let Some(probes_id) = probes {
+                    self.fmt(probes_id, indent + 2)?;
+                }
+                self.indent(indent)?;
+                self.w.write_all(b"};\n")?;
+            }
+            NodeKind::ProviderProbes(ids) => {
+                for id in &ids {
+                    self.indent(indent)?;
+                    self.fmt(*id, indent)?;
+                    self.w.write_all(b"\n")?;
+                }
+            }
+            NodeKind::ProviderProbe {
+                name,
+                args,
+                return_args,
+            } => {
+                write!(self.w, "probe {}", name)?;
+                self.fmt(args, indent)?;
+                if let Some(ret) = return_args {
+                    self.w.write_all(b" : ")?;
+                    self.fmt(ret, indent)?;
+                }
+                self.w.write_all(b";")?;
             }
         }
         Ok(())
