@@ -633,15 +633,31 @@ impl<'a> Lexer<'a> {
                 TokenKind::KeywordTranslator
             }
             (LexerState::InsideClauseAndExpr, "typedef") => TokenKind::KeywordTypedef,
+            (LexerState::ProgramOuterScope, "typedef") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordTypedef
+            }
             (LexerState::InsideClauseAndExpr, "union") => TokenKind::KeywordUnion,
             (LexerState::ProgramOuterScope, "union") => {
                 self.state = LexerState::InsideClauseAndExpr;
                 TokenKind::KeywordUnion
             }
             (LexerState::InsideClauseAndExpr, "unsigned") => TokenKind::KeywordUnsigned,
+            (LexerState::ProgramOuterScope, "unsigned") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordUnsigned
+            }
             (LexerState::InsideClauseAndExpr, "userland") => TokenKind::KeywordUserland,
             (LexerState::InsideClauseAndExpr, "void") => TokenKind::KeywordVoid,
+            (LexerState::ProgramOuterScope, "void") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordVoid
+            }
             (LexerState::InsideClauseAndExpr, "volatile") => TokenKind::KeywordVolatile,
+            (LexerState::ProgramOuterScope, "volatile") => {
+                self.state = LexerState::InsideClauseAndExpr;
+                TokenKind::KeywordVolatile
+            }
             (LexerState::InsideClauseAndExpr, "while") => TokenKind::KeywordWhile,
             (LexerState::InsideClauseAndExpr, "xlate") => TokenKind::KeywordXlate,
             _ => token.kind,
@@ -4400,6 +4416,35 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, kind);
             assert_eq!(str_from_source(input, token.origin), text);
+        }
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
+    }
+
+    #[test]
+    fn test_lex_keywords_type_qualifiers_program_outer_scope() {
+        // In `ProgramOuterScope`, these keywords must transition the lexer to
+        // `InsideClauseAndExpr` so the rest of the declaration is parsed correctly.
+        let input = "typedef unsigned void volatile";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        // Start in `ProgramOuterScope` (the default initial state).
+        for (kind, text) in [
+            (TokenKind::KeywordTypedef, "typedef"),
+            (TokenKind::KeywordUnsigned, "unsigned"),
+            (TokenKind::KeywordVoid, "void"),
+            (TokenKind::KeywordVolatile, "volatile"),
+        ] {
+            let token = lexer.lex();
+            assert_eq!(token.kind, kind);
+            assert_eq!(str_from_source(input, token.origin), text);
+            // Each keyword must have switched the state to `InsideClauseAndExpr`.
+            assert_eq!(lexer.state, LexerState::InsideClauseAndExpr);
+            // Reset to `ProgramOuterScope` to test the next keyword in isolation.
+            lexer.begin(LexerState::ProgramOuterScope);
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(
