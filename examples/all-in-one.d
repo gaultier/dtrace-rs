@@ -13,6 +13,12 @@ const  int  * const  cptr  ;
 int  **dptr  ;
 int  foo  (  int  a  ,  int  b  )  ;
 
+struct  WithUnion  {  union  Tag  {  int  i  ;  char  c  ;  }  tag  ;  int  x  ;  }  ;
+
+union  WithStruct  {  struct  Sub  {  int  x  ;  int  y  ;  }  sub  ;  int  raw  ;  }  ;
+
+struct  HasPoint  {  struct  Point  p  ;  int  z  ;  }  ;
+
 BEGIN  ,  END  {  }
 
 syscall::open:entry
