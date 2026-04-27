@@ -130,8 +130,13 @@ impl<'a, W: Write> Formatter<'a, W> {
                 }
             }
             NodeKind::TranslationUnit(decls) => {
-                for decl in decls {
-                    self.fmt(decl, indent)?;
+                for (i, decl) in decls.iter().enumerate() {
+                    self.fmt(*decl, indent)?;
+                    // Separate top-level declarations with a blank line so the output
+                    // matches conventional C/D style.
+                    if i != decls.len() - 1 {
+                        self.w.write_all(b"\n")?;
+                    }
                 }
             }
             NodeKind::Cast(type_name, inner) => {
@@ -742,6 +747,7 @@ END
 {
   x = 1;
 }
+
 syscall::close:entry
 {
   x = 2;
@@ -1202,6 +1208,9 @@ syscall::close:entry
         let input = include_str!("../examples/all-in-one.d");
         let pass1 = fmt_str(input);
         let pass2 = fmt_str(&pass1);
-        assert_eq!(pass1, pass2, "formatter output changed on second pass:\n{pass1}");
+        assert_eq!(
+            pass1, pass2,
+            "formatter output changed on second pass:\n{pass1}"
+        );
     }
 }
