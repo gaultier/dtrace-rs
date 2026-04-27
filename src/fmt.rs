@@ -79,7 +79,18 @@ impl<'a, W: Write> Formatter<'a, W> {
     /// Emits every not-yet-emitted comment or directive whose start byte is strictly
     /// less than `before_byte`, in source order.  Both queues are advanced together so
     /// the interleaved original order is preserved.
+    ///
+    /// After all annotations are emitted, a blank line is inserted when the source
+    /// contains one between the last annotation and the following node — except when
+    /// the last annotation was a multi-line comment, which already appends a blank line
+    /// unconditionally.
     fn emit_pending_annotations(&mut self, before_byte: u32, indent: usize) -> std::io::Result<()> {
+        // Inclusive byte offset of the last annotation emitted in this call, if any.
+        let mut last_annotation_end: Option<u32> = None;
+        // Whether the very last annotation was a multi-line comment (which already emits
+        // a trailing blank line, so we must not emit a second one).
+        let mut last_was_multiline_comment = false;
+
         loop {
             let next_comment = self
                 .comments
@@ -96,11 +107,33 @@ impl<'a, W: Write> Formatter<'a, W> {
                 break;
             }
             if next_comment <= next_directive {
+                last_was_multiline_comment =
+                    self.comments[self.comment_idx].kind == CommentKind::MultiLine;
+                last_annotation_end = Some(self.comments[self.comment_idx].origin.end.byte_offset);
                 self.emit_one_comment(indent)?;
             } else {
+                last_was_multiline_comment = false;
+                last_annotation_end =
+                    Some(self.directives[self.directive_idx].origin.end.byte_offset);
                 self.emit_one_directive(indent)?;
             }
         }
+
+        // When the source has a blank line between the last annotation and the following
+        // node, preserve it in the output.  Multi-line comments are excluded because
+        // `emit_one_comment` already appends a blank line unconditionally.
+        if !last_was_multiline_comment {
+            if let Some(end) = last_annotation_end {
+                // `origin.end.byte_offset` is the exclusive end (one past the last
+                // content byte), so the gap starts directly at `end`.
+                let gap_start = end as usize;
+                let gap_end = (before_byte as usize).min(self.input.len());
+                if gap_start < gap_end && self.input[gap_start..gap_end].contains("\n\n") {
+                    self.w.write_all(b"\n")?;
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -1342,6 +1375,21 @@ syscall::close:entry
         // A `depends_on` pragma must be emitted before the following declaration.
         let input = "#pragma D depends_on module isa\nint  x  ;";
         assert_eq!(fmt(input), "#pragma D depends_on module isa\nint x;\n");
+    }
+
+    #[test]
+    fn test_pragma_blank_line_before_declaration() {
+        // A blank line between a pragma and the following declaration must be preserved
+        // so that the formatter does not collapse intentional vertical whitespace.
+        let input = "#pragma D option quiet\n\nint  x  ;";
+        assert_eq!(fmt(input), "#pragma D option quiet\n\nint x;\n");
+    }
+
+    #[test]
+    fn test_pragma_no_blank_line_before_declaration_unchanged() {
+        // When no blank line is present in the source, none should be added.
+        let input = "#pragma D option quiet\nint  x  ;";
+        assert_eq!(fmt(input), "#pragma D option quiet\nint x;\n");
     }
 
     #[test]
