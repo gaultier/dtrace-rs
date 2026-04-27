@@ -167,7 +167,7 @@ impl<'a, W: Write> Formatter<'a, W> {
     /// a pointer and the following declarator name (e.g. `* const x` vs. `*x`).
     fn pointer_ends_with_qualifier(nodes: &[Node], ptr_id: NodeId) -> bool {
         match &nodes[ptr_id].kind {
-            NodeKind::Pointer(qualifiers, inner) => {
+            NodeKind::Pointer { qualifiers, inner } => {
                 if let Some(inner_ptr) = inner {
                     Self::pointer_ends_with_qualifier(nodes, *inner_ptr)
                 } else {
@@ -230,7 +230,11 @@ impl<'a, W: Write> Formatter<'a, W> {
                 self.indent(indent)?;
                 self.w.write_all(b"}")?;
             }
-            NodeKind::ProbeDefinition(probe, pred, actions) => {
+            NodeKind::ProbeDefinition {
+                probe_specifiers: probe,
+                predicate: pred,
+                action: actions,
+            } => {
                 self.fmt(probe, indent)?;
                 self.w.write_all(b"\n")?;
 
@@ -245,7 +249,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                 }
                 self.w.write_all(b"\n")?;
             }
-            NodeKind::Number(..)
+            NodeKind::Number { .. }
             | NodeKind::Identifier(_)
             | NodeKind::ProbeSpecifier(_)
             | NodeKind::PrimaryToken(_)
@@ -253,7 +257,8 @@ impl<'a, W: Write> Formatter<'a, W> {
                 let src = lex::str_from_source(self.input, origin);
                 self.w.write_all(src.as_bytes())?;
             }
-            NodeKind::Assignment(lhs, tok, rhs) | NodeKind::BinaryOp(lhs, tok, rhs) => {
+            NodeKind::Assignment { lhs, op: tok, rhs }
+            | NodeKind::BinaryOp { lhs, op: tok, rhs } => {
                 self.fmt(lhs, indent)?;
                 let src = lex::str_from_source(self.input, tok.origin);
                 write!(self.w, " {} ", src)?;
@@ -293,7 +298,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                 // Flush any trailing annotations that appear after the last declaration.
                 self.emit_pending_annotations(u32::MAX, indent)?;
             }
-            NodeKind::Cast(type_name, inner) => {
+            NodeKind::Cast {
+                typ: type_name,
+                expr: inner,
+            } => {
                 write!(self.w, "({})", &type_name)?;
                 self.fmt(inner, indent)?;
             }
@@ -302,7 +310,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                 self.w.write_all(b";")?;
             }
             NodeKind::EmptyStmt => {}
-            NodeKind::PostfixArguments(primary, args) => {
+            NodeKind::PostfixArguments {
+                callee: primary,
+                args,
+            } => {
                 self.fmt(primary, indent)?;
                 self.w.write_all(b"(")?;
                 if let Some(args_id) = args {
@@ -326,7 +337,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                     }
                 }
             }
-            NodeKind::Sizeof(node_id, with_paren) => {
+            NodeKind::Sizeof {
+                expr: node_id,
+                parenthesized: with_paren,
+            } => {
                 self.w.write_all(b"sizeof")?;
                 if with_paren {
                     self.w.write_all(b"(")?;
@@ -338,32 +352,49 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.w.write_all(b")")?;
                 }
             }
-            NodeKind::StringofExpr(node_id, with_paren) => {
+            NodeKind::StringofExpr {
+                expr: node_id,
+                parenthesized: with_paren,
+            } => {
                 self.w.write_all(b"stringof")?;
                 if !with_paren {
                     self.w.write_all(b" ")?;
                 }
                 self.fmt(node_id, indent)?;
             }
-            NodeKind::PostfixIncDecrement(node_id, token) => {
+            NodeKind::PostfixIncDecrement {
+                expr: node_id,
+                op: token,
+            } => {
                 self.fmt(node_id, indent)?;
                 let s = lex::str_from_source(self.input, token.origin);
                 self.w.write_all(s.as_bytes())?;
             }
-            NodeKind::PostfixArrayAccess(primary, args) => {
+            NodeKind::PostfixArrayAccess {
+                array: primary,
+                index: args,
+            } => {
                 self.fmt(primary, indent)?;
                 self.w.write_all(b"[")?;
                 self.fmt(args, indent)?;
                 self.w.write_all(b"]")?;
             }
-            NodeKind::TernaryExpr(lhs, mhs, rhs) => {
+            NodeKind::TernaryExpr {
+                cond: lhs,
+                then_expr: mhs,
+                else_expr: rhs,
+            } => {
                 self.fmt(lhs, indent)?;
                 self.w.write_all(b" ? ")?;
                 self.fmt(mhs, indent)?;
                 self.w.write_all(b" : ")?;
                 self.fmt(rhs, indent)?;
             }
-            NodeKind::FieldAccess(node_id, dot_or_arrow, ident) => {
+            NodeKind::FieldAccess {
+                expr: node_id,
+                op: dot_or_arrow,
+                field: ident,
+            } => {
                 self.fmt(node_id, indent)?;
 
                 let s = lex::str_from_source(self.input, dot_or_arrow.origin);
@@ -372,14 +403,20 @@ impl<'a, W: Write> Formatter<'a, W> {
                 let s = lex::str_from_source(self.input, ident.origin);
                 self.w.write_all(s.as_bytes())?;
             }
-            NodeKind::TypeName(specifier, declarator) => {
+            NodeKind::TypeName {
+                specifiers: specifier,
+                abstract_declarator: declarator,
+            } => {
                 self.fmt(specifier, indent)?;
                 if let Some(declarator) = declarator {
                     self.w.write_all(b" ")?;
                     self.fmt(declarator, indent)?;
                 };
             }
-            NodeKind::OffsetOf(node_id, token) => {
+            NodeKind::OffsetOf {
+                typ: node_id,
+                field: token,
+            } => {
                 self.w.write_all(b"offsetof(")?;
                 self.fmt(node_id, indent)?;
                 self.w.write_all(b", ")?;
@@ -387,7 +424,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                 self.w.write_all(s.as_bytes())?;
                 self.w.write_all(b")")?;
             }
-            NodeKind::Declaration(decl_specifiers, init_declarator_list) => {
+            NodeKind::Declaration {
+                specifiers: decl_specifiers,
+                declarators: init_declarator_list,
+            } => {
                 self.fmt(decl_specifiers, indent)?;
                 if let Some(init_decl_list) = init_declarator_list {
                     self.w.write_all(b" ")?;
@@ -403,10 +443,13 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.fmt(*id, indent)?;
                 }
             }
-            NodeKind::DirectDeclarator(base, suffix) => {
+            NodeKind::DirectDeclarator {
+                ident: base,
+                suffix,
+            } => {
                 // Parenthesised declarators (e.g. function-pointer `(*fp)`) require
                 // wrapping the inner declarator in parens at this level.
-                let needs_parens = matches!(self.nodes[base].kind, NodeKind::Declarator(..));
+                let needs_parens = matches!(self.nodes[base].kind, NodeKind::Declarator { .. });
                 if needs_parens {
                     self.w.write_all(b"(")?;
                 }
@@ -418,7 +461,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.fmt(suffix_id, indent)?;
                 }
             }
-            NodeKind::Declarator(ptr, direct_declarator) => {
+            NodeKind::Declarator {
+                pointer: ptr,
+                direct: direct_declarator,
+            } => {
                 if let Some(ptr_id) = ptr {
                     self.fmt(ptr_id, indent)?;
                     // A qualifier keyword (e.g. `const`) at the end of the pointer chain
@@ -444,7 +490,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                 let s = lex::str_from_source(self.input, origin);
                 self.w.write_all(s.as_bytes())?;
             }
-            NodeKind::EnumDeclaration(name_tok, enumerator_list) => {
+            NodeKind::EnumDeclaration {
+                name: name_tok,
+                enumerators: enumerator_list,
+            } => {
                 self.w.write_all(b"enum")?;
                 if let Some(name) = name_tok {
                     let s = lex::str_from_source(self.input, name.origin);
@@ -458,7 +507,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.w.write_all(b"}")?;
                 }
             }
-            NodeKind::EnumeratorDeclaration(identifier, expr) => {
+            NodeKind::EnumeratorDeclaration {
+                name: identifier,
+                value: expr,
+            } => {
                 self.w.write_all(identifier.as_bytes())?;
                 if let Some(expr_id) = expr {
                     self.w.write_all(b" = ")?;
@@ -476,7 +528,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.w.write_all(b"\n")?;
                 }
             }
-            NodeKind::UnionDeclaration(name_tok, decl_list) => {
+            NodeKind::UnionDeclaration {
+                name: name_tok,
+                fields: decl_list,
+            } => {
                 self.w.write_all(b"union")?;
                 if let Some(name) = name_tok {
                     let s = lex::str_from_source(self.input, name.origin);
@@ -489,7 +544,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.w.write_all(b"}")?;
                 }
             }
-            NodeKind::StructDeclaration(name_tok, decl_list) => {
+            NodeKind::StructDeclaration {
+                name: name_tok,
+                fields: decl_list,
+            } => {
                 self.w.write_all(b"struct")?;
                 if let Some(name) = name_tok {
                     let s = lex::str_from_source(self.input, name.origin);
@@ -509,7 +567,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.w.write_all(b"\n")?;
                 }
             }
-            NodeKind::StructFieldDeclarator(declarator, const_expr) => {
+            NodeKind::StructFieldDeclarator {
+                declarator,
+                bit_field: const_expr,
+            } => {
                 self.fmt(declarator, indent)?;
                 if let Some(expr_id) = const_expr {
                     // Bit-field width after a colon.
@@ -517,7 +578,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.fmt(expr_id, indent)?;
                 }
             }
-            NodeKind::StructFieldDeclaration(specifier_qualifier_list, declarator_list) => {
+            NodeKind::StructFieldDeclaration {
+                specifiers: specifier_qualifier_list,
+                declarators: declarator_list,
+            } => {
                 self.fmt(specifier_qualifier_list, indent)?;
                 if let Some(decl_list_id) = declarator_list {
                     self.w.write_all(b" ")?;
@@ -541,7 +605,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                     }
                 }
             }
-            NodeKind::Xlate(type_name, expr) => {
+            NodeKind::Xlate {
+                typ: type_name,
+                expr,
+            } => {
                 self.w.write_all(b"xlate <")?;
                 self.fmt(type_name, indent)?;
                 self.w.write_all(b">(")?;
@@ -553,19 +620,28 @@ impl<'a, W: Write> Formatter<'a, W> {
                 self.fmt(node_id, indent)?;
                 self.w.write_all(b")")?;
             }
-            NodeKind::DirectAbstractArray(base, suffix) => {
+            NodeKind::DirectAbstractArray {
+                inner: base,
+                size: suffix,
+            } => {
                 if let Some(base_id) = base {
                     self.fmt(base_id, indent)?;
                 }
                 self.fmt(suffix, indent)?;
             }
-            NodeKind::DirectAbstractFunction(base, suffix) => {
+            NodeKind::DirectAbstractFunction {
+                inner: base,
+                params: suffix,
+            } => {
                 if let Some(base_id) = base {
                     self.fmt(base_id, indent)?;
                 }
                 self.fmt(suffix, indent)?;
             }
-            NodeKind::AbstractDeclarator(ptr, abstract_decl) => {
+            NodeKind::AbstractDeclarator {
+                pointer: ptr,
+                direct: abstract_decl,
+            } => {
                 if let Some(ptr_id) = ptr {
                     self.fmt(ptr_id, indent)?;
                     if let Some(decl_id) = abstract_decl {
@@ -578,7 +654,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.fmt(decl_id, indent)?;
                 }
             }
-            NodeKind::Pointer(type_qualifiers, ptr) => {
+            NodeKind::Pointer {
+                qualifiers: type_qualifiers,
+                inner: ptr,
+            } => {
                 self.w.write_all(b"*")?;
                 for qual_id in &type_qualifiers {
                     self.w.write_all(b" ")?;
@@ -611,7 +690,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.fmt(*id, indent)?;
                 }
             }
-            NodeKind::Unary(token, node_id) => {
+            NodeKind::Unary {
+                op: token,
+                expr: node_id,
+            } => {
                 let s = lex::str_from_source(self.input, token.origin);
                 self.w.write_all(s.as_bytes())?;
                 self.fmt(node_id, indent)?;
@@ -629,7 +711,11 @@ impl<'a, W: Write> Formatter<'a, W> {
                 }
                 self.w.write_all(b")")?;
             }
-            NodeKind::InlineDefinition(decl_specifiers, declarator, expr) => {
+            NodeKind::InlineDefinition {
+                typ: decl_specifiers,
+                declarator,
+                expr,
+            } => {
                 self.w.write_all(b"inline ")?;
                 self.fmt(decl_specifiers, indent)?;
                 self.w.write_all(b" ")?;

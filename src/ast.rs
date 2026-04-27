@@ -22,22 +22,49 @@ pub struct NodeId(pub(crate) usize);
 #[derive(Serialize, Clone, PartialEq, Eq, Debug)]
 pub enum NodeKind {
     Unknown,
-    Number(u64, NumberSuffix),
+    Number {
+        value: u64,
+        suffix: NumberSuffix,
+    },
     PrimaryToken(TokenKind),
-    Cast(String, NodeId),
+    Cast {
+        typ: String,
+        expr: NodeId,
+    },
     ProbeSpecifier(String),
     ProbeSpecifiers(Vec<NodeId>),
-    ProbeDefinition(NodeId, Option<NodeId>, Option<NodeId>),
-    BinaryOp(NodeId, Token, NodeId),
+    ProbeDefinition {
+        probe_specifiers: NodeId,
+        predicate: Option<NodeId>,
+        action: Option<NodeId>,
+    },
+    BinaryOp {
+        lhs: NodeId,
+        op: Token,
+        rhs: NodeId,
+    },
     Identifier(String),
     Aggregation,
-    Unary(Token, NodeId),
-    Assignment(NodeId, Token, NodeId),
+    Unary {
+        op: Token,
+        expr: NodeId,
+    },
+    Assignment {
+        lhs: NodeId,
+        op: Token,
+        rhs: NodeId,
+    },
     ArgumentsExpr(Vec<NodeId>),
     ArgumentsDeclaration(Option<NodeId>),
     CommaExpr(Vec<NodeId>),
-    Sizeof(NodeId, bool /* with parenthesis */),
-    StringofExpr(NodeId, bool /* with parenthesis */),
+    Sizeof {
+        expr: NodeId,
+        parenthesized: bool,
+    },
+    StringofExpr {
+        expr: NodeId,
+        parenthesized: bool,
+    },
     TranslationUnit(Vec<NodeId>),
     If {
         cond: NodeId,
@@ -45,45 +72,111 @@ pub enum NodeKind {
         else_block: Option<NodeId>,
     },
     Block(Vec<NodeId>),
-    PostfixIncDecrement(NodeId, Token),
+    PostfixIncDecrement {
+        expr: NodeId,
+        op: Token,
+    },
     ExprStmt(NodeId),
     EmptyStmt,
-    PostfixArguments(NodeId, Option<NodeId>),
-    TernaryExpr(NodeId, NodeId, NodeId),
-    PostfixArrayAccess(NodeId, NodeId),
-    FieldAccess(NodeId, Token, Token),
-    TypeName(NodeId, Option<NodeId>),
-    OffsetOf(NodeId, Token),
-    Declaration(NodeId, Option<NodeId>),
+    PostfixArguments {
+        callee: NodeId,
+        args: Option<NodeId>,
+    },
+    TernaryExpr {
+        cond: NodeId,
+        then_expr: NodeId,
+        else_expr: NodeId,
+    },
+    PostfixArrayAccess {
+        array: NodeId,
+        index: NodeId,
+    },
+    FieldAccess {
+        expr: NodeId,
+        op: Token,
+        field: Token,
+    },
+    TypeName {
+        specifiers: NodeId,
+        abstract_declarator: Option<NodeId>,
+    },
+    OffsetOf {
+        typ: NodeId,
+        field: Token,
+    },
+    Declaration {
+        specifiers: NodeId,
+        declarators: Option<NodeId>,
+    },
     DeclarationSpecifiers(Vec<NodeId>),
-    DirectDeclarator(NodeId, Option<NodeId>),
-    Declarator(Option<NodeId>, NodeId),
+    DirectDeclarator {
+        ident: NodeId,
+        suffix: Option<NodeId>,
+    },
+    Declarator {
+        pointer: Option<NodeId>,
+        direct: NodeId,
+    },
     InitDeclarators(Vec<NodeId>),
     TypeQualifier(TokenKind),
     DStorageClassSpecifier(TokenKind),
     StorageClassSpecifier(TokenKind),
     TypeSpecifier(TokenKind),
-    EnumDeclaration(Option<Token>, Option<NodeId>),
-    EnumeratorDeclaration(String, Option<NodeId>),
+    EnumDeclaration {
+        name: Option<Token>,
+        enumerators: Option<NodeId>,
+    },
+    EnumeratorDeclaration {
+        name: String,
+        value: Option<NodeId>,
+    },
     EnumeratorsDeclaration(Vec<NodeId>),
-    StructDeclaration(Option<Token>, Option<NodeId>),
+    StructDeclaration {
+        name: Option<Token>,
+        fields: Option<NodeId>,
+    },
     StructFieldsDeclaration(Vec<NodeId>),
-    StructFieldDeclarator(NodeId, Option<NodeId>),
-    StructFieldDeclaration(NodeId, Option<NodeId>),
+    StructFieldDeclarator {
+        declarator: NodeId,
+        bit_field: Option<NodeId>,
+    },
+    StructFieldDeclaration {
+        specifiers: NodeId,
+        declarators: Option<NodeId>,
+    },
     StructFieldDeclaratorList(Vec<NodeId>),
     SpecifierQualifierList(Vec<NodeId>),
-    Xlate(NodeId, NodeId),
+    Xlate {
+        typ: NodeId,
+        expr: NodeId,
+    },
     DirectAbstractDeclarator(NodeId),
-    DirectAbstractArray(Option<NodeId>, NodeId),
-    DirectAbstractFunction(Option<NodeId>, NodeId),
-    AbstractDeclarator(Option<NodeId>, Option<NodeId>),
-    Pointer(Vec<NodeId>, Option<NodeId>),
+    DirectAbstractArray {
+        inner: Option<NodeId>,
+        size: NodeId,
+    },
+    DirectAbstractFunction {
+        inner: Option<NodeId>,
+        params: NodeId,
+    },
+    AbstractDeclarator {
+        pointer: Option<NodeId>,
+        direct: Option<NodeId>,
+    },
+    Pointer {
+        qualifiers: Vec<NodeId>,
+        inner: Option<NodeId>,
+    },
     Array(Option<NodeId>),
     ParamEllipsis,
     Parameters(Vec<NodeId>),
     ParameterDeclarationSpecifiers(Vec<NodeId>),
     Character(isize),
-    InlineDefinition(NodeId, NodeId, NodeId),
+    InlineDefinition {
+        typ: NodeId,
+        declarator: NodeId,
+        expr: NodeId,
+    },
     ParameterTypeList {
         params: Option<NodeId>,
         ellipsis: Option<NodeId>,
@@ -92,7 +185,10 @@ pub enum NodeKind {
         param_decl_specifiers: NodeId,
         declarator: Option<NodeId>,
     },
-    UnionDeclaration(Option<Token>, Option<NodeId>),
+    UnionDeclaration {
+        name: Option<Token>,
+        fields: Option<NodeId>,
+    },
     // translator_definition: "translator" from_type "<" to_type ident ">" "{" members? "}" ";"
     TranslatorDefinition {
         from_type: NodeId,
@@ -418,7 +514,7 @@ impl<'a> Parser<'a> {
                     .map(|t| t.origin)
                     .unwrap_or_else(|| self.origin(e));
                 Some(self.new_node(Node {
-                    kind: NodeKind::Unary(left_paren, e),
+                    kind: NodeKind::Unary { op: left_paren, expr: e },
                     origin: left_paren.origin.merge(end_origin),
                 }))
             }
@@ -461,7 +557,7 @@ impl<'a> Parser<'a> {
             let lhs_origin = self.origin(lhs);
             let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op, rhs),
+                kind: NodeKind::BinaryOp { lhs, op, rhs },
                 origin: lhs_origin.merge(rhs_origin),
             });
         }
@@ -512,7 +608,7 @@ impl<'a> Parser<'a> {
             let lhs_origin = self.origin(lhs);
             let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op, rhs),
+                kind: NodeKind::BinaryOp { lhs, op, rhs },
                 origin: lhs_origin.merge(rhs_origin),
             });
         }
@@ -581,7 +677,10 @@ impl<'a> Parser<'a> {
             });
             let node_origin = self.origin(node);
             return Some(self.new_node(Node {
-                kind: NodeKind::Cast(typ_str, node),
+                kind: NodeKind::Cast {
+                    typ: typ_str,
+                    expr: node,
+                },
                 origin: op.origin.merge(node_origin),
             }));
         }
@@ -659,7 +758,7 @@ impl<'a> Parser<'a> {
                 });
                 let unary_origin = self.origin(unary);
                 Some(self.new_node(Node {
-                    kind: NodeKind::Unary(op, unary),
+                    kind: NodeKind::Unary { op, expr: unary },
                     origin: op.origin.merge(unary_origin),
                 }))
             }
@@ -681,7 +780,7 @@ impl<'a> Parser<'a> {
                 };
                 let node_origin = self.origin(node);
                 Some(self.new_node(Node {
-                    kind: NodeKind::Unary(op, node),
+                    kind: NodeKind::Unary { op, expr: node },
                     origin: op.origin.merge(node_origin),
                 }))
             }
@@ -736,7 +835,10 @@ impl<'a> Parser<'a> {
                 };
 
                 Some(self.new_node(Node {
-                    kind: NodeKind::Sizeof(operand, left_paren.is_some()),
+                    kind: NodeKind::Sizeof {
+                        expr: operand,
+                        parenthesized: left_paren.is_some(),
+                    },
                     origin: op.origin.merge(end_origin),
                 }))
             }
@@ -759,7 +861,10 @@ impl<'a> Parser<'a> {
                 let unary_origin = self.origin(unary);
 
                 Some(self.new_node(Node {
-                    kind: NodeKind::StringofExpr(unary, with_paren),
+                    kind: NodeKind::StringofExpr {
+                        expr: unary,
+                        parenthesized: with_paren,
+                    },
                     origin: op.origin.merge(unary_origin),
                 }))
             }
@@ -851,7 +956,10 @@ impl<'a> Parser<'a> {
                     self.expect(TokenKind::RightParen, "closing parenthesis after field");
                 let end_origin = right_paren.map(|t| t.origin).unwrap_or(op.origin);
                 return Some(self.new_node(Node {
-                    kind: NodeKind::OffsetOf(type_name, field),
+                    kind: NodeKind::OffsetOf {
+                        typ: type_name,
+                        field,
+                    },
                     origin: op.origin.merge(end_origin),
                 }));
             }
@@ -892,7 +1000,10 @@ impl<'a> Parser<'a> {
                 let end_origin = right_paren.map(|t| t.origin).unwrap_or(op.origin);
 
                 return Some(self.new_node(Node {
-                    kind: NodeKind::Xlate(type_name, expr),
+                    kind: NodeKind::Xlate {
+                        typ: type_name,
+                        expr,
+                    },
                     origin: op.origin.merge(end_origin),
                 }));
             }
@@ -928,7 +1039,10 @@ impl<'a> Parser<'a> {
                     let end_origin = right_bracket.map(|t| t.origin).unwrap_or(op.origin);
 
                     lhs = self.new_node(Node {
-                        kind: NodeKind::PostfixArrayAccess(lhs, rhs),
+                        kind: NodeKind::PostfixArrayAccess {
+                            array: lhs,
+                            index: rhs,
+                        },
                         origin: lhs_origin.merge(end_origin),
                     });
                 }
@@ -947,7 +1061,10 @@ impl<'a> Parser<'a> {
                     let end_origin = right_paren.map(|t| t.origin).unwrap_or(op.origin);
 
                     lhs = self.new_node(Node {
-                        kind: NodeKind::PostfixArguments(lhs, rhs),
+                        kind: NodeKind::PostfixArguments {
+                            callee: lhs,
+                            args: rhs,
+                        },
                         origin: lhs_origin.merge(end_origin),
                     });
                 }
@@ -959,7 +1076,11 @@ impl<'a> Parser<'a> {
                     let op = self.lexer.lex();
                     if let Some(keyword_as_ident) = self.parse_keyword_as_ident() {
                         lhs = self.new_node(Node {
-                            kind: NodeKind::FieldAccess(lhs, op, keyword_as_ident),
+                            kind: NodeKind::FieldAccess {
+                                expr: lhs,
+                                op,
+                                field: keyword_as_ident,
+                            },
                             origin: lhs_origin.merge(keyword_as_ident.origin),
                         });
                     } else {
@@ -976,7 +1097,11 @@ impl<'a> Parser<'a> {
                             ],
                         );
                         lhs = self.new_node(Node {
-                            kind: NodeKind::FieldAccess(lhs, op, Token::default()),
+                            kind: NodeKind::FieldAccess {
+                                expr: lhs,
+                                op,
+                                field: Token::default(),
+                            },
                             origin: lhs_origin.merge(op.origin),
                         });
                     }
@@ -989,7 +1114,7 @@ impl<'a> Parser<'a> {
                     let op = self.lexer.lex();
 
                     lhs = self.new_node(Node {
-                        kind: NodeKind::PostfixIncDecrement(lhs, op),
+                        kind: NodeKind::PostfixIncDecrement { expr: lhs, op },
                         origin: lhs_origin.merge(op.origin),
                     });
                 }
@@ -1052,7 +1177,10 @@ impl<'a> Parser<'a> {
             .map(|d| self.origin(d))
             .unwrap_or(specifier_origin);
         Some(self.new_node(Node {
-            kind: NodeKind::TypeName(specifier, abstract_declarator),
+            kind: NodeKind::TypeName {
+                specifiers: specifier,
+                abstract_declarator,
+            },
             origin: specifier_origin.merge(end_origin),
         }))
     }
@@ -1127,7 +1255,7 @@ impl<'a> Parser<'a> {
                 });
                 let rhs_origin = self.origin(rhs);
                 Some(self.new_node(Node {
-                    kind: NodeKind::Assignment(lhs, op, rhs),
+                    kind: NodeKind::Assignment { lhs, op, rhs },
                     origin: lhs_origin.merge(rhs_origin),
                 }))
             }
@@ -1179,7 +1307,11 @@ impl<'a> Parser<'a> {
             let rhs_origin = self.origin(rhs);
 
             Some(self.new_node(Node {
-                kind: NodeKind::TernaryExpr(lhs, mhs, rhs),
+                kind: NodeKind::TernaryExpr {
+                    cond: lhs,
+                    then_expr: mhs,
+                    else_expr: rhs,
+                },
                 origin: lhs_origin.merge(rhs_origin),
             }))
         } else {
@@ -1215,7 +1347,7 @@ impl<'a> Parser<'a> {
             let lhs_origin = self.origin(lhs);
             let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op, rhs),
+                kind: NodeKind::BinaryOp { lhs, op, rhs },
                 origin: lhs_origin.merge(rhs_origin),
             });
         }
@@ -1251,7 +1383,7 @@ impl<'a> Parser<'a> {
             let lhs_origin = self.origin(lhs);
             let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op, rhs),
+                kind: NodeKind::BinaryOp { lhs, op, rhs },
                 origin: lhs_origin.merge(rhs_origin),
             });
         }
@@ -1287,7 +1419,7 @@ impl<'a> Parser<'a> {
             let lhs_origin = self.origin(lhs);
             let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op, rhs),
+                kind: NodeKind::BinaryOp { lhs, op, rhs },
                 origin: lhs_origin.merge(rhs_origin),
             });
         }
@@ -1323,7 +1455,7 @@ impl<'a> Parser<'a> {
             let lhs_origin = self.origin(lhs);
             let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op, rhs),
+                kind: NodeKind::BinaryOp { lhs, op, rhs },
                 origin: lhs_origin.merge(rhs_origin),
             });
         }
@@ -1359,7 +1491,7 @@ impl<'a> Parser<'a> {
             let lhs_origin = self.origin(lhs);
             let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op, rhs),
+                kind: NodeKind::BinaryOp { lhs, op, rhs },
                 origin: lhs_origin.merge(rhs_origin),
             });
         }
@@ -1395,7 +1527,7 @@ impl<'a> Parser<'a> {
             let lhs_origin = self.origin(lhs);
             let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op, rhs),
+                kind: NodeKind::BinaryOp { lhs, op, rhs },
                 origin: lhs_origin.merge(rhs_origin),
             });
         }
@@ -1438,7 +1570,7 @@ impl<'a> Parser<'a> {
             let lhs_origin = self.origin(lhs);
             let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op, rhs),
+                kind: NodeKind::BinaryOp { lhs, op, rhs },
                 origin: lhs_origin.merge(rhs_origin),
             });
         }
@@ -1482,7 +1614,7 @@ impl<'a> Parser<'a> {
             let lhs_origin = self.origin(lhs);
             let rhs_origin = self.origin(rhs);
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op, rhs),
+                kind: NodeKind::BinaryOp { lhs, op, rhs },
                 origin: lhs_origin.merge(rhs_origin),
             });
         }
@@ -1519,7 +1651,7 @@ impl<'a> Parser<'a> {
             let rhs_origin = self.origin(rhs);
 
             lhs = self.new_node(Node {
-                kind: NodeKind::BinaryOp(lhs, op, rhs),
+                kind: NodeKind::BinaryOp { lhs, op, rhs },
                 origin: lhs_origin.merge(rhs_origin),
             });
         }
@@ -1672,7 +1804,7 @@ impl<'a> Parser<'a> {
         };
 
         let node_id = self.new_node(Node {
-            kind: NodeKind::Number(num, suffix),
+            kind: NodeKind::Number { value: num, suffix },
             origin: tok.origin,
         });
         self.node_to_type.insert(node_id, Type::new_int());
@@ -1877,7 +2009,11 @@ impl<'a> Parser<'a> {
                 .unwrap_or(probe_specifier_origin);
 
             let node_id = self.new_node(Node {
-                kind: NodeKind::ProbeDefinition(probe_specifier, predicate, stmts),
+                kind: NodeKind::ProbeDefinition {
+                    probe_specifiers: probe_specifier,
+                    predicate,
+                    action: stmts,
+                },
                 origin: probe_specifier_origin.merge(end_origin),
             });
 
@@ -1892,7 +2028,11 @@ impl<'a> Parser<'a> {
             &[TokenKind::SemiColon, TokenKind::RightCurly],
         );
         Some(self.new_node(Node {
-            kind: NodeKind::ProbeDefinition(probe_specifier, predicate, None),
+            kind: NodeKind::ProbeDefinition {
+                probe_specifiers: probe_specifier,
+                predicate,
+                action: None,
+            },
             origin: self.current_or_last_origin_for_err(),
         }))
     }
@@ -1979,7 +2119,11 @@ impl<'a> Parser<'a> {
         self.lexer.begin(lex::LexerState::ProgramOuterScope);
 
         Some(self.new_node(Node {
-            kind: NodeKind::InlineDefinition(decl_specifiers, declarator, expr),
+            kind: NodeKind::InlineDefinition {
+                typ: decl_specifiers,
+                declarator,
+                expr,
+            },
             origin: tok.origin.merge(end_origin),
         }))
     }
@@ -2095,7 +2239,10 @@ impl<'a> Parser<'a> {
 
         Some(
             self.new_node(Node {
-                kind: NodeKind::AbstractDeclarator(ptr, direct),
+                kind: NodeKind::AbstractDeclarator {
+                    pointer: ptr,
+                    direct,
+                },
                 origin: ptr
                     .map(|p| self.origin(p))
                     .or_else(|| direct.map(|d| self.origin(d)))
@@ -2122,7 +2269,10 @@ impl<'a> Parser<'a> {
             .map(|t| t.origin)
             .unwrap_or_else(|| self.current_or_last_origin_for_err());
         Some(self.new_node(Node {
-            kind: NodeKind::Declaration(decl_specifiers, init_decl_list),
+            kind: NodeKind::Declaration {
+                specifiers: decl_specifiers,
+                declarators: init_decl_list,
+            },
             origin: start_origin.merge(end_origin),
         }))
     }
@@ -2329,7 +2479,10 @@ impl<'a> Parser<'a> {
             .unwrap_or_else(|| self.origin(direct_declarator));
         let end_origin = self.origin(direct_declarator);
         Some(self.new_node(Node {
-            kind: NodeKind::Declarator(ptr, direct_declarator),
+            kind: NodeKind::Declarator {
+                pointer: ptr,
+                direct: direct_declarator,
+            },
             origin: start_origin.merge(end_origin),
         }))
     }
@@ -2352,7 +2505,10 @@ impl<'a> Parser<'a> {
                     origin: tok.origin,
                 });
                 Some(self.new_node(Node {
-                    kind: NodeKind::DirectDeclarator(identifier_node, None),
+                    kind: NodeKind::DirectDeclarator {
+                        ident: identifier_node,
+                        suffix: None,
+                    },
                     origin: tok.origin,
                 }))
             }
@@ -2376,7 +2532,10 @@ impl<'a> Parser<'a> {
                     "matching parenthesis after declarator",
                 );
                 Some(self.new_node(Node {
-                    kind: NodeKind::DirectDeclarator(decl, None),
+                    kind: NodeKind::DirectDeclarator {
+                        ident: decl,
+                        suffix: None,
+                    },
                     origin: left_paren.origin,
                 }))
             }
@@ -2385,7 +2544,10 @@ impl<'a> Parser<'a> {
 
         while let Some(node) = self.parse_array().or_else(|| self.parse_function()) {
             lhs = self.new_node(Node {
-                kind: NodeKind::DirectDeclarator(lhs, Some(node)),
+                kind: NodeKind::DirectDeclarator {
+                    ident: lhs,
+                    suffix: Some(node),
+                },
                 origin: self.origin(node),
             });
         }
@@ -2408,7 +2570,10 @@ impl<'a> Parser<'a> {
         let ptr = self.parse_pointer();
 
         Some(self.new_node(Node {
-            kind: NodeKind::Pointer(type_qualifiers, ptr),
+            kind: NodeKind::Pointer {
+                qualifiers: type_qualifiers,
+                inner: ptr,
+            },
             origin: star.origin,
         }))
     }
@@ -2457,7 +2622,10 @@ impl<'a> Parser<'a> {
         };
 
         Some(self.new_node(Node {
-            kind: NodeKind::EnumDeclaration(name_tok, enumerator_list),
+            kind: NodeKind::EnumDeclaration {
+                name: name_tok,
+                enumerators: enumerator_list,
+            },
             origin: enum_tok.origin.merge(end_origin),
         }))
     }
@@ -2512,7 +2680,10 @@ impl<'a> Parser<'a> {
 
         let identifier = lex::str_from_source(self.lexer.input, identifier_tok.origin).to_owned();
         Some(self.new_node(Node {
-            kind: NodeKind::EnumeratorDeclaration(identifier, expr),
+            kind: NodeKind::EnumeratorDeclaration {
+                name: identifier,
+                value: expr,
+            },
             origin: identifier_tok.origin,
         }))
     }
@@ -2569,8 +2740,14 @@ impl<'a> Parser<'a> {
         };
 
         let kind = match tok.kind {
-            TokenKind::KeywordStruct => NodeKind::StructDeclaration(name_tok, decl_list),
-            TokenKind::KeywordUnion => NodeKind::UnionDeclaration(name_tok, decl_list),
+            TokenKind::KeywordStruct => NodeKind::StructDeclaration {
+                name: name_tok,
+                fields: decl_list,
+            },
+            TokenKind::KeywordUnion => NodeKind::UnionDeclaration {
+                name: name_tok,
+                fields: decl_list,
+            },
             _ => unreachable!(),
         };
         Some(self.new_node(Node {
@@ -2615,7 +2792,10 @@ impl<'a> Parser<'a> {
         let start_origin = self.origin(spec);
         let end_origin = semicolon.map(|t| t.origin).unwrap_or(start_origin);
         Some(self.new_node(Node {
-            kind: NodeKind::StructFieldDeclaration(spec, struct_declarator_list),
+            kind: NodeKind::StructFieldDeclaration {
+                specifiers: spec,
+                declarators: struct_declarator_list,
+            },
             origin: start_origin.merge(end_origin),
         }))
     }
@@ -2677,7 +2857,10 @@ impl<'a> Parser<'a> {
         let start_origin = self.origin(declarator);
         let end_origin = const_expr.map(|e| self.origin(e)).unwrap_or(start_origin);
         Some(self.new_node(Node {
-            kind: NodeKind::StructFieldDeclarator(declarator, const_expr),
+            kind: NodeKind::StructFieldDeclarator {
+                declarator,
+                bit_field: const_expr,
+            },
             origin: start_origin.merge(end_origin),
         }))
     }
@@ -2764,7 +2947,10 @@ impl<'a> Parser<'a> {
                         self.new_node_unknown()
                     });
                     lhs = Some(self.new_node(Node {
-                        kind: NodeKind::DirectAbstractArray(lhs, array),
+                        kind: NodeKind::DirectAbstractArray {
+                            inner: lhs,
+                            size: array,
+                        },
                         origin,
                     }));
                 }
@@ -2791,7 +2977,10 @@ impl<'a> Parser<'a> {
                         self.new_node_unknown()
                     });
                     lhs = Some(self.new_node(Node {
-                        kind: NodeKind::DirectAbstractFunction(lhs, func),
+                        kind: NodeKind::DirectAbstractFunction {
+                            inner: lhs,
+                            params: func,
+                        },
                         origin,
                     }))
                 }
@@ -3294,7 +3483,11 @@ pub fn log(
                 log(nodes, *id, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::ProbeDefinition(probe, pred, actions) => {
+        NodeKind::ProbeDefinition {
+            probe_specifiers: probe,
+            predicate: pred,
+            action: actions,
+        } => {
             log(nodes, *probe, indent + 2, file_id_to_name);
             if let Some(pred) = pred {
                 log(nodes, *pred, indent + 2, file_id_to_name);
@@ -3304,8 +3497,8 @@ pub fn log(
                 log(nodes, *actions, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::Number(..) | NodeKind::Identifier(_) | NodeKind::ProbeSpecifier(_) => {}
-        NodeKind::Assignment(lhs, _, rhs) | NodeKind::BinaryOp(lhs, _, rhs) => {
+        NodeKind::Number { .. } | NodeKind::Identifier(_) | NodeKind::ProbeSpecifier(_) => {}
+        NodeKind::Assignment { lhs, rhs, .. } | NodeKind::BinaryOp { lhs, rhs, .. } => {
             log(nodes, *lhs, indent + 2, file_id_to_name);
             log(nodes, *rhs, indent + 2, file_id_to_name);
         }
@@ -3326,48 +3519,66 @@ pub fn log(
             }
         }
         NodeKind::PrimaryToken(_) => {}
-        NodeKind::Cast(_, _) => {}
+        NodeKind::Cast { .. } => {}
         NodeKind::Aggregation => {}
         NodeKind::ProbeSpecifiers(node_ids) | NodeKind::CommaExpr(node_ids) => {
             for node in node_ids {
                 log(nodes, *node, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::Sizeof(node_id, _) => log(nodes, *node_id, indent + 2, file_id_to_name),
-        NodeKind::StringofExpr(node_id, _) => log(nodes, *node_id, indent + 2, file_id_to_name),
-        NodeKind::PostfixIncDecrement(node_id, _token_kind) => {
+        NodeKind::Sizeof { expr: node_id, .. } => log(nodes, *node_id, indent + 2, file_id_to_name),
+        NodeKind::StringofExpr { expr: node_id, .. } => {
+            log(nodes, *node_id, indent + 2, file_id_to_name)
+        }
+        NodeKind::PostfixIncDecrement { expr: node_id, .. } => {
             log(nodes, *node_id, indent + 2, file_id_to_name)
         }
         NodeKind::ExprStmt(node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
         NodeKind::EmptyStmt => {}
-        NodeKind::PostfixArrayAccess(primary, args) => {
+        NodeKind::PostfixArrayAccess {
+            array: primary,
+            index: args,
+        } => {
             log(nodes, *primary, indent + 2, file_id_to_name);
             log(nodes, *args, indent + 2, file_id_to_name);
         }
-        NodeKind::PostfixArguments(primary, args) => {
+        NodeKind::PostfixArguments {
+            callee: primary,
+            args,
+        } => {
             log(nodes, *primary, indent + 2, file_id_to_name);
             if let Some(args) = args {
                 log(nodes, *args, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::TernaryExpr(lhs, mhs, rhs) => {
+        NodeKind::TernaryExpr {
+            cond: lhs,
+            then_expr: mhs,
+            else_expr: rhs,
+        } => {
             log(nodes, *lhs, indent + 2, file_id_to_name);
             log(nodes, *mhs, indent + 2, file_id_to_name);
             log(nodes, *rhs, indent + 2, file_id_to_name);
         }
-        NodeKind::FieldAccess(node_id, _, _) => {
+        NodeKind::FieldAccess { expr: node_id, .. } => {
             log(nodes, *node_id, indent + 2, file_id_to_name);
         }
-        NodeKind::TypeName(specifier, declarator) => {
+        NodeKind::TypeName {
+            specifiers: specifier,
+            abstract_declarator: declarator,
+        } => {
             log(nodes, *specifier, indent + 2, file_id_to_name);
             if let Some(declarator) = declarator {
                 log(nodes, *declarator, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::OffsetOf(node_id, _token) => {
+        NodeKind::OffsetOf { typ: node_id, .. } => {
             log(nodes, *node_id, indent + 2, file_id_to_name);
         }
-        NodeKind::Declaration(decl_specifiers, init_declarator_list) => {
+        NodeKind::Declaration {
+            specifiers: decl_specifiers,
+            declarators: init_declarator_list,
+        } => {
             log(nodes, *decl_specifiers, indent + 2, file_id_to_name);
             if let Some(init_declarator_list) = init_declarator_list {
                 log(nodes, *init_declarator_list, indent + 2, file_id_to_name);
@@ -3378,13 +3589,19 @@ pub fn log(
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::DirectDeclarator(base, suffix) => {
+        NodeKind::DirectDeclarator {
+            ident: base,
+            suffix,
+        } => {
             log(nodes, *base, indent + 2, file_id_to_name);
             if let Some(node_id) = suffix {
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::Declarator(ptr, declarator) => {
+        NodeKind::Declarator {
+            pointer: ptr,
+            direct: declarator,
+        } => {
             if let Some(ptr) = ptr {
                 log(nodes, *ptr, indent + 2, file_id_to_name);
             }
@@ -3399,12 +3616,15 @@ pub fn log(
         | NodeKind::DStorageClassSpecifier(_)
         | NodeKind::StorageClassSpecifier(_)
         | NodeKind::TypeSpecifier(_) => {}
-        NodeKind::EnumDeclaration(_token, node_id) => {
+        NodeKind::EnumDeclaration {
+            enumerators: node_id,
+            ..
+        } => {
             if let Some(node_id) = node_id {
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::EnumeratorDeclaration(_token, node_id) => {
+        NodeKind::EnumeratorDeclaration { value: node_id, .. } => {
             if let Some(node_id) = node_id {
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
@@ -3414,7 +3634,12 @@ pub fn log(
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::UnionDeclaration(_, node_id) | NodeKind::StructDeclaration(_, node_id) => {
+        NodeKind::UnionDeclaration {
+            fields: node_id, ..
+        }
+        | NodeKind::StructDeclaration {
+            fields: node_id, ..
+        } => {
             if let Some(node_id) = node_id {
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
@@ -3424,13 +3649,19 @@ pub fn log(
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::StructFieldDeclarator(declarator, const_expr) => {
+        NodeKind::StructFieldDeclarator {
+            declarator,
+            bit_field: const_expr,
+        } => {
             log(nodes, *declarator, indent + 2, file_id_to_name);
             if let Some(node_id) = const_expr {
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::StructFieldDeclaration(specifier_qualifier_list, declarator_list) => {
+        NodeKind::StructFieldDeclaration {
+            specifiers: specifier_qualifier_list,
+            declarators: declarator_list,
+        } => {
             log(
                 nodes,
                 *specifier_qualifier_list,
@@ -3451,26 +3682,38 @@ pub fn log(
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::Xlate(type_name, expr) => {
+        NodeKind::Xlate {
+            typ: type_name,
+            expr,
+        } => {
             log(nodes, *type_name, indent + 2, file_id_to_name);
             log(nodes, *expr, indent + 2, file_id_to_name);
         }
         NodeKind::DirectAbstractDeclarator(node_id) => {
             log(nodes, *node_id, indent + 2, file_id_to_name);
         }
-        NodeKind::DirectAbstractArray(base, suffix) => {
+        NodeKind::DirectAbstractArray {
+            inner: base,
+            size: suffix,
+        } => {
             if let Some(base) = base {
                 log(nodes, *base, indent + 2, file_id_to_name);
             }
             log(nodes, *suffix, indent + 2, file_id_to_name);
         }
-        NodeKind::DirectAbstractFunction(base, suffix) => {
+        NodeKind::DirectAbstractFunction {
+            inner: base,
+            params: suffix,
+        } => {
             if let Some(base) = base {
                 log(nodes, *base, indent + 2, file_id_to_name);
             }
             log(nodes, *suffix, indent + 2, file_id_to_name);
         }
-        NodeKind::AbstractDeclarator(ptr, abstract_decl) => {
+        NodeKind::AbstractDeclarator {
+            pointer: ptr,
+            direct: abstract_decl,
+        } => {
             if let Some(node_id) = ptr {
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
@@ -3478,7 +3721,10 @@ pub fn log(
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::Pointer(type_qualifiers, ptr) => {
+        NodeKind::Pointer {
+            qualifiers: type_qualifiers,
+            inner: ptr,
+        } => {
             for node_id in type_qualifiers {
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
@@ -3502,9 +3748,13 @@ pub fn log(
                 log(nodes, *node_id, indent + 2, file_id_to_name);
             }
         }
-        NodeKind::Unary(_token_kind, node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
+        NodeKind::Unary { expr: node_id, .. } => log(nodes, *node_id, indent + 2, file_id_to_name),
         NodeKind::Character(_) => {}
-        NodeKind::InlineDefinition(decl_specifiers, declarator, expr) => {
+        NodeKind::InlineDefinition {
+            typ: decl_specifiers,
+            declarator,
+            expr,
+        } => {
             log(nodes, *decl_specifiers, indent + 2, file_id_to_name);
             log(nodes, *declarator, indent + 2, file_id_to_name);
             log(nodes, *expr, indent + 2, file_id_to_name);
@@ -3620,7 +3870,10 @@ mod tests {
     fn test_binary_op_add_origin() {
         let input = "1 + 2";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::BinaryOp { .. }
+        ));
         assert_eq!(origin_str(input, &parser, root_id), "1 + 2");
     }
 
@@ -3628,7 +3881,10 @@ mod tests {
     fn test_binary_op_nested_origin() {
         let input = "1 + 2 + 3";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::BinaryOp { .. }
+        ));
         assert_eq!(origin_str(input, &parser, root_id), "1 + 2 + 3");
     }
 
@@ -3636,7 +3892,10 @@ mod tests {
     fn test_binary_op_multiply_origin() {
         let input = "a * b";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::BinaryOp { .. }
+        ));
         assert_eq!(origin_str(input, &parser, root_id), "a * b");
     }
 
@@ -3644,7 +3903,10 @@ mod tests {
     fn test_binary_op_modulo_origin() {
         let input = "3%2";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::BinaryOp { .. }
+        ));
         assert_eq!(origin_str(input, &parser, root_id), "3%2");
     }
 
@@ -3653,9 +3915,12 @@ mod tests {
         // `1+3%2` parses as `1+(3%2)`, so the rhs `3%2` should start at column 3.
         let input = "1+3%2";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::BinaryOp { .. }
+        ));
         assert_eq!(origin_str(input, &parser, root_id), "1+3%2");
-        if let NodeKind::BinaryOp(_, _, rhs) = parser.nodes[root_id].kind {
+        if let NodeKind::BinaryOp { rhs, .. } = parser.nodes[root_id].kind {
             assert_eq!(origin_str(input, &parser, rhs), "3%2");
         }
     }
@@ -3664,7 +3929,10 @@ mod tests {
     fn test_binary_op_equality_origin() {
         let input = "x == y";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::BinaryOp { .. }
+        ));
         assert_eq!(origin_str(input, &parser, root_id), "x == y");
     }
 
@@ -3672,7 +3940,10 @@ mod tests {
     fn test_binary_op_logical_and_origin() {
         let input = "a && b";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::BinaryOp { .. }
+        ));
         assert_eq!(origin_str(input, &parser, root_id), "a && b");
     }
 
@@ -3680,7 +3951,10 @@ mod tests {
     fn test_binary_op_relational_origin() {
         let input = "a < b";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(parser.nodes[root_id].kind, NodeKind::BinaryOp(..)));
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::BinaryOp { .. }
+        ));
         assert_eq!(origin_str(input, &parser, root_id), "a < b");
     }
 
@@ -3690,7 +3964,7 @@ mod tests {
         let (parser, root_id) = parse_expr_input(input);
         assert!(matches!(
             parser.nodes[root_id].kind,
-            NodeKind::Assignment(..)
+            NodeKind::Assignment { .. }
         ));
         assert_eq!(origin_str(input, &parser, root_id), "x = 5");
     }
@@ -3699,7 +3973,7 @@ mod tests {
     fn test_unary_minus_origin() {
         let input = "-1";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Unary(..)));
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Unary { .. }));
         assert_eq!(origin_str(input, &parser, root_id), "-1");
     }
 
@@ -3707,7 +3981,7 @@ mod tests {
     fn test_unary_deref_origin() {
         let input = "*ptr";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Unary(..)));
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Unary { .. }));
         assert_eq!(origin_str(input, &parser, root_id), "*ptr");
     }
 
@@ -3715,7 +3989,7 @@ mod tests {
     fn test_prefix_increment_origin() {
         let input = "++x";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Unary(..)));
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Unary { .. }));
         assert_eq!(origin_str(input, &parser, root_id), "++x");
     }
 
@@ -3725,7 +3999,7 @@ mod tests {
         let (parser, root_id) = parse_expr_input(input);
         assert!(matches!(
             parser.nodes[root_id].kind,
-            NodeKind::PostfixIncDecrement(..)
+            NodeKind::PostfixIncDecrement { .. }
         ));
         assert_eq!(origin_str(input, &parser, root_id), "x++");
     }
@@ -3736,7 +4010,7 @@ mod tests {
         let (parser, root_id) = parse_expr_input(input);
         assert!(matches!(
             parser.nodes[root_id].kind,
-            NodeKind::TernaryExpr(..)
+            NodeKind::TernaryExpr { .. }
         ));
         assert_eq!(origin_str(input, &parser, root_id), "a ? b : c");
     }
@@ -3747,7 +4021,7 @@ mod tests {
         let (parser, root_id) = parse_expr_input(input);
         assert!(matches!(
             parser.nodes[root_id].kind,
-            NodeKind::PostfixArguments(..)
+            NodeKind::PostfixArguments { .. }
         ));
         assert_eq!(origin_str(input, &parser, root_id), "foo(1, 2)");
     }
@@ -3758,7 +4032,7 @@ mod tests {
         let (parser, root_id) = parse_expr_input(input);
         assert!(matches!(
             parser.nodes[root_id].kind,
-            NodeKind::PostfixArguments(..)
+            NodeKind::PostfixArguments { .. }
         ));
         assert_eq!(origin_str(input, &parser, root_id), "foo()");
     }
@@ -3769,7 +4043,7 @@ mod tests {
         let (parser, root_id) = parse_expr_input(input);
         assert!(matches!(
             parser.nodes[root_id].kind,
-            NodeKind::PostfixArrayAccess(..)
+            NodeKind::PostfixArrayAccess { .. }
         ));
         assert_eq!(origin_str(input, &parser, root_id), "arr[0]");
     }
@@ -3780,7 +4054,7 @@ mod tests {
         let (parser, root_id) = parse_expr_input(input);
         assert!(matches!(
             parser.nodes[root_id].kind,
-            NodeKind::FieldAccess(..)
+            NodeKind::FieldAccess { .. }
         ));
         assert_eq!(origin_str(input, &parser, root_id), "s.field");
     }
@@ -3791,7 +4065,7 @@ mod tests {
         let (parser, root_id) = parse_expr_input(input);
         assert!(matches!(
             parser.nodes[root_id].kind,
-            NodeKind::FieldAccess(..)
+            NodeKind::FieldAccess { .. }
         ));
         assert_eq!(origin_str(input, &parser, root_id), "p->field");
     }
@@ -3809,7 +4083,12 @@ mod tests {
             parser.lexer.errors
         );
         // Outermost node: `.count` dot access.
-        let NodeKind::FieldAccess(arrow_runq, dot, _) = parser.nodes[root_id].kind else {
+        let NodeKind::FieldAccess {
+            expr: arrow_runq,
+            op: dot,
+            ..
+        } = parser.nodes[root_id].kind
+        else {
             panic!(
                 "expected FieldAccess at root, got {:?}",
                 parser.nodes[root_id].kind
@@ -3822,7 +4101,11 @@ mod tests {
         );
 
         // Middle node: `->runq` arrow access.
-        let NodeKind::FieldAccess(arrow_last_processor, arrow, _) = parser.nodes[arrow_runq].kind
+        let NodeKind::FieldAccess {
+            expr: arrow_last_processor,
+            op: arrow,
+            ..
+        } = parser.nodes[arrow_runq].kind
         else {
             panic!("expected FieldAccess for ->runq");
         };
@@ -3835,7 +4118,7 @@ mod tests {
         // Innermost node: `->last_processor` arrow access.
         assert!(matches!(
             parser.nodes[arrow_last_processor].kind,
-            NodeKind::FieldAccess(..)
+            NodeKind::FieldAccess { .. }
         ));
         assert_eq!(
             origin_str(input, &parser, arrow_last_processor),
@@ -3849,7 +4132,10 @@ mod tests {
         // `sizeof` parser expects.
         let input = "sizeof(mytype)";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Sizeof(..)));
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::Sizeof { .. }
+        ));
         assert_eq!(origin_str(input, &parser, root_id), "sizeof(mytype)");
     }
 
@@ -3857,7 +4143,10 @@ mod tests {
     fn test_sizeof_expr_origin() {
         let input = "sizeof x";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Sizeof(..)));
+        assert!(matches!(
+            parser.nodes[root_id].kind,
+            NodeKind::Sizeof { .. }
+        ));
         assert_eq!(origin_str(input, &parser, root_id), "sizeof x");
     }
 
@@ -3869,19 +4158,23 @@ mod tests {
         let input = "sizeof(-2)";
         let (parser, root_id) = parse_expr_input(input);
         assert!(parser.lexer.errors.is_empty());
-        let NodeKind::Sizeof(operand_id, with_paren) = parser.nodes[root_id].kind else {
+        let NodeKind::Sizeof {
+            expr: operand_id,
+            parenthesized: with_paren,
+        } = parser.nodes[root_id].kind
+        else {
             panic!("expected Sizeof node");
         };
         assert!(with_paren);
         assert!(matches!(
             parser.nodes[operand_id].kind,
-            NodeKind::Unary(
-                Token {
+            NodeKind::Unary {
+                op: Token {
                     kind: TokenKind::Minus,
                     ..
                 },
-                _
-            )
+                ..
+            }
         ));
     }
 
@@ -3893,19 +4186,23 @@ mod tests {
         let input = "sizeof -2";
         let (parser, root_id) = parse_expr_input(input);
         assert!(parser.lexer.errors.is_empty());
-        let NodeKind::Sizeof(operand_id, with_paren) = parser.nodes[root_id].kind else {
+        let NodeKind::Sizeof {
+            expr: operand_id,
+            parenthesized: with_paren,
+        } = parser.nodes[root_id].kind
+        else {
             panic!("expected Sizeof node");
         };
         assert!(!with_paren);
         assert!(matches!(
             parser.nodes[operand_id].kind,
-            NodeKind::Unary(
-                Token {
+            NodeKind::Unary {
+                op: Token {
                     kind: TokenKind::Minus,
                     ..
                 },
-                _
-            )
+                ..
+            }
         ));
     }
 
@@ -3917,13 +4214,17 @@ mod tests {
         let input = "sizeof(int)";
         let (parser, root_id) = parse_expr_input(input);
         assert!(parser.lexer.errors.is_empty());
-        let NodeKind::Sizeof(operand_id, with_paren) = parser.nodes[root_id].kind else {
+        let NodeKind::Sizeof {
+            expr: operand_id,
+            parenthesized: with_paren,
+        } = parser.nodes[root_id].kind
+        else {
             panic!("expected Sizeof node");
         };
         assert!(with_paren);
         assert!(matches!(
             parser.nodes[operand_id].kind,
-            NodeKind::TypeName(..)
+            NodeKind::TypeName { .. }
         ));
     }
 
@@ -3950,7 +4251,7 @@ mod tests {
         let (parser, root_id) = parse_expr_input(input);
         assert!(matches!(
             parser.nodes[root_id].kind,
-            NodeKind::StringofExpr(..)
+            NodeKind::StringofExpr { .. }
         ));
         assert_eq!(origin_str(input, &parser, root_id), "stringof x");
     }
@@ -3961,7 +4262,7 @@ mod tests {
         // the cast expression, so this tests the full origin of a cast node.
         let input = "(mytype)x";
         let (parser, root_id) = parse_expr_input(input);
-        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Cast(..)));
+        assert!(matches!(parser.nodes[root_id].kind, NodeKind::Cast { .. }));
         assert_eq!(origin_str(input, &parser, root_id), "(mytype)x");
     }
 
@@ -3971,7 +4272,7 @@ mod tests {
         let input = "(int)-1";
         let (parser, root_id) = parse_expr_input(input);
         assert!(
-            matches!(&parser.nodes[root_id].kind, NodeKind::Cast(t, _) if t == "int"),
+            matches!(&parser.nodes[root_id].kind, NodeKind::Cast { typ: t, .. } if t == "int"),
             "expected Cast(\"int\", ...), got {:?}",
             parser.nodes[root_id].kind
         );
@@ -3985,7 +4286,7 @@ mod tests {
         let input = "(const int)x";
         let (parser, root_id) = parse_expr_input(input);
         assert!(
-            matches!(&parser.nodes[root_id].kind, NodeKind::Cast(t, _) if t == "const int"),
+            matches!(&parser.nodes[root_id].kind, NodeKind::Cast { typ: t, .. } if t == "const int"),
             "expected Cast(\"const int\", ...), got {:?}",
             parser.nodes[root_id].kind
         );
@@ -4018,7 +4319,7 @@ mod tests {
         };
         assert!(matches!(
             parser.nodes[decls[0]].kind,
-            NodeKind::ProbeDefinition(..)
+            NodeKind::ProbeDefinition { .. }
         ));
         assert_eq!(
             origin_str(input, &parser, decls[0]),
@@ -4037,7 +4338,7 @@ mod tests {
         let probe_id = decls[0];
         assert!(matches!(
             parser.nodes[probe_id].kind,
-            NodeKind::ProbeDefinition(..)
+            NodeKind::ProbeDefinition { .. }
         ));
         assert_eq!(
             origin_str(input, &parser, probe_id),
@@ -4052,7 +4353,11 @@ mod tests {
         let NodeKind::TranslationUnit(ref decls) = parser.nodes[root_id].kind else {
             panic!("expected TranslationUnit");
         };
-        let NodeKind::ProbeDefinition(_, _, Some(block_id)) = parser.nodes[decls[0]].kind else {
+        let NodeKind::ProbeDefinition {
+            action: Some(block_id),
+            ..
+        } = parser.nodes[decls[0]].kind
+        else {
             panic!("expected ProbeDefinition with block");
         };
         let NodeKind::Block(ref stmts) = parser.nodes[block_id].kind else {
@@ -4073,7 +4378,11 @@ mod tests {
         let NodeKind::TranslationUnit(ref decls) = parser.nodes[root_id].kind else {
             panic!("expected TranslationUnit");
         };
-        let NodeKind::ProbeDefinition(_, _, Some(block_id)) = parser.nodes[decls[0]].kind else {
+        let NodeKind::ProbeDefinition {
+            action: Some(block_id),
+            ..
+        } = parser.nodes[decls[0]].kind
+        else {
             panic!("expected ProbeDefinition with block");
         };
         let NodeKind::Block(ref stmts) = parser.nodes[block_id].kind else {
@@ -4085,7 +4394,7 @@ mod tests {
         };
         assert!(matches!(
             parser.nodes[assign_id].kind,
-            NodeKind::Assignment(..)
+            NodeKind::Assignment { .. }
         ));
         assert_eq!(origin_str(input, &parser, assign_id), "a = 1");
     }
@@ -4392,8 +4701,10 @@ mod tests {
         assert_eq!(parser.lexer.decls.len(), 1);
 
         // Root: StructDeclaration with name token "Outer" and a body.
-        let NodeKind::StructDeclaration(Some(outer_tok), Some(fields_id)) =
-            parser.nodes[root_id].kind
+        let NodeKind::StructDeclaration {
+            name: Some(outer_tok),
+            fields: Some(fields_id),
+        } = parser.nodes[root_id].kind
         else {
             panic!("expected StructDeclaration with name and body");
         };
@@ -4405,9 +4716,11 @@ mod tests {
         };
         assert_eq!(field_ids.len(), 1);
 
-        // The single field: StructFieldDeclaration(specifier_qualifier_list, declarator_list).
-        let NodeKind::StructFieldDeclaration(spec_id, Some(decl_list_id)) =
-            parser.nodes[field_ids[0]].kind
+        // The single field: `StructFieldDeclaration` with a specifier qualifier list and a declarator list.
+        let NodeKind::StructFieldDeclaration {
+            specifiers: spec_id,
+            declarators: Some(decl_list_id),
+        } = parser.nodes[field_ids[0]].kind
         else {
             panic!("expected StructFieldDeclaration with declarator list");
         };
@@ -4418,7 +4731,11 @@ mod tests {
         };
         assert_eq!(specs.len(), 1);
         // The sole specifier must be an anonymous union (no name token).
-        let NodeKind::UnionDeclaration(None, Some(_)) = parser.nodes[specs[0]].kind else {
+        let NodeKind::UnionDeclaration {
+            name: None,
+            fields: Some(_),
+        } = parser.nodes[specs[0]].kind
+        else {
             panic!("expected anonymous StructDeclaration (union with no name) in specifier");
         };
 
@@ -4428,8 +4745,10 @@ mod tests {
             panic!("expected StructFieldDeclaratorList");
         };
         assert_eq!(declarators.len(), 1);
-        let NodeKind::StructFieldDeclarator(declarator_id, None) =
-            parser.nodes[declarators[0]].kind
+        let NodeKind::StructFieldDeclarator {
+            declarator: declarator_id,
+            bit_field: None,
+        } = parser.nodes[declarators[0]].kind
         else {
             panic!("expected StructFieldDeclarator without bit-field");
         };
@@ -4445,7 +4764,11 @@ mod tests {
         let NodeKind::TranslationUnit(ref decls) = parser.nodes[root_id].kind else {
             panic!("expected TranslationUnit");
         };
-        let NodeKind::ProbeDefinition(_, _, Some(block_id)) = parser.nodes[decls[0]].kind else {
+        let NodeKind::ProbeDefinition {
+            action: Some(block_id),
+            ..
+        } = parser.nodes[decls[0]].kind
+        else {
             panic!("expected ProbeDefinition with block");
         };
         let NodeKind::Block(ref stmts) = parser.nodes[block_id].kind else {
@@ -4456,7 +4779,7 @@ mod tests {
         };
         assert!(matches!(
             parser.nodes[assign_id].kind,
-            NodeKind::Assignment(..)
+            NodeKind::Assignment { .. }
         ));
         assert_eq!(origin_str(input, &parser, assign_id), "a = 1");
         // `a` is at line 2, column 3.

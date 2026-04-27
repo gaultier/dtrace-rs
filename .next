@@ -1,6 +1,4 @@
 - lex/ast: maintain stack of ~types~(done)/identifiers/globals
-- ast: translator definition
-- ast: provider definition
 - name resolving
 - type checking
 - lsp:
