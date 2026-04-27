@@ -1,3 +1,6 @@
+/* All-in-one  example  file .
+   Every  grammar  construct  appears  here  at  least  once . */
+
 struct  Point  {  int  x  ;  int  y  ;  }  ;
 
 struct  Node  ;
@@ -6,6 +9,7 @@ union  Value  {  int  i  ;  char  c  ;  }  ;
 
 enum  Color  {  RED  =  0  ,  GREEN  =  1  ,  BLUE  =  2  }  ;
 
+// Inline  constant  definition .
 inline  int  MAX_SIZE  =  1024  ;
 
 int  *ptr  ;
@@ -24,6 +28,7 @@ BEGIN  ,  END  {  }
 syscall::open:entry
 /  pid  ==  42  /
 {
+  // Binary  operators .
   x  =  a  +  b  ;
   x  =  a  -  b  ;
   x  =  a  *  b  ;
@@ -77,6 +82,7 @@ syscall::open:entry
   @n  ++  ;
   x  =  'a'  ;
   x  =  "hello"  ;
+  /* Conditional  statements . */
   if  (  x  ==  1  )  {  y  =  2  ;  }
   if  (  x  ==  1  )  {  y  =  2  ;  }  else  {  y  =  3  ;  }
   if  (  x  ==  1  )  {  y  =  2  ;  }  else  if  (  x  ==  2  )  {  y  =  3  ;  }  else  {  y  =  4  ;  }
