@@ -3,6 +3,7 @@ pub mod error;
 pub mod fmt;
 pub mod lex;
 pub mod lsp;
+mod name_resolution;
 mod origin;
 mod type_checker;
 
@@ -12,6 +13,7 @@ use crate::{
     ast::{Node, NodeId, Parser},
     error::Error,
     lex::{Attribute, Comment, ControlDirective, Declarations, Lexer},
+    name_resolution::Resolver,
     origin::FileId,
 };
 
@@ -170,6 +172,10 @@ pub fn compile(input: &str, file_id: FileId) -> CompileResult {
     let lexer = Lexer::new(file_id, input);
     let mut parser = Parser::new(lexer);
     let root = parser.parse();
+    let mut resolver = Resolver::new(&parser.nodes, input, &mut parser.lexer.errors);
+    if let Some(root) = root {
+        resolver.resolve(root);
+    }
 
     if !parser.lexer.errors.is_empty() {
         return CompileResult {
