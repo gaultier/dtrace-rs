@@ -44,11 +44,15 @@ struct AstCmd {
 }
 
 #[derive(FromArgs)]
-/// Format a file and write the result to stdout.
+/// Format a file and write the result to stdout, or back to the file with `-i`.
 #[argh(subcommand, name = "fmt")]
 struct FmtCmd {
     #[argh(positional)]
     file: String,
+
+    /// format the file in-place instead of writing to stdout.
+    #[argh(switch, short = 'i')]
+    in_place: bool,
 }
 
 #[derive(FromArgs)]
@@ -106,7 +110,7 @@ fn main() {
                 std::process::exit(1)
             };
         }
-        Command::Fmt(FmtCmd { file }) => {
+        Command::Fmt(FmtCmd { file, in_place }) => {
             init_logger(LevelFilter::Trace);
 
             let file_content = std::fs::read_to_string(&file).unwrap();
@@ -124,18 +128,33 @@ fn main() {
                 std::process::exit(1)
             };
             if let Some(root) = compiled.ast_root {
-                let mut stdout = std::io::stdout().lock();
-                compiler_rs_lib::fmt::format(
-                    &mut stdout,
-                    root,
-                    &compiled.ast_nodes,
-                    &compiled.comments,
-                    &compiled.control_directives,
-                    &compiled.attributes,
-                    &file_content,
-                )
-                .unwrap();
-                stdout.flush().unwrap();
+                if in_place {
+                    let mut buf = Vec::new();
+                    compiler_rs_lib::fmt::format(
+                        &mut buf,
+                        root,
+                        &compiled.ast_nodes,
+                        &compiled.comments,
+                        &compiled.control_directives,
+                        &compiled.attributes,
+                        &file_content,
+                    )
+                    .unwrap();
+                    std::fs::write(&file, &buf).unwrap();
+                } else {
+                    let mut stdout = std::io::stdout().lock();
+                    compiler_rs_lib::fmt::format(
+                        &mut stdout,
+                        root,
+                        &compiled.ast_nodes,
+                        &compiled.comments,
+                        &compiled.control_directives,
+                        &compiled.attributes,
+                        &file_content,
+                    )
+                    .unwrap();
+                    stdout.flush().unwrap();
+                }
             }
         }
         Command::Lsp(_) => {
