@@ -239,12 +239,20 @@ fn main() {
                                 if file.file_type().is_file()
                                     && file.path().extension() == Some("md".as_ref()) =>
                             {
-                                let file_content = std::fs::read_to_string(file.path()).unwrap();
-                                fmt_file(
-                                    &file.into_path().to_string_lossy().to_string(),
-                                    in_place,
-                                    file_content,
-                                );
+                                match std::fs::read_to_string(file.path()) {
+                                    Ok(file_content) => fmt_file(
+                                        &file.into_path().to_string_lossy().to_string(),
+                                        in_place,
+                                        file_content,
+                                    ),
+                                    Err(err) => {
+                                        eprintln!(
+                                            "failed to read {}: {}",
+                                            file.path().display(),
+                                            err
+                                        );
+                                    }
+                                }
                             }
                             _ => {}
                         }
