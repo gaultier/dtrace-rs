@@ -22,6 +22,7 @@ static LOGGER: Logger = Logger {};
 
 #[derive(FromArgs)]
 /// Compiler CLI.
+#[argh(help_triggers("-h", "--help", "help"))]
 struct Cli {
     #[argh(subcommand)]
     command: Command,
@@ -37,7 +38,7 @@ enum Command {
 
 #[derive(FromArgs)]
 /// Print the AST and diagnostics for a file.
-#[argh(subcommand, name = "ast")]
+#[argh(subcommand, name = "ast", help_triggers("-h", "--help", "help"))]
 struct AstCmd {
     #[argh(positional)]
     file: String,
@@ -45,7 +46,7 @@ struct AstCmd {
 
 #[derive(FromArgs)]
 /// Format a file and write the result to stdout, or back to the file with `-i`.
-#[argh(subcommand, name = "fmt")]
+#[argh(subcommand, name = "fmt", help_triggers("-h", "--help", "help"))]
 struct FmtCmd {
     #[argh(positional)]
     file: String,
@@ -57,7 +58,7 @@ struct FmtCmd {
 
 #[derive(FromArgs)]
 /// Run the language server over stdio.
-#[argh(subcommand, name = "lsp")]
+#[argh(subcommand, name = "lsp", help_triggers("-h", "--help", "help"))]
 struct LspCmd {}
 
 fn init_logger(level: LevelFilter) {
