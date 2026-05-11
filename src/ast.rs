@@ -350,7 +350,6 @@ impl<'a> Parser<'a> {
             decls: Vec::new(),
             globals: HashMap::new(),
             identifiers: HashMap::new(),
-            curly_depth: self.lexer.curly_depth,
         };
         cpy.lex()
     }
@@ -369,7 +368,6 @@ impl<'a> Parser<'a> {
             decls: Vec::new(),
             globals: HashMap::new(),
             identifiers: HashMap::new(),
-            curly_depth: self.lexer.curly_depth,
         };
         let _ = cpy.lex();
         cpy.lex()
