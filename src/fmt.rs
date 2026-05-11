@@ -268,12 +268,30 @@ impl<'a, W: Write> Formatter<'a, W> {
             }
             NodeKind::Block(node_ids) => {
                 self.w.write_all(b"{\n")?;
+                let mut prev_end: Option<u32> = None;
                 for id in &node_ids {
                     let start_byte = self.nodes[*id].origin.start.byte_offset;
+                    // Preserve a blank line between two consecutive statements
+                    // when the source had one. Two-or-more newlines in the
+                    // gap means at least one empty line was there.
+                    if let Some(prev) = prev_end {
+                        let gap_start = prev as usize;
+                        let gap_end = (start_byte as usize).min(self.input.len());
+                        if gap_start < gap_end
+                            && self.input[gap_start..gap_end]
+                                .bytes()
+                                .filter(|&b| b == b'\n')
+                                .count()
+                                >= 2
+                        {
+                            self.w.write_all(b"\n")?;
+                        }
+                    }
                     self.emit_pending_annotations(start_byte, indent + 2)?;
                     self.indent(indent + 2)?;
                     self.fmt(*id, indent + 2)?;
                     self.w.write_all(b"\n")?;
+                    prev_end = Some(self.nodes[*id].origin.end.byte_offset);
                 }
                 // Flush any annotations between the last statement and the closing `}`.
                 self.emit_pending_annotations(origin.end.byte_offset + 1, indent + 2)?;
@@ -1688,6 +1706,45 @@ syscall::close:entry
 {
   if (foo) /* bar */ {
   }
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_blank_line_between_expr_statements_in_block_preserved() {
+        // A blank line between two plain statements inside a probe body
+        // must be preserved — it carries paragraph-grouping intent.
+        let input = "BEGIN {\n  this->a = 1;\n  this->b = 2;\n\n  this->c = 3;\n}";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  this->a = 1;
+  this->b = 2;
+
+  this->c = 3;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_blank_line_after_if_block_inside_probe_body_preserved() {
+        // Regression: a blank line between an `if` statement and the next
+        // statement in the same body was collapsed because the gap check
+        // used the `if` node's end byte. Verified the `if`'s `then_block`
+        // origin spans the braces, so the gap (which includes the blank
+        // line) is detected.
+        let input = "BEGIN {\n  if (foo) {\n  }\n\n  print(1);\n}";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  if (foo) {
+  }
+
+  print(1);
 }
 "
         );
