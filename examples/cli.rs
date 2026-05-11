@@ -1,5 +1,6 @@
 use std::{collections::HashMap, io::Write};
 
+use argh::FromArgs;
 use compiler_rs_lib::compile;
 use log::{LevelFilter, Log, info};
 
@@ -19,20 +20,58 @@ impl Log for Logger {
 
 static LOGGER: Logger = Logger {};
 
+#[derive(FromArgs)]
+/// Compiler CLI.
+struct Cli {
+    #[argh(subcommand)]
+    command: Command,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand)]
+enum Command {
+    Ast(AstCmd),
+    Fmt(FmtCmd),
+    Lsp(LspCmd),
+}
+
+#[derive(FromArgs)]
+/// Print the AST and diagnostics for a file.
+#[argh(subcommand, name = "ast")]
+struct AstCmd {
+    #[argh(positional)]
+    file: String,
+}
+
+#[derive(FromArgs)]
+/// Format a file and write the result to stdout.
+#[argh(subcommand, name = "fmt")]
+struct FmtCmd {
+    #[argh(positional)]
+    file: String,
+}
+
+#[derive(FromArgs)]
+/// Run the language server over stdio.
+#[argh(subcommand, name = "lsp")]
+struct LspCmd {}
+
+fn init_logger(level: LevelFilter) {
+    log::set_logger(&LOGGER)
+        .map(|()| log::set_max_level(level))
+        .unwrap();
+}
+
 fn main() {
-    let mut args = std::env::args().skip(1);
-    let cmd = args.next().unwrap();
+    let cli: Cli = argh::from_env();
 
-    match cmd.as_str() {
-        "ast" => {
-            log::set_logger(&LOGGER)
-                .map(|()| log::set_max_level(LevelFilter::Trace))
-                .unwrap();
+    match cli.command {
+        Command::Ast(AstCmd { file }) => {
+            init_logger(LevelFilter::Trace);
 
-            let file_name = args.next().unwrap();
-            let file_content = std::fs::read_to_string(&file_name).unwrap();
+            let file_content = std::fs::read_to_string(&file).unwrap();
             let mut file_id_to_name = HashMap::new();
-            file_id_to_name.insert(1, file_name.clone());
+            file_id_to_name.insert(1, file.clone());
 
             let compiled = compile(&file_content, 1);
 
@@ -67,15 +106,12 @@ fn main() {
                 std::process::exit(1)
             };
         }
-        "fmt" => {
-            log::set_logger(&LOGGER)
-                .map(|()| log::set_max_level(LevelFilter::Trace))
-                .unwrap();
+        Command::Fmt(FmtCmd { file }) => {
+            init_logger(LevelFilter::Trace);
 
-            let file_name = args.next().unwrap();
-            let file_content = std::fs::read_to_string(&file_name).unwrap();
+            let file_content = std::fs::read_to_string(&file).unwrap();
             let mut file_id_to_name = HashMap::new();
-            file_id_to_name.insert(1, file_name.clone());
+            file_id_to_name.insert(1, file.clone());
 
             let compiled = compile(&file_content, 1);
 
@@ -102,17 +138,11 @@ fn main() {
                 stdout.flush().unwrap();
             }
         }
-        "lsp" => {
-            log::set_logger(&LOGGER)
-                .map(|()| log::set_max_level(LevelFilter::Error))
-                .unwrap();
+        Command::Lsp(_) => {
+            init_logger(LevelFilter::Error);
             let mut stdout = std::io::stdout().lock();
             let mut stdin = std::io::stdin().lock();
             compiler_rs_lib::lsp::run(&mut stdin, &mut stdout);
-        }
-        other => {
-            eprintln!("unknown command: {}", other);
-            std::process::exit(1);
         }
     }
 }
