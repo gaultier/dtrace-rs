@@ -312,6 +312,24 @@ impl<'a, W: Write> Formatter<'a, W> {
                 self.fmt(lhs, indent)?;
                 let src = lex::str_from_source(self.input, tok.origin);
                 write!(self.w, " {} ", src)?;
+                // A `//` comment sitting between the operator and the
+                // right-hand operand must stay attached to the operator's
+                // line: it extends to end-of-line in the source, so emit it
+                // followed by a newline and a continuation indent so the
+                // rest of the expression lands on the next line (aligning
+                // roughly under the opening token of the enclosing
+                // construct, e.g. `if (`).
+                let rhs_start = self.nodes[rhs].origin.start.byte_offset;
+                while let Some(c) = self.comments.get(self.comment_idx) {
+                    if c.origin.start.byte_offset >= rhs_start || c.kind != CommentKind::SingleLine
+                    {
+                        break;
+                    }
+                    let text = lex::str_from_source(self.input, c.origin);
+                    writeln!(self.w, "{}", text)?;
+                    self.indent(indent + 4)?;
+                    self.comment_idx += 1;
+                }
                 self.fmt(rhs, indent)?;
             }
             NodeKind::If {
@@ -1669,6 +1687,28 @@ syscall::close:entry
             "BEGIN
 {
   if (foo) /* bar */ {
+  }
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_single_line_comments_inside_multiline_if_condition() {
+        // A multi-line `if` condition where each `&&` operand is followed
+        // by a `//` comment, plus a trailing `/* */` comment between `)`
+        // and `{`. None of the comments may be hoisted out of the
+        // condition or past the brace.
+        let input = "BEGIN {\n  if (this->theirs.tid !=0 &&  // 'if a thread is concurrently accessing the same memory...'\n      this->theirs.tid != this->goroutine_id &&  // 'and this is another thread as the current one...'\n      (this->my_access_kind == AccessKindWrite || this->theirs.kind == AccessKindWrite)) /* 'and at least one access is a write...' */ {\n    printf(\"possible data race: my_access_kind:%d my_tid=%d my_ts=%d their_access_kind:%d their_tid=%d their_ts=%d mem_ptr=%p\\n\", this->my_access_kind, this->goroutine_id, this->now, this->theirs.kind, this->theirs.tid, this->theirs.ts, this->mem_ptr);\n    ustack();\n  }\n}";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  if (this->theirs.tid != 0 && // 'if a thread is concurrently accessing the same memory...'
+      this->theirs.tid != this->goroutine_id && // 'and this is another thread as the current one...'
+      (this->my_access_kind == AccessKindWrite || this->theirs.kind == AccessKindWrite)) /* 'and at least one access is a write...' */ {
+    printf(\"possible data race: my_access_kind:%d my_tid=%d my_ts=%d their_access_kind:%d their_tid=%d their_ts=%d mem_ptr=%p\\n\", this->my_access_kind, this->goroutine_id, this->now, this->theirs.kind, this->theirs.tid, this->theirs.ts, this->mem_ptr);
+    ustack();
   }
 }
 "
