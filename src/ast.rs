@@ -2301,8 +2301,8 @@ impl<'a> Parser<'a> {
         } else {
             false
         };
-        if is_typedef && let Some(decls_id) = init_decl_list {
-            if let NodeKind::InitDeclarators(ref ids) = self.nodes[decls_id].kind {
+        if is_typedef && let Some(decls_id) = init_decl_list
+            && let NodeKind::InitDeclarators(ref ids) = self.nodes[decls_id].kind {
                 for id in ids {
                     if let Some((name, origin)) = declarator_inner_identifier(&self.nodes, *id) {
                         record_type_decl(
@@ -2316,7 +2316,6 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-        }
 
         self.lexer.begin(lex::LexerState::ProgramOuterScope);
         let start_origin = self.origin(decl_specifiers);
