@@ -654,6 +654,7 @@ impl<'a> Parser<'a> {
             && matches!(
                 self.peek2().kind,
                 TokenKind::Identifier
+                    | TokenKind::TypeName
                     | TokenKind::KeywordChar
                     | TokenKind::KeywordConst
                     | TokenKind::KeywordEnum

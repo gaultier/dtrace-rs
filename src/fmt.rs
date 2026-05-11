@@ -1651,6 +1651,23 @@ syscall::close:entry
     }
 
     #[test]
+    fn test_cast_to_builtin_type_pointer() {
+        // Regression: `(uintptr_t*)expr` was misparsed because the cast
+        // lookahead didn't include `TokenKind::TypeName`, so registered
+        // built-in types like `uintptr_t` were not recognised as the start
+        // of a cast.
+        let input = "BEGIN {\n  this->ptr_to_slice_header = *(uintptr_t*)copyin(uregs[R_X26] + 16, 8);\n}";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  this->ptr_to_slice_header = *(uintptr_t*)copyin(uregs[R_X26] + 16, 8);
+}
+"
+        );
+    }
+
+    #[test]
     fn test_array_decl_keyed_by_builtin_type_with_inline_comment() {
         // The array subscript holds a type name (`uintptr_t`) and an inline
         // multi-line comment. Both must round-trip in place.
