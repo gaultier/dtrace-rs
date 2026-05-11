@@ -162,6 +162,40 @@ impl<'a, W: Write> Formatter<'a, W> {
         Ok(())
     }
 
+    /// Drains pending `/* */` comments whose start byte is strictly before
+    /// `before_byte`, emitting each followed by a single space. Used at every
+    /// `fmt` entry to surface comments that appear *between* sibling tokens
+    /// of the surrounding construct (e.g. `int /* x */ y;`). Single-line
+    /// `//` comments are deferred to `emit_pending_annotations` because they
+    /// require a newline that would break inline contexts.
+    fn drain_inline_comments_before(&mut self, before_byte: u32) -> std::io::Result<()> {
+        while let Some(c) = self.comments.get(self.comment_idx) {
+            if c.origin.start.byte_offset >= before_byte || c.kind != CommentKind::MultiLine {
+                break;
+            }
+            let text = lex::str_from_source(self.input, c.origin);
+            write!(self.w, "{} ", text)?;
+            self.comment_idx += 1;
+        }
+        Ok(())
+    }
+
+    /// Variant of `drain_inline_comments_before` for the position just before
+    /// a closing token (`]`, `)`, etc.): the preceding child has already been
+    /// emitted without a trailing space, so each comment is prefixed by a
+    /// leading space instead of suffixed by one.
+    fn drain_inline_comments_before_close(&mut self, before_byte: u32) -> std::io::Result<()> {
+        while let Some(c) = self.comments.get(self.comment_idx) {
+            if c.origin.start.byte_offset >= before_byte || c.kind != CommentKind::MultiLine {
+                break;
+            }
+            let text = lex::str_from_source(self.input, c.origin);
+            write!(self.w, " {}", text)?;
+            self.comment_idx += 1;
+        }
+        Ok(())
+    }
+
     /// Returns `true` if the innermost `Pointer` chain ends with a type-qualifier keyword
     /// rather than a bare `*`. Callers use this to decide whether a space is needed between
     /// a pointer and the following declarator name (e.g. `* const x` vs. `*x`).
@@ -210,6 +244,16 @@ impl<'a, W: Write> Formatter<'a, W> {
         // Clone to avoid holding a shared borrow of `self.nodes` across recursive calls.
         let kind = self.nodes[node_id].kind.clone();
         let origin = self.nodes[node_id].origin;
+
+        // Emit any pending `/* */` comments that appear *before* this node's
+        // start so inter-token annotations like `int /* x */ y;` land in the
+        // right place. `TranslationUnit` and `Block` drive their own
+        // newline-style emission via `emit_pending_annotations`, so skip the
+        // inline drain there to avoid double-emitting (and to keep top-level
+        // multi-line comments on their own line).
+        if !matches!(kind, NodeKind::TranslationUnit(_) | NodeKind::Block(_)) {
+            self.drain_inline_comments_before(origin.start.byte_offset)?;
+        }
 
         match kind {
             NodeKind::Unknown | NodeKind::Character(_) | NodeKind::ParamEllipsis => {
@@ -672,19 +716,9 @@ impl<'a, W: Write> Formatter<'a, W> {
                 if let Some(params_id) = params {
                     self.fmt(params_id, indent)?;
                 }
-                // Drain any multi-line comments that appear inside `[...]`
-                // and emit them inline rather than on their own line, so
-                // patterns like `arr[uintptr_t /* data ptr */]` round-trip.
-                let bracket_end = origin.end.byte_offset;
-                while let Some(c) = self.comments.get(self.comment_idx) {
-                    if c.origin.start.byte_offset >= bracket_end || c.kind != CommentKind::MultiLine
-                    {
-                        break;
-                    }
-                    let text = lex::str_from_source(self.input, c.origin);
-                    write!(self.w, " {}", text)?;
-                    self.comment_idx += 1;
-                }
+                // Drain any `/* */` comments between the last child and `]`,
+                // e.g. `arr[uintptr_t /* data ptr */]`.
+                self.drain_inline_comments_before_close(origin.end.byte_offset)?;
                 self.w.write_all(b"]")?;
             }
             NodeKind::Parameters(node_ids) => {
@@ -1605,6 +1639,15 @@ syscall::close:entry
             fmt(input),
             "#pragma D option quiet\n__attribute__((nodtrace));\nint x;\n"
         );
+    }
+
+    #[test]
+    fn test_inline_multi_line_comment_between_specifier_and_declarator() {
+        // A `/* */` comment sitting between two sibling tokens of the same
+        // declaration must land at its original position rather than being
+        // flushed to the next top-level boundary.
+        let input = "int /* x */ y;";
+        assert_eq!(fmt(input), "int /* x */ y;\n");
     }
 
     #[test]
