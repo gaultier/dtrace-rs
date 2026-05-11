@@ -1,5 +1,5 @@
 - lex/ast: maintain stack of ~types~(done)/identifiers/globals
-- name resolving
+- name resolving (remove from parser)
 - type checking
 - lsp:
   + semantic tokens (for syntax highlighting)
