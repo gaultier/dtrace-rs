@@ -292,6 +292,26 @@ fn record_type_decl(
     decls.push((name.to_owned(), decl));
 }
 
+/// Walks `Declarator` → `DirectDeclarator` (peeling parenthesised wrappers as
+/// needed) until it reaches the innermost `Identifier` node. Returns the name
+/// and the origin of that identifier, or `None` if the declarator does not
+/// resolve to a named declarator (e.g. an abstract declarator).
+fn declarator_inner_identifier(nodes: &[Node], decl_id: NodeId) -> Option<(String, Origin)> {
+    let direct_id = match &nodes[decl_id].kind {
+        NodeKind::Declarator { direct, .. } => *direct,
+        _ => return None,
+    };
+    let inner = match &nodes[direct_id].kind {
+        NodeKind::DirectDeclarator { ident, .. } => *ident,
+        _ => return None,
+    };
+    match &nodes[inner].kind {
+        NodeKind::Identifier(name) => Some((name.clone(), nodes[inner].origin)),
+        NodeKind::Declarator { .. } => declarator_inner_identifier(nodes, inner),
+        _ => None,
+    }
+}
+
 fn lookup_type<'a>(
     decls: &'a Declarations,
     name: &'a str,
@@ -336,6 +356,7 @@ impl<'a> Parser<'a> {
         NodeId(self.nodes.len() - 1)
     }
 
+    // FIXME: Clone.
     fn peek1(&self) -> Token {
         let mut cpy = Lexer {
             position: self.lexer.position,
@@ -347,13 +368,17 @@ impl<'a> Parser<'a> {
             attributes: Vec::new(),
             chars: self.lexer.chars.clone(),
             chars_idx: self.lexer.chars_idx,
-            decls: Vec::new(),
-            globals: HashMap::new(),
-            identifiers: HashMap::new(),
+            // The lookup tables drive `id_or_type`, so peeks must see the
+            // same registered types as the live lexer; otherwise typedef
+            // names look like plain identifiers during lookahead.
+            decls: self.lexer.decls.clone(),
+            globals: self.lexer.globals.clone(),
+            identifiers: self.lexer.identifiers.clone(),
         };
         cpy.lex()
     }
 
+    // FIXME: Clone.
     fn peek2(&self) -> Token {
         let mut cpy = Lexer {
             position: self.lexer.position,
@@ -365,9 +390,9 @@ impl<'a> Parser<'a> {
             attributes: Vec::new(),
             chars: self.lexer.chars.clone(),
             chars_idx: self.lexer.chars_idx,
-            decls: Vec::new(),
-            globals: HashMap::new(),
-            identifiers: HashMap::new(),
+            decls: self.lexer.decls.clone(),
+            globals: self.lexer.globals.clone(),
+            identifiers: self.lexer.identifiers.clone(),
         };
         let _ = cpy.lex();
         cpy.lex()
@@ -2260,6 +2285,38 @@ impl<'a> Parser<'a> {
         let init_decl_list = self.parse_init_declarator_list();
 
         let semicolon = self.expect(TokenKind::SemiColon, "expected semicolon after declaration");
+
+        // Register every declarator introduced by a `typedef` storage class
+        // as a type name so later references are lexed as `TypeName` rather
+        // than `Identifier` (and so they can be used as type specifiers).
+        let is_typedef = if let NodeKind::DeclarationSpecifiers(ref spec_ids) =
+            self.nodes[decl_specifiers].kind
+        {
+            spec_ids.iter().any(|&id| {
+                matches!(
+                    self.nodes[id].kind,
+                    NodeKind::StorageClassSpecifier(TokenKind::KeywordTypedef)
+                )
+            })
+        } else {
+            false
+        };
+        if is_typedef && let Some(decls_id) = init_decl_list {
+            if let NodeKind::InitDeclarators(ref ids) = self.nodes[decls_id].kind {
+                for id in ids {
+                    if let Some((name, origin)) = declarator_inner_identifier(&self.nodes, *id) {
+                        record_type_decl(
+                            &mut self.lexer.decls,
+                            &mut self.lexer.errors,
+                            &name,
+                            DeclarationKind::Typedef,
+                            false,
+                            origin,
+                        );
+                    }
+                }
+            }
+        }
 
         self.lexer.begin(lex::LexerState::ProgramOuterScope);
         let start_origin = self.origin(decl_specifiers);
@@ -4695,8 +4752,17 @@ mod tests {
         // The outer struct must be registered as a non-forward `Struct`.
         let outer = lookup_type(&parser.lexer.decls, "Outer", DeclarationKind::Struct).unwrap();
         assert!(!outer.is_forward);
-        // The anonymous union leaves no named entry.
-        assert_eq!(parser.lexer.decls.len(), 1);
+        // The anonymous union leaves no named entry: among user-defined
+        // declarations (i.e. excluding the pre-registered built-in types),
+        // only `Outer` is present.
+        let user_decls: Vec<_> = parser
+            .lexer
+            .decls
+            .iter()
+            .filter(|(_, d)| d.origin.kind() != crate::origin::PositionKind::Builtin)
+            .collect();
+        assert_eq!(user_decls.len(), 1);
+        assert_eq!(user_decls[0].0, "Outer");
 
         // Root: StructDeclaration with name token "Outer" and a body.
         let NodeKind::StructDeclaration {
@@ -4860,6 +4926,94 @@ mod tests {
             "expected no errors, got: {:?}",
             compiled.errors
         );
+    }
+
+    #[test]
+    fn test_typedef_struct_referencing_prior_typedef_names() {
+        // Exercises two things at once: typedef names are registered after
+        // their declaration so they can be used as type specifiers later
+        // (`AccessKind`, `size_t`), and the previously-fixed lexer-state
+        // bug for `typedef struct { ... } Name;` does not regress.
+        let input = "typedef enum {AccessKindRead=1, AccessKindWrite=2} AccessKind;\n\
+                     typedef unsigned long size_t;\n\
+                     typedef struct {\n  AccessKind kind;\n  size_t tid;\n  int ts;\n} Access;";
+        let compiled = crate::compile(input, 1);
+        assert!(
+            compiled.errors.is_empty(),
+            "expected no errors, got: {:?}",
+            compiled.errors
+        );
+
+        let root = compiled.ast_root.expect("expected a parsed root node");
+        let NodeKind::TranslationUnit(ref top) = compiled.ast_nodes[root].kind else {
+            panic!("expected TranslationUnit");
+        };
+        assert_eq!(top.len(), 3);
+
+        // The three typedef names must be registered with `DeclarationKind::Typedef`
+        // so subsequent references are lexed as `TypeName`.
+        let names: Vec<&str> = compiled
+            .declarations
+            .iter()
+            .filter(|(_, d)| d.kind == DeclarationKind::Typedef)
+            .map(|(n, _)| n.as_str())
+            .collect();
+        assert!(names.contains(&"AccessKind"), "got: {:?}", names);
+        assert!(names.contains(&"size_t"), "got: {:?}", names);
+        assert!(names.contains(&"Access"), "got: {:?}", names);
+
+        // The third top-level node is the `Access` struct typedef. Walk down
+        // to verify the field types resolved through the typedef names.
+        let NodeKind::Declaration {
+            specifiers,
+            declarators: Some(declarators_id),
+        } = compiled.ast_nodes[top[2]].kind
+        else {
+            panic!("expected Declaration with declarators");
+        };
+
+        // The trailing declarator is `Access`.
+        let NodeKind::InitDeclarators(ref decls) = compiled.ast_nodes[declarators_id].kind else {
+            panic!("expected InitDeclarators");
+        };
+        let NodeKind::Declarator { direct, .. } = compiled.ast_nodes[decls[0]].kind else {
+            panic!("expected Declarator");
+        };
+        let NodeKind::DirectDeclarator { ident, .. } = compiled.ast_nodes[direct].kind else {
+            panic!("expected DirectDeclarator");
+        };
+        let NodeKind::Identifier(ref name) = compiled.ast_nodes[ident].kind else {
+            panic!("expected Identifier");
+        };
+        assert_eq!(name, "Access");
+
+        // The specifiers contain `typedef` and an anonymous struct with three fields.
+        let NodeKind::DeclarationSpecifiers(ref spec_ids) = compiled.ast_nodes[specifiers].kind
+        else {
+            panic!("expected DeclarationSpecifiers");
+        };
+        let struct_id = spec_ids
+            .iter()
+            .copied()
+            .find(|&id| {
+                matches!(
+                    compiled.ast_nodes[id].kind,
+                    NodeKind::StructDeclaration { .. }
+                )
+            })
+            .expect("expected a struct specifier");
+        let NodeKind::StructDeclaration {
+            name: None,
+            fields: Some(fields_id),
+        } = compiled.ast_nodes[struct_id].kind
+        else {
+            panic!("expected anonymous StructDeclaration with a body");
+        };
+        let NodeKind::StructFieldsDeclaration(ref field_ids) = compiled.ast_nodes[fields_id].kind
+        else {
+            panic!("expected StructFieldsDeclaration");
+        };
+        assert_eq!(field_ids.len(), 3);
     }
 
     #[test]

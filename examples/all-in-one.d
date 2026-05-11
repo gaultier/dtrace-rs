@@ -25,6 +25,17 @@ enum Color {
   BLUE = 2
 };
 
+typedef enum {
+  AccessKindRead = 1,
+  AccessKindWrite = 2
+} AccessKind;
+
+typedef struct {
+  AccessKind kind;
+  size_t tid;
+  int ts;
+} Access;
+
 // Inline  constant  definition .
 inline int MAX_SIZE = 1024;
 

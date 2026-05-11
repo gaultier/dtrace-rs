@@ -413,8 +413,47 @@ fn is_character_probe_specifier_rest(c: char) -> bool {
    '-' | '<' | '>' | '+' | '$' | ':' | '0'..='9' | 'a'..='z'  |  'A'..='Z' | '_' | '`' | '.' | '?' | '*' | '\\' | '[' | ']' | '!' | '(' | ')' )
 }
 
+/// Type names pre-populated into the D CTF container by `libdtrace` at open
+/// time (see `_dtrace_typedefs_{32,64}` in `dt_open.c`), plus the single-token
+/// intrinsic `_Bool`. Pre-registering them lets the lexer classify them as
+/// `TypeName` even though they have no in-program `typedef`.
+const BUILTIN_TYPE_NAMES: &[&str] = &[
+    "int8_t",
+    "int16_t",
+    "int32_t",
+    "int64_t",
+    "uint8_t",
+    "uint16_t",
+    "uint32_t",
+    "uint64_t",
+    "uchar_t",
+    "ushort_t",
+    "uint_t",
+    "ulong_t",
+    "u_longlong_t",
+    "intptr_t",
+    "uintptr_t",
+    "size_t",
+    "ssize_t",
+    "ptrdiff_t",
+    "id_t",
+    "pid_t",
+    "_Bool",
+];
+
 impl<'a> Lexer<'a> {
     pub fn new(file_id: FileId, input: &'a str) -> Self {
+        let mut decls: Declarations = Vec::with_capacity(BUILTIN_TYPE_NAMES.len());
+        for name in BUILTIN_TYPE_NAMES {
+            decls.push((
+                (*name).to_owned(),
+                Declaration {
+                    kind: DeclarationKind::Typedef,
+                    origin: Origin::new_builtin(),
+                    is_forward: false,
+                },
+            ));
+        }
         Self {
             position: Position {
                 kind: PositionKind::File(file_id),
@@ -428,7 +467,7 @@ impl<'a> Lexer<'a> {
             chars: input.chars().collect::<Vec<_>>().into(),
             chars_idx: 0,
             attributes: Vec::new(),
-            decls: Vec::new(),
+            decls,
             globals: HashMap::new(),
             identifiers: HashMap::new(),
         }

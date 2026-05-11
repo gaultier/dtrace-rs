@@ -1595,6 +1595,63 @@ syscall::close:entry
     }
 
     #[test]
+    fn test_typedef_struct_using_builtin_type_after_pragmas() {
+        // Reproduces a user-reported failure: `size_t` is a built-in dtrace
+        // type (pre-registered by the lexer, not a user typedef) and must be
+        // recognised as a type specifier inside a struct body — including
+        // when the file starts with `#pragma` directives.
+        let input = "#pragma D option dynvarsize=16m\n\
+                     #pragma D option cleanrate=100hz\n\
+                     \n\
+                     typedef enum {AccessKindRead=1, AccessKindWrite=2} AccessKind;\n\
+                     \n\
+                     typedef struct {\n  AccessKind kind;\n  size_t tid;\n  int ts;\n} Access;\n";
+        assert_eq!(
+            fmt(input),
+            "#pragma D option dynvarsize=16m
+#pragma D option cleanrate=100hz
+
+typedef enum {
+  AccessKindRead = 1,
+  AccessKindWrite = 2
+} AccessKind;
+
+typedef struct {
+  AccessKind kind;
+  size_t tid;
+  int ts;
+} Access;
+"
+        );
+    }
+
+    #[test]
+    fn test_typedef_struct_referencing_prior_typedef_names() {
+        // Three back-to-back typedefs: the last one's struct body refers to
+        // `AccessKind` and `size_t`, which the formatter must accept as
+        // type specifiers thanks to typedef-name registration.
+        let input = "typedef enum {AccessKindRead=1, AccessKindWrite=2} AccessKind;\n\
+                     typedef unsigned long size_t;\n\
+                     typedef struct {AccessKind kind; size_t tid; int ts;} Access;";
+        assert_eq!(
+            fmt(input),
+            "typedef enum {
+  AccessKindRead = 1,
+  AccessKindWrite = 2
+} AccessKind;
+
+typedef unsigned long size_t;
+
+typedef struct {
+  AccessKind kind;
+  size_t tid;
+  int ts;
+} Access;
+"
+        );
+    }
+
+    #[test]
     fn test_typedef_anonymous_enum_with_declarator() {
         let input = "typedef enum {AccessKindRead=1, AccessKindWrite=2} AccessKind;";
         assert_eq!(
