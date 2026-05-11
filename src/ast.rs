@@ -682,7 +682,16 @@ impl<'a> Parser<'a> {
             // (including qualifiers and pointer declarators) go through `parse_type_name`.
             let typ_str = if self.peek1().kind == TokenKind::Identifier {
                 let tok = self.lexer.lex();
-                lex::str_from_source(self.lexer.input, tok.origin).to_owned()
+                let mut name = lex::str_from_source(self.lexer.input, tok.origin).to_owned();
+                // Accept a trailing pointer chain on an unresolved identifier so
+                // that `(SomeType*)x` parses even when `SomeType` has not been
+                // registered as a typedef. Without this the formatter cannot
+                // round-trip programs that reference an external type.
+                while self.peek1().kind == TokenKind::Star {
+                    self.lexer.lex();
+                    name.push('*');
+                }
+                name
             } else if let Some(tn) = self.parse_type_name() {
                 lex::str_from_source(self.lexer.input, self.origin(tn)).to_owned()
             } else {

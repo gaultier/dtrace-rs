@@ -1818,6 +1818,22 @@ syscall::close:entry
     }
 
     #[test]
+    fn test_cast_to_unresolved_identifier_pointer() {
+        // `(SomeType*)x` must parse and round-trip even when `SomeType`
+        // hasn't been declared as a typedef — the cast lookahead consumes
+        // any trailing `*` chain attached to the identifier.
+        let input = "BEGIN {\n  this->foo = (SomeType*)bar;\n}";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  this->foo = (SomeType*)bar;
+}
+"
+        );
+    }
+
+    #[test]
     fn test_cast_to_builtin_type_pointer() {
         // Regression: `(uintptr_t*)expr` was misparsed because the cast
         // lookahead didn't include `TokenKind::TypeName`, so registered
