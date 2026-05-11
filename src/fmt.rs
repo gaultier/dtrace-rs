@@ -1595,6 +1595,19 @@ syscall::close:entry
     }
 
     #[test]
+    fn test_typedef_anonymous_enum_with_declarator() {
+        let input = "typedef enum {AccessKindRead=1, AccessKindWrite=2} AccessKind;";
+        assert_eq!(
+            fmt(input),
+            "typedef enum {
+  AccessKindRead = 1,
+  AccessKindWrite = 2
+} AccessKind;
+"
+        );
+    }
+
+    #[test]
     fn test_all_in_one_idempotent() {
         // Parse and format the comprehensive example file (pass 1), then parse and
         // format the result again (pass 2).  The two passes must produce identical

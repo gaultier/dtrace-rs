@@ -4861,4 +4861,52 @@ mod tests {
             compiled.errors
         );
     }
+
+    #[test]
+    fn test_typedef_anonymous_enum_with_declarator() {
+        // Regression: the lexer used to flip back to `ProgramOuterScope` when
+        // the closing `}` of the enum body brought brace depth to zero, which
+        // caused the trailing `AccessKind` declarator to be lexed as a probe
+        // specifier rather than an identifier.
+        let input = "typedef enum {AccessKindRead=1, AccessKindWrite=2} AccessKind;";
+        let compiled = crate::compile(input, 1);
+        assert!(
+            compiled.errors.is_empty(),
+            "expected no errors, got: {:?}",
+            compiled.errors
+        );
+
+        let root = compiled.ast_root.expect("expected a parsed root node");
+        let NodeKind::TranslationUnit(ref top) = compiled.ast_nodes[root].kind else {
+            panic!("expected TranslationUnit");
+        };
+        assert_eq!(top.len(), 1);
+
+        let NodeKind::Declaration {
+            declarators: Some(declarators_id),
+            ..
+        } = compiled.ast_nodes[top[0]].kind
+        else {
+            panic!("expected Declaration with declarators");
+        };
+
+        let NodeKind::InitDeclarators(ref decls) = compiled.ast_nodes[declarators_id].kind else {
+            panic!("expected InitDeclarators");
+        };
+        assert_eq!(decls.len(), 1);
+
+        let NodeKind::Declarator {
+            direct: direct_id, ..
+        } = compiled.ast_nodes[decls[0]].kind
+        else {
+            panic!("expected Declarator");
+        };
+        let NodeKind::DirectDeclarator { ident, .. } = compiled.ast_nodes[direct_id].kind else {
+            panic!("expected DirectDeclarator");
+        };
+        let NodeKind::Identifier(ref name) = compiled.ast_nodes[ident].kind else {
+            panic!("expected Identifier");
+        };
+        assert_eq!(name, "AccessKind");
+    }
 }
