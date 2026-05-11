@@ -236,7 +236,7 @@ fn main() {
                     for entry in WalkDir::new(&file_path) {
                         match entry {
                             Ok(file) if file.file_type().is_file() => {
-                                let file_content = std::fs::read_to_string(&file_path).unwrap();
+                                let file_content = std::fs::read_to_string(file.path()).unwrap();
                                 fmt_file(
                                     &file.into_path().to_string_lossy().to_string(),
                                     in_place,
@@ -264,7 +264,7 @@ fn main() {
                     for entry in WalkDir::new(&file_path) {
                         match entry {
                             Ok(file) if file.file_type().is_file() => {
-                                let file_content = std::fs::read_to_string(&file_path).unwrap();
+                                let file_content = std::fs::read_to_string(file.path()).unwrap();
                                 fmt_md_file(
                                     file.into_path().to_string_lossy().to_string(),
                                     in_place,
