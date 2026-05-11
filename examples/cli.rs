@@ -85,13 +85,14 @@ fn init_logger(level: LevelFilter) {
 /// Compile `source` and write the formatted output to `out`. Returns `false`
 /// if compilation produced errors (which are written to stderr); in that case
 /// `out` is not written to.
-fn format_dtrace(out: &mut impl Write, source: &str, file_name: &str) -> bool {
+fn format_dtrace(out: &mut impl Write, source: &str, file_name: &str, offset_line: usize) -> bool {
     let mut file_id_to_name = HashMap::new();
     file_id_to_name.insert(1, file_name.to_owned());
 
-    let compiled = compile(source, 1);
+    let mut compiled = compile(source, 1);
 
-    for err in &compiled.errors {
+    for err in &mut compiled.errors {
+        err.origin.start.line += offset_line as u32;
         err.write(&mut std::io::stderr(), source, &file_id_to_name)
             .unwrap();
         eprintln!()
@@ -116,12 +117,17 @@ fn format_dtrace(out: &mut impl Write, source: &str, file_name: &str) -> bool {
 
 /// Recursively collect `(start_offset, end_offset, value)` for every fenced
 /// code block whose info string starts with `dtrace`.
-fn collect_dtrace_blocks<'a>(node: &'a Node, out: &mut Vec<(usize, usize, &'a str)>) {
+fn collect_dtrace_blocks<'a>(node: &'a Node, out: &mut Vec<(usize, usize, &'a str, usize)>) {
     if let Node::Code(code) = node
         && code.lang.as_deref() == Some("dtrace")
         && let Some(pos) = &code.position
     {
-        out.push((pos.start.offset, pos.end.offset, code.value.as_str()));
+        out.push((
+            pos.start.offset,
+            pos.end.offset,
+            code.value.as_str(),
+            pos.start.line,
+        ));
         return;
     }
     if let Some(children) = node.children() {
@@ -138,12 +144,12 @@ fn format_markdown(content: &str, file_name: &str) -> Option<String> {
     let tree = markdown::to_mdast(content, &markdown::ParseOptions::default()).unwrap();
     let mut blocks = Vec::new();
     collect_dtrace_blocks(&tree, &mut blocks);
-    blocks.sort_by_key(|(start, _, _)| *start);
+    blocks.sort_by_key(|(start, _, _, _)| *start);
 
     let mut out = String::with_capacity(content.len());
     let mut cursor = 0;
     let mut had_error = false;
-    for (start, end, value) in blocks {
+    for (start, end, value, start_line) in blocks {
         out.push_str(&content[cursor..start]);
         let block_text = &content[start..end];
         // `value` is the inner code text, present verbatim in the block —
@@ -155,7 +161,7 @@ fn format_markdown(content: &str, file_name: &str) -> Option<String> {
             continue;
         };
         let mut formatted = Vec::new();
-        if !format_dtrace(&mut formatted, value, file_name) {
+        if !format_dtrace(&mut formatted, value, file_name, start_line) {
             had_error = true;
             out.push_str(block_text);
             cursor = end;
@@ -325,13 +331,13 @@ fn fmt_md_file(file: String, in_place: bool, file_content: &str) {
 fn fmt_file(file_path: &String, in_place: bool, file_content: String) {
     if in_place {
         let mut buf = Vec::new();
-        if !format_dtrace(&mut buf, &file_content, file_path) {
+        if !format_dtrace(&mut buf, &file_content, file_path, 0) {
             std::process::exit(1);
         }
         std::fs::write(file_path, &buf).unwrap();
     } else {
         let mut stdout = std::io::stdout().lock();
-        if !format_dtrace(&mut stdout, &file_content, file_path) {
+        if !format_dtrace(&mut stdout, &file_content, file_path, 0) {
             std::process::exit(1);
         }
         stdout.flush().unwrap();
