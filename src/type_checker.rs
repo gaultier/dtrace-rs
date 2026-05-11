@@ -201,6 +201,7 @@ pub fn check_node(
             cond,
             then_block,
             else_block,
+            ..
         } => {
             check_node(*cond, nodes, errs, node_to_type);
             check_node(*then_block, nodes, errs, node_to_type);

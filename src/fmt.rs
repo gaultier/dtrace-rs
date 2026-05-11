@@ -215,8 +215,8 @@ impl<'a, W: Write> Formatter<'a, W> {
     /// Formats an `if`/`else` branch, always emitting surrounding braces. If `node_id`
     /// is already a `Block`, its children are inlined directly to avoid double braces.
     fn fmt_branch(&mut self, node_id: NodeId, indent: usize) -> std::io::Result<()> {
-        let children = match self.nodes[node_id].kind.clone() {
-            NodeKind::Block(children) => children,
+        let (children, block_end) = match self.nodes[node_id].kind.clone() {
+            NodeKind::Block(children) => (children, self.nodes[node_id].origin.end.byte_offset),
             _ => {
                 self.w.write_all(b"{\n")?;
                 self.indent(indent + 2)?;
@@ -229,10 +229,16 @@ impl<'a, W: Write> Formatter<'a, W> {
         };
         self.w.write_all(b"{\n")?;
         for child_id in children {
+            let start_byte = self.nodes[child_id].origin.start.byte_offset;
+            self.emit_pending_annotations(start_byte, indent + 2)?;
             self.indent(indent + 2)?;
             self.fmt(child_id, indent + 2)?;
             self.w.write_all(b"\n")?;
         }
+        // Flush comments/directives between the last statement and `}` so
+        // patterns like `if (cond) { /* x */ }` don't lose the annotation
+        // through the brace.
+        self.emit_pending_annotations(block_end + 1, indent + 2)?;
         self.indent(indent)?;
         self.w.write_all(b"}")?;
         Ok(())
@@ -310,16 +316,29 @@ impl<'a, W: Write> Formatter<'a, W> {
             }
             NodeKind::If {
                 cond,
+                cond_close_paren_byte,
                 then_block,
                 else_block,
             } => {
                 self.w.write_all(b"if (")?;
                 self.fmt(cond, indent)?;
+                // Comments that sit inside the parens — `if (cond /* x */)` —
+                // must be drained before `)` is emitted. The parser records
+                // the `)`'s byte offset for exactly this purpose.
+                self.drain_inline_comments_before_close(cond_close_paren_byte)?;
                 self.w.write_all(b") ")?;
+                // Comments between `)` and `{` — `if (cond) /* x */ {` —
+                // are drained before delegating to `fmt_branch`, so the
+                // brace is preceded by them.
+                let then_start = self.nodes[then_block].origin.start.byte_offset;
+                self.drain_inline_comments_before(then_start)?;
                 self.fmt_branch(then_block, indent)?;
 
                 if let Some(else_id) = else_block {
                     self.w.write_all(b" else ")?;
+                    // Same idea between `else` and the `{` or `if`.
+                    let else_start = self.nodes[else_id].origin.start.byte_offset;
+                    self.drain_inline_comments_before(else_start)?;
                     // `else if` chains are not wrapped in an extra set of braces.
                     if matches!(self.nodes[else_id].kind, NodeKind::If { .. }) {
                         self.fmt(else_id, indent)?;
@@ -1642,6 +1661,57 @@ syscall::close:entry
     }
 
     #[test]
+    fn test_multi_line_comment_between_close_paren_and_open_brace_of_if() {
+        // A comment sitting between `)` and `{` of an `if` must stay there.
+        let input = "BEGIN {\n  if (foo) /* bar */ {\n  }\n}";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  if (foo) /* bar */ {
+  }
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_multi_line_comment_inside_if_condition() {
+        // A comment sitting inside the parens of an `if` condition must
+        // stay inside the parens, not get moved before or after them.
+        let input = "BEGIN {\n  if (foo /* bar */) {\n  }\n}";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  if (foo /* bar */) {
+  }
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_multi_line_comment_inside_if_block_body() {
+        // Regression: `fmt_branch` inlined the `Block` children directly
+        // without running `emit_pending_annotations` before `}`, so a
+        // comment inside `if (cond) { /* x */ }` leaked past the brace and
+        // ended up after the closing `}` of the enclosing scope.
+        let input = "BEGIN {\n  if (foo) { /* bar */\n  }\n}";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  if (foo) {
+    /* bar */
+
+  }
+}
+"
+        );
+    }
+
+    #[test]
     fn test_inline_multi_line_comment_between_specifier_and_declarator() {
         // A `/* */` comment sitting between two sibling tokens of the same
         // declaration must land at its original position rather than being
@@ -1656,7 +1726,8 @@ syscall::close:entry
         // lookahead didn't include `TokenKind::TypeName`, so registered
         // built-in types like `uintptr_t` were not recognised as the start
         // of a cast.
-        let input = "BEGIN {\n  this->ptr_to_slice_header = *(uintptr_t*)copyin(uregs[R_X26] + 16, 8);\n}";
+        let input =
+            "BEGIN {\n  this->ptr_to_slice_header = *(uintptr_t*)copyin(uregs[R_X26] + 16, 8);\n}";
         assert_eq!(
             fmt(input),
             "BEGIN

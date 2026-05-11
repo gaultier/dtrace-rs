@@ -68,6 +68,10 @@ pub enum NodeKind {
     TranslationUnit(Vec<NodeId>),
     If {
         cond: NodeId,
+        /// Byte offset of the `)` closing the condition. Recorded so the
+        /// formatter can place comments that sit between the condition
+        /// expression and the `)`.
+        cond_close_paren_byte: u32,
         then_block: NodeId,
         else_block: Option<NodeId>,
     },
@@ -1716,10 +1720,13 @@ impl<'a> Parser<'a> {
                     );
                     self.new_node_unknown()
                 });
-                self.expect(
+                let right_paren = self.expect(
                     TokenKind::RightParen,
                     "closing parenthesis in if expression",
                 );
+                let cond_close_paren_byte = right_paren
+                    .map(|t| t.origin.start.byte_offset)
+                    .unwrap_or_else(|| self.origin(cond).end.byte_offset);
                 let then_block = self.parse_statement_or_block().unwrap_or_else(|| {
                     self.error(
                         ErrorKind::MissingStatementOrBlock,
@@ -1747,6 +1754,7 @@ impl<'a> Parser<'a> {
                 Some(self.new_node(Node {
                     kind: NodeKind::If {
                         cond,
+                        cond_close_paren_byte,
                         then_block,
                         else_block,
                     },
@@ -1763,12 +1771,19 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        if let Some(_left_curly) = self.match_kind(TokenKind::LeftCurly) {
+        if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
             let stmt_list = self.parse_statement_list();
-            self.expect(
+            let right_curly = self.expect(
                 TokenKind::RightCurly,
                 "matching right curly brace after block",
             );
+            // Extend the `Block` node's origin to span the braces so callers
+            // can distinguish "comment before `{`" from "comment inside the
+            // block" via the start byte offset.
+            if let Some(block_id) = stmt_list {
+                let end_origin = right_curly.map(|t| t.origin).unwrap_or(left_curly.origin);
+                self.nodes[block_id].origin = left_curly.origin.merge(end_origin);
+            }
             return stmt_list;
         }
         self.parse_statement()
@@ -3566,6 +3581,7 @@ pub fn log(
             cond,
             then_block,
             else_block,
+            ..
         } => {
             log(nodes, *cond, indent + 2, file_id_to_name);
             log(nodes, *then_block, indent + 2, file_id_to_name);
