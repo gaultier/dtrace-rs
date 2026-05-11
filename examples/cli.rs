@@ -4,6 +4,7 @@ use argh::FromArgs;
 use compiler_rs_lib::compile;
 use log::{LevelFilter, Log, info};
 use markdown::mdast::Node;
+use walkdir::WalkDir;
 
 struct Logger {}
 
@@ -221,38 +222,61 @@ fn main() {
                 std::process::exit(1)
             };
         }
-        Command::Fmt(FmtCmd { file, in_place }) => {
+        Command::Fmt(FmtCmd {
+            file: file_path,
+            in_place,
+        }) => {
             init_logger(LevelFilter::Trace);
 
-            let file_content = std::fs::read_to_string(&file).unwrap();
-            if in_place {
-                let mut buf = Vec::new();
-                if !format_dtrace(&mut buf, &file_content, &file) {
-                    std::process::exit(1);
+            match std::fs::read_to_string(&file_path) {
+                Ok(file_content) => {
+                    fmt_file(&file_path, in_place, file_content);
                 }
-                std::fs::write(&file, &buf).unwrap();
-            } else {
-                let mut stdout = std::io::stdout().lock();
-                if !format_dtrace(&mut stdout, &file_content, &file) {
-                    std::process::exit(1);
+                Err(err) if err.kind() == std::io::ErrorKind::IsADirectory => {
+                    for entry in WalkDir::new(&file_path) {
+                        match entry {
+                            Ok(file) if file.file_type().is_file() => {
+                                let file_content = std::fs::read_to_string(&file_path).unwrap();
+                                fmt_file(
+                                    &file.into_path().to_string_lossy().to_string(),
+                                    in_place,
+                                    file_content,
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
                 }
-                stdout.flush().unwrap();
-            }
-        }
-        Command::FmtMd(FmtMdCmd { file, in_place }) => {
-            init_logger(LevelFilter::Trace);
-
-            let file_content = std::fs::read_to_string(&file).unwrap();
-            let Some(output) = format_markdown(&file_content, &file) else {
-                std::process::exit(1);
+                Err(err) => panic!("{}", err),
             };
-            if in_place {
-                std::fs::write(&file, output.as_bytes()).unwrap();
-            } else {
-                let mut stdout = std::io::stdout().lock();
-                stdout.write_all(output.as_bytes()).unwrap();
-                stdout.flush().unwrap();
-            }
+        }
+        Command::FmtMd(FmtMdCmd {
+            file: file_path,
+            in_place,
+        }) => {
+            init_logger(LevelFilter::Trace);
+
+            match std::fs::read_to_string(&file_path) {
+                Ok(file_content) => {
+                    fmt_md_file(file_path, in_place, &file_content);
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::IsADirectory => {
+                    for entry in WalkDir::new(&file_path) {
+                        match entry {
+                            Ok(file) if file.file_type().is_file() => {
+                                let file_content = std::fs::read_to_string(&file_path).unwrap();
+                                fmt_md_file(
+                                    file.into_path().to_string_lossy().to_string(),
+                                    in_place,
+                                    &file_content,
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Err(err) => panic!("{}", err),
+            };
         }
         Command::Lsp(_) => {
             init_logger(LevelFilter::Error);
@@ -260,5 +284,34 @@ fn main() {
             let mut stdin = std::io::stdin().lock();
             compiler_rs_lib::lsp::run(&mut stdin, &mut stdout);
         }
+    }
+}
+
+fn fmt_md_file(file: String, in_place: bool, file_content: &str) {
+    let Some(output) = format_markdown(&file_content, &file) else {
+        std::process::exit(1);
+    };
+    if in_place {
+        std::fs::write(&file, output.as_bytes()).unwrap();
+    } else {
+        let mut stdout = std::io::stdout().lock();
+        stdout.write_all(output.as_bytes()).unwrap();
+        stdout.flush().unwrap();
+    }
+}
+
+fn fmt_file(file_path: &String, in_place: bool, file_content: String) {
+    if in_place {
+        let mut buf = Vec::new();
+        if !format_dtrace(&mut buf, &file_content, file_path) {
+            std::process::exit(1);
+        }
+        std::fs::write(file_path, &buf).unwrap();
+    } else {
+        let mut stdout = std::io::stdout().lock();
+        if !format_dtrace(&mut stdout, &file_content, file_path) {
+            std::process::exit(1);
+        }
+        stdout.flush().unwrap();
     }
 }
