@@ -36,6 +36,8 @@ typedef struct {
   int ts;
 } Access;
 
+Access accesses[uintptr_t /* data ptr */];
+
 // Inline  constant  definition .
 inline int MAX_SIZE = 1024;
 
