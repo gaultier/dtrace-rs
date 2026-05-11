@@ -749,6 +749,19 @@ impl<'a> Lexer<'a> {
         }
 
         let origin = start.extend_to_inclusive(self.position);
+        let lexeme = str_from_source(self.input, origin);
+
+        // Match `<S2>{RGX_PSPEC}` in `dt_lex.l`: if the bare lexeme resolves
+        // to a registered type, return `TypeName` and switch to clause/expr
+        // mode so the declaration parses, rather than treating it as a probe
+        // specifier.
+        if self.decls.iter().any(|(name, _)| name == lexeme) {
+            self.state = LexerState::InsideClauseAndExpr;
+            return Token {
+                kind: TokenKind::TypeName,
+                origin,
+            };
+        }
 
         Token {
             kind: TokenKind::ProbeSpecifier,

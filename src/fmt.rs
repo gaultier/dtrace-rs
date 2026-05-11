@@ -672,6 +672,19 @@ impl<'a, W: Write> Formatter<'a, W> {
                 if let Some(params_id) = params {
                     self.fmt(params_id, indent)?;
                 }
+                // Drain any multi-line comments that appear inside `[...]`
+                // and emit them inline rather than on their own line, so
+                // patterns like `arr[uintptr_t /* data ptr */]` round-trip.
+                let bracket_end = origin.end.byte_offset;
+                while let Some(c) = self.comments.get(self.comment_idx) {
+                    if c.origin.start.byte_offset >= bracket_end || c.kind != CommentKind::MultiLine
+                    {
+                        break;
+                    }
+                    let text = lex::str_from_source(self.input, c.origin);
+                    write!(self.w, " {}", text)?;
+                    self.comment_idx += 1;
+                }
                 self.w.write_all(b"]")?;
             }
             NodeKind::Parameters(node_ids) => {
@@ -1591,6 +1604,22 @@ syscall::close:entry
         assert_eq!(
             fmt(input),
             "#pragma D option quiet\n__attribute__((nodtrace));\nint x;\n"
+        );
+    }
+
+    #[test]
+    fn test_array_decl_keyed_by_builtin_type_with_inline_comment() {
+        // The array subscript holds a type name (`uintptr_t`) and an inline
+        // multi-line comment. Both must round-trip in place.
+        let input = "typedef struct {\n  int x;\n} Access;\n\
+                     Access accesses[uintptr_t /* data ptr */];";
+        assert_eq!(
+            fmt(input),
+            "typedef struct {
+  int x;
+} Access;
+
+Access accesses[uintptr_t /* data ptr */];\n"
         );
     }
 

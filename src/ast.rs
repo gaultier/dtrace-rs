@@ -2301,21 +2301,23 @@ impl<'a> Parser<'a> {
         } else {
             false
         };
-        if is_typedef && let Some(decls_id) = init_decl_list
-            && let NodeKind::InitDeclarators(ref ids) = self.nodes[decls_id].kind {
-                for id in ids {
-                    if let Some((name, origin)) = declarator_inner_identifier(&self.nodes, *id) {
-                        record_type_decl(
-                            &mut self.lexer.decls,
-                            &mut self.lexer.errors,
-                            &name,
-                            DeclarationKind::Typedef,
-                            false,
-                            origin,
-                        );
-                    }
+        if is_typedef
+            && let Some(decls_id) = init_decl_list
+            && let NodeKind::InitDeclarators(ref ids) = self.nodes[decls_id].kind
+        {
+            for id in ids {
+                if let Some((name, origin)) = declarator_inner_identifier(&self.nodes, *id) {
+                    record_type_decl(
+                        &mut self.lexer.decls,
+                        &mut self.lexer.errors,
+                        &name,
+                        DeclarationKind::Typedef,
+                        false,
+                        origin,
+                    );
                 }
             }
+        }
 
         self.lexer.begin(lex::LexerState::ProgramOuterScope);
         let start_origin = self.origin(decl_specifiers);
@@ -3057,14 +3059,17 @@ impl<'a> Parser<'a> {
 
         let params = self.parse_array_parameters();
 
-        self.expect(
-            TokenKind::LeftSquareBracket,
-            "match square bracket for array",
+        let right_square_bracket = self.expect(
+            TokenKind::RightSquareBracket,
+            "matching square bracket for array",
         );
 
+        let end_origin = right_square_bracket
+            .map(|t| t.origin)
+            .unwrap_or(left_square_bracket.origin);
         Some(self.new_node(Node {
             kind: NodeKind::Array(params),
-            origin: left_square_bracket.origin,
+            origin: left_square_bracket.origin.merge(end_origin),
         }))
     }
 
@@ -4925,6 +4930,67 @@ mod tests {
             "expected no errors, got: {:?}",
             compiled.errors
         );
+    }
+
+    #[test]
+    fn test_array_decl_keyed_by_builtin_type_with_inline_comment() {
+        // Exercises three things:
+        //   - a typedef name (`Access`) at the start of a top-level declaration
+        //     must be reclassified from `ProbeSpecifier` to `TypeName` to match
+        //     `<S2>{RGX_PSPEC}` in `dt_lex.l`,
+        //   - the array subscript can hold a type name (`uintptr_t`, a built-in),
+        //   - a multi-line comment inside `[...]` does not break parsing.
+        let input = "typedef struct {\n  int x;\n} Access;\n\
+                     Access accesses[uintptr_t /* data ptr */];";
+        let compiled = crate::compile(input, 1);
+        assert!(
+            compiled.errors.is_empty(),
+            "expected no errors, got: {:?}",
+            compiled.errors
+        );
+
+        let root = compiled.ast_root.expect("expected a parsed root node");
+        let NodeKind::TranslationUnit(ref top) = compiled.ast_nodes[root].kind else {
+            panic!("expected TranslationUnit");
+        };
+        assert_eq!(top.len(), 2);
+
+        // The second declaration: `Access accesses[uintptr_t];`.
+        let NodeKind::Declaration {
+            declarators: Some(declarators_id),
+            ..
+        } = compiled.ast_nodes[top[1]].kind
+        else {
+            panic!("expected Declaration with declarators");
+        };
+        let NodeKind::InitDeclarators(ref decls) = compiled.ast_nodes[declarators_id].kind else {
+            panic!("expected InitDeclarators");
+        };
+        let NodeKind::Declarator { direct, .. } = compiled.ast_nodes[decls[0]].kind else {
+            panic!("expected Declarator");
+        };
+
+        // Outer DirectDeclarator carries the array suffix; its base is the
+        // inner DirectDeclarator naming `accesses`.
+        let NodeKind::DirectDeclarator {
+            ident: inner,
+            suffix: Some(suffix_id),
+        } = compiled.ast_nodes[direct].kind
+        else {
+            panic!("expected DirectDeclarator with a suffix");
+        };
+        assert!(matches!(
+            compiled.ast_nodes[suffix_id].kind,
+            NodeKind::Array(_)
+        ));
+        let NodeKind::DirectDeclarator { ident: name_id, .. } = compiled.ast_nodes[inner].kind
+        else {
+            panic!("expected inner DirectDeclarator naming the variable");
+        };
+        let NodeKind::Identifier(ref name) = compiled.ast_nodes[name_id].kind else {
+            panic!("expected Identifier");
+        };
+        assert_eq!(name, "accesses");
     }
 
     #[test]
