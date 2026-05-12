@@ -445,8 +445,26 @@ const BUILTIN_TYPE_NAMES: &[&str] = &[
     "pid_t",
     "_Bool",
     // Platform / kernel types referenced by `libdtrace`'s built-in
-    // variable table but supplied externally via CTF.
+    // variable table or its shipped scripts but supplied externally via
+    // CTF / kernel headers. Pre-registering them lets `.d` files that
+    // mention these types parse without an explicit `typedef`. Anything
+    // here is either:
+    //   - referenced via `&dt_idops_type, "<name>"` in `dt_open.c`, or
+    //   - used as a type in the bundled scripts under `/scripts` (e.g.
+    //     `procfs.d`, `swift_*.d`) or the regression tests under
+    //     `/test/tst`.
     "user_addr_t",
+    "uid_t",
+    "gid_t",
+    "dev_t",
+    "time_t",
+    "processorid_t",
+    "vnode_t",
+    "timestruc_t",
+    "psinfo_t",
+    "lwpsinfo_t",
+    "proc_t",
+    "kthread_t",
 ];
 
 impl<'a> Lexer<'a> {
