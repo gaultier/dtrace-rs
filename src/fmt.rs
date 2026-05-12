@@ -2021,6 +2021,74 @@ BEGIN
     }
 
     #[test]
+    fn test_directive_trailing_whitespace_trimmed() {
+        // The lexer accepts trailing horizontal whitespace before the
+        // directive-terminating newline (`#pragma D option quiet   \n`),
+        // but the formatter must not preserve it — trailing whitespace is
+        // invisible noise.
+        let input = "#pragma D option quiet   \nint x;";
+        assert_eq!(fmt(input), "#pragma D option quiet\nint x;\n");
+    }
+
+    #[test]
+    fn test_directive_trailing_tabs_trimmed() {
+        // Tabs are ASCII whitespace and must be trimmed alongside spaces.
+        let input = "#pragma D option quiet\t\t\nint x;";
+        assert_eq!(fmt(input), "#pragma D option quiet\nint x;\n");
+    }
+
+    #[test]
+    fn test_directive_leading_whitespace_after_hash_trimmed() {
+        // Whitespace between `#` and the directive keyword is legal in
+        // both K&R and the official `dt_lex.l`, but reads as a typo. The
+        // formatter normalises `#   pragma …` to `#pragma …`.
+        let input = "#   pragma D option quiet\nint x;";
+        assert_eq!(fmt(input), "#pragma D option quiet\nint x;\n");
+    }
+
+    #[test]
+    fn test_directive_leading_tab_after_hash_trimmed() {
+        // Same normalisation for a tab between `#` and the keyword.
+        let input = "#\tpragma D option quiet\nint x;";
+        assert_eq!(fmt(input), "#pragma D option quiet\nint x;\n");
+    }
+
+    #[test]
+    fn test_directive_leading_and_trailing_whitespace_trimmed() {
+        // Both ends are trimmed in one pass.
+        let input = "#  pragma D option quiet   \nint x;";
+        assert_eq!(fmt(input), "#pragma D option quiet\nint x;\n");
+    }
+
+    #[test]
+    fn test_directive_internal_whitespace_preserved() {
+        // Only leading (post-`#`) and trailing whitespace is trimmed —
+        // whitespace inside the directive body (e.g. the tabs that the
+        // illumos test corpus uses between `#pragma`, `ident`, and the
+        // version string) must round-trip unchanged so the directive
+        // stays recognisable to readers used to that style.
+        let input = "#pragma\tD\toption\tquiet\nint x;";
+        assert_eq!(fmt(input), "#pragma\tD\toption\tquiet\nint x;\n");
+    }
+
+    #[test]
+    fn test_directive_trailing_whitespace_with_cpp_define() {
+        // The trimming rule applies to all directive kinds, not just
+        // `#pragma` — `#define` lines from the illumos corpus often have
+        // trailing whitespace before the newline.
+        let input = "#define VALUE 5   \nBEGIN { x = VALUE; }";
+        assert_eq!(
+            fmt(input),
+            "#define VALUE 5
+BEGIN
+{
+  x = VALUE;
+}
+"
+        );
+    }
+
+    #[test]
     fn test_cpp_include_preserved() {
         // `#include` reaches the D lexer only when the user has not run `cpp`
         // beforehand. The formatter must pass it through verbatim, just like
