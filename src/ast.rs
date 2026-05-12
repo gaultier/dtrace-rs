@@ -2347,9 +2347,15 @@ impl<'a> Parser<'a> {
 
     #[warn(unused_results)]
     pub fn parse(&mut self) -> Option<NodeId> {
-        // self.resolve_nodes();
-
-        self.parse_program()
+        let result = self.parse_program();
+        // Drain trailing tokens so any control directives, comments, or
+        // attributes that appear after the last syntactically-relevant
+        // token are recorded by the real lexer. `peek1`/`peek2` clone the
+        // lexer with empty side-effect lists, so a `#endif` (or trailing
+        // comment) that the parser reaches only via peek would otherwise
+        // be dropped.
+        while !matches!(self.lexer.lex().kind, TokenKind::Eof) {}
+        result
     }
 
     // abstract_declarator     → pointer

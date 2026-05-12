@@ -454,6 +454,38 @@ fn is_character_probe_specifier_rest(c: char) -> bool {
    '-' | '<' | '>' | '+' | '$' | ':' | '0'..='9' | 'a'..='z'  |  'A'..='Z' | '_' | '`' | '.' | '?' | '*' | '\\' | '[' | ']' | '!' | '(' | ')' )
 }
 
+/// Returns `true` for the C/D keywords that introduce a type or type
+/// qualifier, used by `lex_probe_specifier` to resolve the `int*` /
+/// `int*foo` ambiguity in favour of a pointer declaration.
+fn is_type_introducing_keyword(s: &str) -> bool {
+    matches!(
+        s,
+        "auto"
+            | "char"
+            | "const"
+            | "counter"
+            | "double"
+            | "enum"
+            | "extern"
+            | "float"
+            | "int"
+            | "long"
+            | "register"
+            | "restrict"
+            | "short"
+            | "signed"
+            | "static"
+            | "string"
+            | "struct"
+            | "typedef"
+            | "union"
+            | "unsigned"
+            | "userland"
+            | "void"
+            | "volatile"
+    )
+}
+
 /// Type names pre-populated into the D CTF container by `libdtrace` at open
 /// time (see `_dtrace_typedefs_{32,64}` in `dt_open.c`), plus the single-token
 /// intrinsic `_Bool` and a small set of platform types that the official
@@ -805,6 +837,28 @@ impl<'a> Lexer<'a> {
             match c {
                 _ if !is_character_probe_specifier_rest(c) => {
                     break;
+                }
+                '*' => {
+                    // `*` is both a probe-specifier glob char and the
+                    // pointer/multiplication operator (`dt_lex.l` comment
+                    // above). Resolve the ambiguity in favour of a pointer
+                    // declaration when the lexeme consumed so far is a C
+                    // type-introducing keyword or a registered typedef —
+                    // i.e. `int*foo` stops after `int`, leaving `*foo` for
+                    // the next call.
+                    let so_far_origin = start.extend_to_inclusive(self.position);
+                    let so_far = str_from_source(self.input, so_far_origin);
+                    if is_type_introducing_keyword(so_far)
+                        || self
+                            .ctx
+                            .borrow()
+                            .decls
+                            .iter()
+                            .any(|(name, _)| name == so_far)
+                    {
+                        break;
+                    }
+                    self.advance(1);
                 }
                 _ => {
                     self.advance(1);
@@ -5713,6 +5767,21 @@ mod tests {
             "unexpected errors: {:?}",
             lexer.errors
         );
+    }
+
+    #[test]
+    fn test_lex_probe_specifier_pushback_for_pointer_decl() {
+        // Regression: at top level, `int*` (no space) was being lexed as a
+        // single probe specifier, so `int* foo;` failed to parse as a
+        // declaration. `lex_probe_specifier` now does pushback when the
+        // consumed-so-far lexeme is a C type keyword, leaving `*` for the
+        // next token.
+        let input = "int* foo;";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        assert_eq!(lexer.lex().kind, TokenKind::KeywordInt);
+        assert_eq!(lexer.lex().kind, TokenKind::Star);
+        assert_eq!(lexer.lex().kind, TokenKind::Identifier);
+        assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
     }
 
     #[test]

@@ -30,6 +30,30 @@ impl<'a, W: Write> Formatter<'a, W> {
         write!(self.w, "{:width$}", "", width = n)
     }
 
+    /// Returns `true` if any not-yet-emitted directive, comment, or
+    /// `__attribute__` annotation has its start byte in `[from, to)`. Used
+    /// by `TranslationUnit` to suppress the between-declarations blank
+    /// line when a `#else`/`#endif`/etc. already separates them.
+    fn gap_has_annotation(&self, from: u32, to: u32) -> bool {
+        let in_range = |b: u32| from <= b && b < to;
+        let next_comment_in = self
+            .comments
+            .get(self.comment_idx)
+            .map(|c| in_range(c.origin.start.byte_offset))
+            .unwrap_or(false);
+        let next_directive_in = self
+            .directives
+            .get(self.directive_idx)
+            .map(|d| in_range(d.origin.start.byte_offset))
+            .unwrap_or(false);
+        let next_attribute_in = self
+            .attributes
+            .get(self.attribute_idx)
+            .map(|a| in_range(a.origin.start.byte_offset))
+            .unwrap_or(false);
+        next_comment_in || next_directive_in || next_attribute_in
+    }
+
     /// Emits one comment at the current `comment_idx`, advancing the index.
     fn emit_one_comment(&mut self, indent: usize) -> std::io::Result<()> {
         let comment = &self.comments[self.comment_idx];
@@ -478,15 +502,24 @@ impl<'a, W: Write> Formatter<'a, W> {
                 }
             }
             NodeKind::TranslationUnit(decls) => {
+                let mut prev_end: Option<u32> = None;
                 for (i, decl) in decls.iter().enumerate() {
                     let start_byte = self.nodes[*decl].origin.start.byte_offset;
-                    self.emit_pending_annotations(start_byte, indent)?;
-                    self.fmt(*decl, indent)?;
-                    // Separate top-level declarations with a blank line so the output
-                    // matches conventional C/D style.
-                    if i != decls.len() - 1 {
+                    // Separate top-level declarations with a blank line so
+                    // the output matches conventional C/D style — unless a
+                    // control directive or `__attribute__` annotation sits
+                    // in the gap. The directive line is itself a visual
+                    // separator (`#else`, `#endif`, etc.); an extra blank
+                    // inside `#ifdef`/`#else` arms reads as accidental.
+                    if i > 0
+                        && let Some(prev) = prev_end
+                        && !self.gap_has_annotation(prev, start_byte)
+                    {
                         self.w.write_all(b"\n")?;
                     }
+                    self.emit_pending_annotations(start_byte, indent)?;
+                    self.fmt(*decl, indent)?;
+                    prev_end = Some(self.nodes[*decl].origin.end.byte_offset);
                 }
                 // Flush any trailing annotations that appear after the last declaration.
                 self.emit_pending_annotations(u32::MAX, indent)?;
@@ -2122,6 +2155,26 @@ BEGIN
 {
   trace(1);
 }
+"
+        );
+    }
+
+    #[test]
+    fn test_cpp_ifdef_else_endif_around_declarations() {
+        // Regression: the trailing `#endif` was dropped because `peek1`
+        // clones the lexer with empty side-effect lists, so a directive
+        // that the parser only reached via peek (after the final decl) was
+        // never recorded by the real lexer. `parse` now drains to `Eof` to
+        // record it. Also: no blank line between consecutive decls when an
+        // intervening directive already provides visual separation.
+        let input = "#ifdef FOO\nint* foo;\n#else\nint* bar;\n#endif\n";
+        assert_eq!(
+            fmt(input),
+            "#ifdef FOO
+int *foo;
+#else
+int *bar;
+#endif
 "
         );
     }

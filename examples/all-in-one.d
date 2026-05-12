@@ -7,6 +7,8 @@
 #pragma  D  depends_on  library  procfs.d
 #pragma  D  line  1
 
+int *baz;
+
 struct Point {
   int x;
   int y;
@@ -37,26 +39,22 @@ typedef struct {
 } Access;
 
 Access accesses[uintptr_t /* data ptr */];
-
 // Inline  constant  definition .
 inline int MAX_SIZE = 1024;
-
 #pragma  D  binding  "1.0"  MAX_SIZE
 
 inline char LEVEL = 1;
 
 inline string LABEL = "ok";
-
 #pragma  D  attributes  Stable/Stable/Common  LABEL
 
 inline int computed = x > 0 ? x : 0;
+#define  FOO 1
 
-  #define  FOO 1
-
-#ifdef FOO 
- int* foo;
+#ifdef FOO
+int *foo;
 #else
- int* bar;
+int *bar;
 #endif
 
 #undef FOO
@@ -74,11 +72,9 @@ unsigned int uval;
 void *vptr;
 
 volatile int vval;
-
 // Whole line is skipped because `));` is followed by `;`.
 __attribute__((nodtrace));
 int foo(int a, int b);
-
 // Only the attribute is skipped because there is no trailing `;`.
 __attribute__((noreturn))
 int baz(int x);
@@ -170,7 +166,7 @@ syscall::open:entry
   x = sizeof y;
   x = stringof(y);
   x = stringof y;
-  x = (mytype)y;
+  x = (WithUnion)y;
   n = offsetof(int, field);
   x = xlate <int>(ptr);
   @n++;
@@ -183,6 +179,7 @@ syscall::open:entry
   x = "héllo";
   x = "日本語";
   x = "🎉";
+
   /* Conditional  statements . */
 
   if (x == 1) {
