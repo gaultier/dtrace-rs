@@ -243,7 +243,7 @@ fn main() {
                         match entry {
                             Ok(file)
                                 if file.file_type().is_file()
-                                    && file.path().extension() == Some("md".as_ref()) =>
+                                    && file.path().extension() == Some("d".as_ref()) =>
                             {
                                 match std::fs::read_to_string(file.path()) {
                                     Ok(file_content) => fmt_file(
