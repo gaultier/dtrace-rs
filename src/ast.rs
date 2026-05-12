@@ -674,8 +674,18 @@ impl<'a> Parser<'a> {
                     | TokenKind::KeywordUserland
                     | TokenKind::KeywordVoid
                     | TokenKind::KeywordVolatile
-            ) || (peek2.kind == TokenKind::Identifier
-                && lex::str_from_source(self.lexer.input, peek2.origin).contains('`')));
+            ) || (peek2.kind == TokenKind::Identifier && {
+                // A backtick-scoped identifier may be a typedef (e.g.
+                // `D`env_vars_32_t`) when it has a non-empty module prefix
+                // before the backtick. A leading-backtick form (e.g.
+                // `` `averunnable ``) is always a kernel-variable reference,
+                // never a type, so it must not trigger the cast branch.
+                let s = lex::str_from_source(self.lexer.input, peek2.origin);
+                match s.find('`') {
+                    Some(idx) => idx > 0,
+                    None => false,
+                }
+            }));
 
         if is_cast {
             let op = self.lexer.lex(); // consume `(`
@@ -3273,9 +3283,7 @@ impl<'a> Parser<'a> {
         // the caller (`parse_parameter_type_list`) so the `Parameters`
         // node and the `ParamEllipsis` end up as sibling fields of
         // `ParameterTypeList`.
-        while self.peek1().kind == TokenKind::Comma
-            && self.peek2().kind != TokenKind::DotDotDot
-        {
+        while self.peek1().kind == TokenKind::Comma && self.peek2().kind != TokenKind::DotDotDot {
             let comma = self.match_kind(TokenKind::Comma).unwrap();
             let param = self.parse_parameter_declaration().unwrap_or_else(|| {
                 self.error(
@@ -4462,6 +4470,21 @@ mod tests {
         assert!(
             matches!(&parser.nodes[root_id].kind, NodeKind::Cast { typ: t, .. } if t == "const int"),
             "expected Cast(\"const int\", ...), got {:?}",
+            parser.nodes[root_id].kind
+        );
+        assert!(parser.lexer.errors.is_empty(), "{:?}", parser.lexer.errors);
+    }
+
+    #[test]
+    fn test_leading_backtick_identifier_is_not_cast() {
+        // A leading-backtick identifier (e.g. `` `averunnable ``) is a
+        // kernel-variable reference, never a typedef name, so `(\`x % y)`
+        // must parse as a parenthesised expression, not a cast.
+        let input = "(`averunnable % fscale)";
+        let (parser, root_id) = parse_expr_input(input);
+        assert!(
+            !matches!(&parser.nodes[root_id].kind, NodeKind::Cast { .. }),
+            "expected parenthesised expression, got Cast: {:?}",
             parser.nodes[root_id].kind
         );
         assert!(parser.lexer.errors.is_empty(), "{:?}", parser.lexer.errors);
