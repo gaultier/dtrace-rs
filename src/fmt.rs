@@ -1771,6 +1771,22 @@ BEGIN
     }
 
     #[test]
+    fn test_comment_at_end_of_probe_body_stays_inside_braces() {
+        // A comment placed after the last statement but before `}` of a
+        // probe body must stay inside the braces, not be swapped past `}`.
+        let input = "BEGIN {\n  x = 1;\n  // last comment\n}";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = 1;
+  // last comment
+}
+"
+        );
+    }
+
+    #[test]
     fn test_trailing_line_comment_stays_attached_to_statement() {
         // A comment on the same line as a statement — `stmt; // remark` —
         // must remain on that line, not get punted to the next line.

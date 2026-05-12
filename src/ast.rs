@@ -2066,7 +2066,7 @@ impl<'a> Parser<'a> {
             None
         };
         let probe_specifier_origin = self.origin(probe_specifier);
-        if let Some(_left_curly) = self.match_kind(TokenKind::LeftCurly) {
+        if let Some(left_curly) = self.match_kind(TokenKind::LeftCurly) {
             let stmts = self.parse_statement_list();
 
             let right_curly = self.expect(
@@ -2076,6 +2076,13 @@ impl<'a> Parser<'a> {
             let end_origin = right_curly
                 .map(|t| t.origin)
                 .unwrap_or(probe_specifier_origin);
+
+            // Extend the action `Block`'s origin to span `{...}` so the
+            // formatter can flush comments sitting between the last
+            // statement and `}` (matching `parse_statement_or_block`).
+            if let Some(block_id) = stmts {
+                self.nodes[block_id].origin = left_curly.origin.merge(end_origin);
+            }
 
             let node_id = self.new_node(Node {
                 kind: NodeKind::ProbeDefinition {
