@@ -1269,12 +1269,28 @@ impl<'a> Lexer<'a> {
                 kind: TokenKind::Eof,
                 origin: self.position.into(),
             },
+            // Inside a control directive (`#pragma …`), the newline is the
+            // terminator the outer `#…` loop watches for. Returning `Eof`
+            // here (without consuming the `\n`) signals that loop to stop,
+            // and the caller still owns the `\n` for state restoration.
+            ((Some('\n'), _, _), LexerState::InsideControlDirective(_)) => Token {
+                kind: TokenKind::Eof,
+                origin: self.position.into(),
+            },
             ((Some('\n'), _, _), _) => {
                 self.advance(1);
                 self.lex()
             }
             // Discard.
             ((Some('\\'), Some('\n'), _), LexerState::InsideClauseAndExpr) => {
+                self.advance(2);
+                self.lex()
+            }
+            // C-preprocessor line continuation: `\` at end of line extends a
+            // `#define`, `#include`, etc. across multiple physical lines.
+            // The official toolchain runs `cpp` before D parsing; we don't,
+            // so we collapse the continuation here.
+            ((Some('\\'), Some('\n'), _), LexerState::InsideControlDirective(_)) => {
                 self.advance(2);
                 self.lex()
             }
@@ -1323,11 +1339,23 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 let mut tokens = Vec::with_capacity(8);
                 loop {
-                    if let Some('\n') = self.peek1() {
+                    match self.peek1() {
+                        // End-of-directive: the trailing newline (consumed by
+                        // the outer caller), or true EOF on a no-newline-at-EOF
+                        // file. Either way, stop here so we don't spin.
+                        Some('\n') | None => {
+                            self.state = saved_state;
+                            break;
+                        }
+                        _ => {}
+                    }
+                    let token = self.lex();
+                    if matches!(token.kind, TokenKind::Eof) {
+                        // `self.lex()` returns `Eof` when it hits `\n` inside a
+                        // control directive (without consuming it). Stop here.
                         self.state = saved_state;
                         break;
                     }
-                    let token = self.lex();
                     tokens.push(token);
                 }
                 match self.control_directive(&tokens, start.into()) {
@@ -1926,6 +1954,20 @@ impl<'a> Lexer<'a> {
                     }),
 
                     "ident" => Ok(ControlDirective {
+                        kind: ControlDirectiveKind::Ignored,
+                        origin: origin.start.extend_to_inclusive(
+                            tokens.last().map_or(origin.end, |t| t.origin.end),
+                        ),
+                    }),
+                    // C-preprocessor directives are handled by `cpp` in the
+                    // official `dtrace(1)` toolchain before D parsing. We
+                    // don't run `cpp`, so we accept the common conditional
+                    // and include directives as opaque tokens and pass them
+                    // through unchanged in the output. `if` is also a D
+                    // keyword (statement), but at column 1 after `#` it can
+                    // only be the preprocessor directive.
+                    "include" | "define" | "undef" | "if" | "ifdef" | "ifndef" | "else"
+                    | "elif" | "endif" | "warning" => Ok(ControlDirective {
                         kind: ControlDirectiveKind::Ignored,
                         origin: origin.start.extend_to_inclusive(
                             tokens.last().map_or(origin.end, |t| t.origin.end),
@@ -5507,6 +5549,28 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_control_directive_with_trailing_whitespace_terminates() {
+        // Regression: a trailing space (or tab) after the last token of a
+        // `#pragma …` directive must not cause the lexer to skip past the
+        // terminating newline. Previously, the `'\n'` case in `lex` was
+        // unconditional and consumed the newline, leaving the outer
+        // control-directive loop spinning past EOF — a 17-second hang on a
+        // 40-line file.
+        let input = "#pragma\tident\t\"@(#)foo\" \nBEGIN {}\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex(); // Directive is consumed; lexer recurses to next token.
+        assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+        assert_eq!(lexer.lex().kind, TokenKind::LeftCurly);
+        assert_eq!(lexer.lex().kind, TokenKind::RightCurly);
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
+    }
+
+    #[test]
     fn test_lex_control_directive_pragma_error() {
         // `#pragma D error some message` — records a `PragmaError`.
         let input = "#pragma D error something went wrong\n";
@@ -5617,6 +5681,49 @@ mod tests {
         let input = "#\n";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.lex();
+        assert_eq!(lexer.control_directives.len(), 1);
+        assert_eq!(
+            lexer.control_directives[0].kind,
+            ControlDirectiveKind::Ignored
+        );
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
+    }
+
+    #[test]
+    fn test_lex_control_directive_line_continuation() {
+        // `\` at end of line inside a `#define` continues the directive on
+        // the next physical line. Both physical lines must be consumed as a
+        // single logical directive, and the body that follows must still
+        // parse.
+        let input = "#define\tTST(name)\t\\\n\tprintf(\"foo\\n\", name)\nBEGIN {}\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::ProbeSpecifier);
+        assert_eq!(lexer.control_directives.len(), 1);
+        assert_eq!(
+            lexer.control_directives[0].kind,
+            ControlDirectiveKind::Ignored
+        );
+        assert!(
+            lexer.errors.is_empty(),
+            "unexpected errors: {:?}",
+            lexer.errors
+        );
+    }
+
+    #[test]
+    fn test_lex_control_directive_include_is_ignored() {
+        // The official `dtrace(1)` toolchain runs `cpp` before parsing, so
+        // `#include` lines never reach the D lexer. We don't preprocess, so
+        // we accept `#include` as an opaque directive and emit no error.
+        let input = "#include \"stdio.h\"\nBEGIN {}\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::ProbeSpecifier);
         assert_eq!(lexer.control_directives.len(), 1);
         assert_eq!(
             lexer.control_directives[0].kind,
