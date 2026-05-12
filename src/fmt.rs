@@ -1994,16 +1994,18 @@ BEGIN
     }
 
     #[test]
-    fn test_cast_to_unresolved_identifier_pointer() {
-        // `(SomeType*)x` must parse and round-trip even when `SomeType`
-        // hasn't been declared as a typedef — the cast lookahead consumes
-        // any trailing `*` chain attached to the identifier.
-        let input = "BEGIN {\n  this->foo = (SomeType*)bar;\n}";
+    fn test_paren_expression_with_unresolved_ident_lhs() {
+        // Regression: `(timestamp - x)` was misparsed as the start of a
+        // cast because the cast lookahead matched any `( <Identifier> …)`,
+        // including bare identifiers followed by binary operators. The
+        // tightened rule only treats `( <Identifier> )` or
+        // `( <Identifier> * )` as a cast.
+        let input = "pid$target::*NewMigrationBox:return {\n  this->duration = (timestamp - self->t)/1000000;\n}";
         assert_eq!(
             fmt(input),
-            "BEGIN
+            "pid$target::*NewMigrationBox:return
 {
-  this->foo = (SomeType*)bar;
+  this->duration = (timestamp - self->t) / 1000000;
 }
 "
         );

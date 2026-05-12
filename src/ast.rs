@@ -651,14 +651,16 @@ impl<'a> Parser<'a> {
         }
 
         // Peek ahead before consuming `(` so we can distinguish `(type)expr`
-        // casts from `(expr)` parenthesised primaries.  Only enter the cast
-        // branch when the token inside `(` is a type keyword or a plain
-        // identifier (used as a typedef name).
+        // casts from `(expr)` parenthesised primaries. Matching the official
+        // `dt_grammar.y`: only `DT_TOK_TNAME` (i.e. registered typedef
+        // names) or one of the C type keywords can introduce a cast.
+        // A plain `DT_TOK_IDENT` inside `( ... )` is always a
+        // parenthesised expression. Identifier-vs-type disambiguation is
+        // entirely the lexer's job via `id_or_type`.
         let is_cast = self.peek1().kind == TokenKind::LeftParen
             && matches!(
                 self.peek2().kind,
-                TokenKind::Identifier
-                    | TokenKind::TypeName
+                TokenKind::TypeName
                     | TokenKind::KeywordChar
                     | TokenKind::KeywordConst
                     | TokenKind::KeywordEnum
@@ -677,26 +679,10 @@ impl<'a> Parser<'a> {
         if is_cast {
             let op = self.lexer.lex(); // consume `(`
 
-            // Plain identifiers (unresolved typedef names) are not yet handled by
-            // `parse_type_name`, so consume them directly.  All keyword-based types
-            // (including qualifiers and pointer declarators) go through `parse_type_name`.
-            let typ_str = if self.peek1().kind == TokenKind::Identifier {
-                let tok = self.lexer.lex();
-                let mut name = lex::str_from_source(self.lexer.input, tok.origin).to_owned();
-                // Accept a trailing pointer chain on an unresolved identifier so
-                // that `(SomeType*)x` parses even when `SomeType` has not been
-                // registered as a typedef. Without this the formatter cannot
-                // round-trip programs that reference an external type.
-                while self.peek1().kind == TokenKind::Star {
-                    self.lexer.lex();
-                    name.push('*');
-                }
-                name
-            } else if let Some(tn) = self.parse_type_name() {
-                lex::str_from_source(self.lexer.input, self.origin(tn)).to_owned()
-            } else {
-                String::new()
-            };
+            let typ_str = self
+                .parse_type_name()
+                .map(|tn| lex::str_from_source(self.lexer.input, self.origin(tn)).to_owned())
+                .unwrap_or_default();
 
             let right_paren = self.expect(TokenKind::RightParen, "closing cast right parenthesis");
             let node = self.parse_cast_expr().unwrap_or_else(|| {
@@ -4364,12 +4350,14 @@ mod tests {
 
     #[test]
     fn test_cast_expr_origin() {
-        // The cast parser `(type)expr` greedily consumes `(identifier)` and then parses
-        // the cast expression, so this tests the full origin of a cast node.
-        let input = "(mytype)x";
+        // The cast parser matches `(TNAME)expr`, where TNAME is a registered
+        // type. `uintptr_t` is a pre-populated dtrace built-in (see
+        // `BUILTIN_TYPE_NAMES` in `lex.rs`), so it lexes as `TokenKind::TypeName`
+        // and the cast rule applies.
+        let input = "(uintptr_t)x";
         let (parser, root_id) = parse_expr_input(input);
         assert!(matches!(parser.nodes[root_id].kind, NodeKind::Cast { .. }));
-        assert_eq!(origin_str(input, &parser, root_id), "(mytype)x");
+        assert_eq!(origin_str(input, &parser, root_id), "(uintptr_t)x");
     }
 
     #[test]
