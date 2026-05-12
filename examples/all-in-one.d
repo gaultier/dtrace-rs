@@ -6,7 +6,6 @@
 #pragma  D  depends_on  module  isa
 #pragma  D  depends_on  library  procfs.d
 
-
 #error foo bar
 #pragma D error baz
 #pragma error something
