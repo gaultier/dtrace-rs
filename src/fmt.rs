@@ -191,6 +191,28 @@ impl<'a, W: Write> Formatter<'a, W> {
         Ok(())
     }
 
+    /// Drains any pending comments whose start byte is on the same source
+    /// line as `after_byte` (i.e. before the next `\n`). Each is emitted
+    /// preceded by a single space so trailing annotations such as
+    /// `stmt; // explanation` stay attached to the statement they belong
+    /// to. The trailing newline is left to the caller.
+    fn drain_trailing_line_comments(&mut self, after_byte: u32) -> std::io::Result<()> {
+        let start = (after_byte as usize).min(self.input.len());
+        let line_end = self.input[start..]
+            .find('\n')
+            .map(|i| (start + i) as u32)
+            .unwrap_or(self.input.len() as u32);
+        while let Some(c) = self.comments.get(self.comment_idx) {
+            if c.origin.start.byte_offset >= line_end {
+                break;
+            }
+            let text = lex::str_from_source(self.input, c.origin);
+            write!(self.w, " {}", text)?;
+            self.comment_idx += 1;
+        }
+        Ok(())
+    }
+
     /// Variant of `drain_inline_comments_before` for the position just before
     /// a closing token (`]`, `)`, etc.): the preceding child has already been
     /// emitted without a trailing space, so each comment is prefixed by a
@@ -244,6 +266,8 @@ impl<'a, W: Write> Formatter<'a, W> {
             self.emit_pending_annotations(start_byte, indent + 2)?;
             self.indent(indent + 2)?;
             self.fmt(child_id, indent + 2)?;
+            // Same-line trailing comments stay with the statement.
+            self.drain_trailing_line_comments(self.nodes[child_id].origin.end.byte_offset)?;
             self.w.write_all(b"\n")?;
         }
         // Flush comments/directives between the last statement and `}` so
@@ -301,6 +325,9 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.emit_pending_annotations(start_byte, indent + 2)?;
                     self.indent(indent + 2)?;
                     self.fmt(*id, indent + 2)?;
+                    // Keep any comment that sits on the same source line as
+                    // this statement attached to it — `stmt; // remark`.
+                    self.drain_trailing_line_comments(self.nodes[*id].origin.end.byte_offset)?;
                     self.w.write_all(b"\n")?;
                     prev_end = Some(self.nodes[*id].origin.end.byte_offset);
                 }
@@ -1738,6 +1765,36 @@ BEGIN
 {
   if (foo) /* bar */ {
   }
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_trailing_line_comment_stays_attached_to_statement() {
+        // A comment on the same line as a statement — `stmt; // remark` —
+        // must remain on that line, not get punted to the next line.
+        let input = "BEGIN {\n  this->query = stringof(copyin(arg3, arg4)); // Query string.\n}";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  this->query = stringof(copyin(arg3, arg4)); // Query string.
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_trailing_block_comment_stays_attached_to_statement() {
+        // Same rule for `/* */` comments tagged onto the same line.
+        let input = "BEGIN {\n  x = 1; /* trailing */\n  y = 2;\n}";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = 1; /* trailing */
+  y = 2;
 }
 "
         );
