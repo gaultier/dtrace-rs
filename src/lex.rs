@@ -415,8 +415,13 @@ fn is_character_probe_specifier_rest(c: char) -> bool {
 
 /// Type names pre-populated into the D CTF container by `libdtrace` at open
 /// time (see `_dtrace_typedefs_{32,64}` in `dt_open.c`), plus the single-token
-/// intrinsic `_Bool`. Pre-registering them lets the lexer classify them as
-/// `TypeName` even though they have no in-program `typedef`.
+/// intrinsic `_Bool` and a small set of platform types that the official
+/// `libdtrace` references but expects the kernel's CTF / system headers to
+/// supply (e.g. `user_addr_t` is the declared type of the built-in
+/// `dispatchqaddr` variable in `dt_open.c:422` and is used by the Swift
+/// helper scripts in `scripts/swift_*.d`). Pre-registering them lets the
+/// lexer classify them as `TypeName` even though they have no in-program
+/// `typedef`.
 const BUILTIN_TYPE_NAMES: &[&str] = &[
     "int8_t",
     "int16_t",
@@ -439,6 +444,9 @@ const BUILTIN_TYPE_NAMES: &[&str] = &[
     "id_t",
     "pid_t",
     "_Bool",
+    // Platform / kernel types referenced by `libdtrace`'s built-in
+    // variable table but supplied externally via CTF.
+    "user_addr_t",
 ];
 
 impl<'a> Lexer<'a> {
