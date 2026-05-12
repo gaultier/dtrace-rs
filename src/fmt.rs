@@ -1850,6 +1850,30 @@ BEGIN
     }
 
     #[test]
+    fn test_struct_with_unresolved_identifier_field_types() {
+        // A struct body referencing types that haven't been declared in
+        // the program (e.g. forward-referenced or external types) must
+        // still parse and round-trip; `parse_specifier_qualifier_list`
+        // accepts a plain `Identifier` as a fallback typedef name.
+        let input = "typedef struct {\n\
+                     GoType type;\n\
+                     GoType* elem;\n\
+                     GoType* slice;\n\
+                     uintptr_t len;\n\
+                     } GoArrayType;";
+        assert_eq!(
+            fmt(input),
+            "typedef struct {
+  GoType type;
+  GoType *elem;
+  GoType *slice;
+  uintptr_t len;
+} GoArrayType;
+"
+        );
+    }
+
+    #[test]
     fn test_cast_to_unresolved_identifier_pointer() {
         // `(SomeType*)x` must parse and round-trip even when `SomeType`
         // hasn't been declared as a typedef — the cast lookahead consumes

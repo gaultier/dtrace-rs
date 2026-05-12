@@ -1231,17 +1231,38 @@ impl<'a> Parser<'a> {
         if self.error_mode {
             return None;
         }
-        let type_specifier = self
-            .parse_type_specifier()
-            .or_else(|| self.parse_type_qualifier())?;
 
-        let mut list = vec![type_specifier];
-
+        let mut list = Vec::new();
         while let Some(x) = self
             .parse_type_specifier()
             .or_else(|| self.parse_type_qualifier())
         {
             list.push(x);
+        }
+
+        // Fallback: if no actual type specifier was matched (either nothing
+        // matched, or only `const`/`restrict`/`volatile` qualifiers), accept
+        // a plain `Identifier` as an unresolved typedef name. This keeps the
+        // formatter useful for programs that reference types declared
+        // elsewhere (struct field types from kernel/runtime headers, etc.).
+        // The fallback fires only *before* a type specifier exists, so a
+        // later declarator identifier is never mistaken for a second type.
+        let has_type_specifier = list
+            .iter()
+            .any(|&id| !matches!(self.nodes[id].kind, NodeKind::TypeQualifier(_)));
+        if !has_type_specifier && let Some(tok) = self.match_kind(TokenKind::Identifier) {
+            list.push(self.new_node(Node {
+                kind: NodeKind::TypeSpecifier(tok.kind),
+                origin: tok.origin,
+            }));
+            // Trailing qualifiers (rare) — pick them up too.
+            while let Some(q) = self.parse_type_qualifier() {
+                list.push(q);
+            }
+        }
+
+        if list.is_empty() {
+            return None;
         }
 
         let first_origin = self.origin(list[0]);
