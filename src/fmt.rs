@@ -268,7 +268,11 @@ impl<'a, W: Write> Formatter<'a, W> {
                 return Ok(());
             }
         };
-        self.w.write_all(b"{\n")?;
+        self.w.write_all(b"{")?;
+        // Same-line trailing comment after `{` — `if (foo) { // remark`.
+        let block_start = self.nodes[node_id].origin.start.byte_offset;
+        self.drain_trailing_line_comments(block_start + 1, u32::MAX)?;
+        self.w.write_all(b"\n")?;
         for child_id in children {
             let start_byte = self.nodes[child_id].origin.start.byte_offset;
             self.emit_pending_annotations(start_byte, indent + 2)?;
@@ -313,7 +317,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                 self.w.write_all(src.as_bytes())?;
             }
             NodeKind::Block(node_ids) => {
-                self.w.write_all(b"{\n")?;
+                self.w.write_all(b"{")?;
+                // Same-line trailing comment after `{` (e.g. `BEGIN { // x`).
+                self.drain_trailing_line_comments(origin.start.byte_offset + 1, u32::MAX)?;
+                self.w.write_all(b"\n")?;
                 let mut prev_end: Option<u32> = None;
                 for id in &node_ids {
                     let start_byte = self.nodes[*id].origin.start.byte_offset;
@@ -1707,12 +1714,14 @@ syscall::close:entry
 
     #[test]
     fn test_single_line_comment_in_probe_body() {
+        // A `//` comment on the same source line as the opening `{` of a
+        // probe body stays attached to that line, not hoisted onto its
+        // own line inside the body.
         let input = "BEGIN  {  // A comment\n  x  =  1  ;  }";
         assert_eq!(
             fmt(input),
             "BEGIN
-{
-  // A comment
+{ // A comment
   x = 1;
 }
 "
@@ -1980,19 +1989,31 @@ BEGIN
     }
 
     #[test]
+    fn test_trailing_comment_on_if_open_brace_line() {
+        // A `//` comment on the same line as `if (cond) { …` stays on
+        // that line instead of being moved into the body.
+        let input = "BEGIN {\n  if (foo) { // bar\n  }\n}";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  if (foo) { // bar
+  }
+}
+"
+        );
+    }
+
+    #[test]
     fn test_multi_line_comment_inside_if_block_body() {
-        // Regression: `fmt_branch` inlined the `Block` children directly
-        // without running `emit_pending_annotations` before `}`, so a
-        // comment inside `if (cond) { /* x */ }` leaked past the brace and
-        // ended up after the closing `}` of the enclosing scope.
+        // A `/* */` comment on the same source line as the opening `{` of
+        // an `if`-block body stays attached to that line.
         let input = "BEGIN {\n  if (foo) { /* bar */\n  }\n}";
         assert_eq!(
             fmt(input),
             "BEGIN
 {
-  if (foo) {
-    /* bar */
-
+  if (foo) { /* bar */
   }
 }
 "
