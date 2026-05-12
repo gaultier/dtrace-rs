@@ -933,8 +933,12 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        // Handle `offsetof` and `xlate` first.
-        match self.peek1() {
+        // `offsetof(...)` and `xlate <T>(expr)` are alternative productions
+        // of `postfix_expression` in the official grammar (see
+        // `dt_grammar.y`), so they can be followed by further postfix
+        // operators — `.field`, `->field`, `[idx]`, `(args)`, `++`, `--`.
+        // Build the head here, then fall through to the postfix loop.
+        let mut lhs = match self.peek1() {
             Token {
                 kind: TokenKind::KeywordOffsetOf,
                 ..
@@ -978,13 +982,13 @@ impl<'a> Parser<'a> {
                 let right_paren =
                     self.expect(TokenKind::RightParen, "closing parenthesis after field");
                 let end_origin = right_paren.map(|t| t.origin).unwrap_or(op.origin);
-                return Some(self.new_node(Node {
+                self.new_node(Node {
                     kind: NodeKind::OffsetOf {
                         typ: type_name,
                         field,
                     },
                     origin: op.origin.merge(end_origin),
-                }));
+                })
             }
             Token {
                 kind: TokenKind::KeywordXlate,
@@ -1022,18 +1026,16 @@ impl<'a> Parser<'a> {
                 );
                 let end_origin = right_paren.map(|t| t.origin).unwrap_or(op.origin);
 
-                return Some(self.new_node(Node {
+                self.new_node(Node {
                     kind: NodeKind::Xlate {
                         typ: type_name,
                         expr,
                     },
                     origin: op.origin.merge(end_origin),
-                }));
+                })
             }
-            _ => {}
-        }
-
-        let mut lhs = self.parse_primary_expr()?;
+            _ => self.parse_primary_expr()?,
+        };
 
         loop {
             match self.peek1() {

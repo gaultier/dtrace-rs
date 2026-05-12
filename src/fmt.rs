@@ -1595,6 +1595,24 @@ syscall::close:entry
     }
 
     #[test]
+    fn test_xlate_expr_followed_by_arrow_field_access() {
+        // Regression: `xlate <T>(expr)` is a `postfix_expression` in
+        // `dt_grammar.y`, so a subsequent `->field` (or `.field`, `[idx]`,
+        // etc.) must be parsed via the postfix loop. The parser used to
+        // `return` immediately after constructing the `Xlate` node and
+        // never reached the loop.
+        let input = "BEGIN { x = xlate <struct vtype2str *>(arg0)->code; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = xlate <struct vtype2str *>(arg0)->code;
+}
+"
+        );
+    }
+
+    #[test]
     fn test_xlate_expr() {
         let input = "BEGIN { x = xlate <int>(ptr); }";
         assert_eq!(
