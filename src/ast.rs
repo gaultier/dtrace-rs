@@ -659,7 +659,9 @@ impl<'a> Parser<'a> {
                 TokenKind::TypeName
                     | TokenKind::KeywordChar
                     | TokenKind::KeywordConst
+                    | TokenKind::KeywordDouble
                     | TokenKind::KeywordEnum
+                    | TokenKind::KeywordFloat
                     | TokenKind::KeywordInt
                     | TokenKind::KeywordLong
                     | TokenKind::KeywordShort
@@ -827,6 +829,8 @@ impl<'a> Parser<'a> {
                             | TokenKind::KeywordChar
                             | TokenKind::KeywordConst
                             | TokenKind::KeywordEnum
+                            | TokenKind::KeywordDouble
+                            | TokenKind::KeywordFloat
                             | TokenKind::KeywordInt
                             | TokenKind::KeywordLong
                             | TokenKind::KeywordShort

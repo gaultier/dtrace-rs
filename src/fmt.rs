@@ -1599,6 +1599,26 @@ syscall::close:entry
     }
 
     #[test]
+    fn test_sizeof_and_cast_with_float_double() {
+        // `float` and `double` are valid `type_specifier`s in our parser
+        // (see `parse_type_specifier`), but the cast and `sizeof '(' type ')'`
+        // lookaheads had forgotten to list them. The official `dt_grammar.y`
+        // includes them via `type_specifier: DT_KEY_FLOAT | DT_KEY_DOUBLE`.
+        // (Semantic rejection of float operations in dtrace is a later
+        // pass; this only confirms the parser accepts the shape.)
+        let input = "BEGIN { x = sizeof(float); y = (double)z; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x = sizeof(float);
+  y = (double)z;
+}
+"
+        );
+    }
+
+    #[test]
     fn test_sizeof_paren_full_expression() {
         // `sizeof (10 * 'c')` parses as `sizeof <unary_expression>` per
         // the official grammar, where the unary is the parenthesised
