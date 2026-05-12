@@ -1599,6 +1599,27 @@ syscall::close:entry
     }
 
     #[test]
+    fn test_cast_to_backtick_scoped_type() {
+        // `(D``env_vars_32_t *)x` — dtrace's scoped-type syntax. The lexer
+        // emits a single `Identifier` for `D``env_vars_32_t` (backtick is a
+        // valid identifier rest character in `InsideClauseAndExpr`); the
+        // official `libdtrace` would classify it as `DT_TOK_TNAME` via CTF
+        // resolution. We don't have CTF, but the lexeme shape is
+        // unambiguous: a backtick-containing identifier in a `(…)` cast
+        // position is always a scoped type reference, so the cast
+        // lookahead accepts it.
+        let input = "BEGIN { p = (D`env_vars_32_t *)q; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  p = (D`env_vars_32_t *)q;
+}
+"
+        );
+    }
+
+    #[test]
     fn test_sizeof_and_cast_with_float_double() {
         // `float` and `double` are valid `type_specifier`s in our parser
         // (see `parse_type_specifier`), but the cast and `sizeof '(' type ')'`

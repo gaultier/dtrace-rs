@@ -653,9 +653,10 @@ impl<'a> Parser<'a> {
         // A plain `DT_TOK_IDENT` inside `( ... )` is always a
         // parenthesised expression. Identifier-vs-type disambiguation is
         // entirely the lexer's job via `id_or_type`.
+        let peek2 = self.peek2();
         let is_cast = self.peek1().kind == TokenKind::LeftParen
-            && matches!(
-                self.peek2().kind,
+            && (matches!(
+                peek2.kind,
                 TokenKind::TypeName
                     | TokenKind::KeywordChar
                     | TokenKind::KeywordConst
@@ -673,7 +674,8 @@ impl<'a> Parser<'a> {
                     | TokenKind::KeywordUserland
                     | TokenKind::KeywordVoid
                     | TokenKind::KeywordVolatile
-            );
+            ) || (peek2.kind == TokenKind::Identifier
+                && lex::str_from_source(self.lexer.input, peek2.origin).contains('`')));
 
         if is_cast {
             let op = self.lexer.lex(); // consume `(`
