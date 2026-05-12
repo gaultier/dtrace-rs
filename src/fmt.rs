@@ -345,12 +345,22 @@ impl<'a, W: Write> Formatter<'a, W> {
                 self.w.write_all(b"\n")?;
 
                 if let Some(pred_id) = pred {
+                    // Flush comments/directives sitting between the probe
+                    // specifier and the `/.../` predicate so they land on
+                    // their own lines (rather than getting picked up by an
+                    // inner expression's `//`-after-op drain).
+                    let pred_start = self.nodes[pred_id].origin.start.byte_offset;
+                    self.emit_pending_annotations(pred_start, indent)?;
                     self.w.write_all(b"/ ")?;
                     self.fmt(pred_id, indent)?;
                     self.w.write_all(b" /\n")?;
                 }
 
                 if let Some(actions_id) = actions {
+                    // Same idea between the probe spec / predicate and the
+                    // action body `{ ... }`.
+                    let actions_start = self.nodes[actions_id].origin.start.byte_offset;
+                    self.emit_pending_annotations(actions_start, indent)?;
                     self.fmt(actions_id, indent)?;
                 }
                 self.w.write_all(b"\n")?;
@@ -1765,6 +1775,24 @@ BEGIN
 {
   if (foo) /* bar */ {
   }
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_single_line_comment_between_probe_spec_and_predicate() {
+        // A `//` comment placed between the probe specifier and the
+        // `/.../` predicate must land on its own line between them, not
+        // get hoovered up by an inner `BinaryOp`'s `//`-after-operator
+        // drain (which would split `t != 0` into `t != // ...\n 0`).
+        let input = "pid$target::runtime.gopark:entry\n// arg3 = traceBlockReason.\n/ t!=0/ \n{}";
+        assert_eq!(
+            fmt(input),
+            "pid$target::runtime.gopark:entry
+// arg3 = traceBlockReason.
+/ t != 0 /
+{
 }
 "
         );
