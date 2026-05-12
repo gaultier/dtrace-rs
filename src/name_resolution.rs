@@ -31,12 +31,13 @@ impl<'a> Resolver<'a> {
                     self.resolve(*node_id);
                 }
             }
-            crate::ast::NodeKind::DirectDeclarator { ident: _, suffix } => {
+            crate::ast::NodeKind::DirectDeclarator {
+                ident: _,
+                suffix: Some(suffix),
+            } => {
                 // TODO: Handle `ident`.
 
-                if let Some(suffix) = suffix {
-                    self.resolve(*suffix);
-                }
+                self.resolve(*suffix);
             }
             crate::ast::NodeKind::Declarator { pointer, direct } => {
                 if let Some(pointer) = pointer {
@@ -68,12 +69,13 @@ impl<'a> Resolver<'a> {
                     self.resolve(*enumerators);
                 }
             }
-            crate::ast::NodeKind::EnumeratorDeclaration { name: _, value } => {
+            crate::ast::NodeKind::EnumeratorDeclaration {
+                name: _,
+                value: Some(value),
+            } => {
                 // TODO: Handle `name`.
 
-                if let Some(value) = value {
-                    self.resolve(*value);
-                }
+                self.resolve(*value);
             }
             crate::ast::NodeKind::EnumeratorsDeclaration(node_ids) => {
                 for node_id in node_ids {
