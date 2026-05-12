@@ -93,7 +93,7 @@ impl<'a, W: Write> Formatter<'a, W> {
         let text = text.trim_end_matches(|c: char| c.is_ascii_whitespace());
 
         self.indent(indent)?;
-        self.w.write_all(b"# ")?;
+        self.w.write_all(b"#")?;
         self.w.write_all(text.as_bytes())?;
         self.w.write_all(b"\n")?;
 
