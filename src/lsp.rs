@@ -539,13 +539,37 @@ fn formatting(
         "unknown document",
     ))?;
 
-    let root = if let Some(root) = compiled.ast_root {
-        root
-    } else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "ast root not found",
-        ));
+    // Refuse to format a document that has parse errors. The formatter
+    // walks a partial AST and would produce a "best effort" output that,
+    // when applied as a full-document `TextEdit`, would overwrite the
+    // user's source with broken/incomplete text. Return an LSP
+    // `RequestFailed` response so the client leaves the buffer alone and
+    // surfaces the error to the user.
+    if !compiled.errors.is_empty() {
+        return Ok(Some(Message::Response(Response {
+            id,
+            result: None,
+            error: Some(ResponseError {
+                code: ErrorCode::RequestFailed as i32,
+                message: format!(
+                    "cannot format: {} parse error(s) in document",
+                    compiled.errors.len()
+                ),
+                data: None,
+            }),
+        })));
+    }
+
+    let Some(root) = compiled.ast_root else {
+        return Ok(Some(Message::Response(Response {
+            id,
+            result: None,
+            error: Some(ResponseError {
+                code: ErrorCode::RequestFailed as i32,
+                message: "cannot format: no parsed AST available".to_owned(),
+                data: None,
+            }),
+        })));
     };
 
     let mut formatted_bytes = Vec::with_capacity(1024);
