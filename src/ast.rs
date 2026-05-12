@@ -2652,8 +2652,8 @@ impl<'a> Parser<'a> {
                     self.new_node_unknown()
                 });
                 self.expect(
-                    TokenKind::LeftParen,
-                    "matching parenthesis after declarator",
+                    TokenKind::RightParen,
+                    "matching closing parenthesis after parenthesised declarator",
                 );
                 Some(self.new_node(Node {
                     kind: NodeKind::DirectDeclarator {
@@ -3200,12 +3200,17 @@ impl<'a> Parser<'a> {
         // `parse_array_parameters` then fall back to `parse_const_expr`.
         let params = self.parse_parameter_list()?;
 
-        let ellipsis = if let Some(comma) = self.match_kind(TokenKind::Comma) {
-            self.expect(TokenKind::DotDotDot, "ellipsis parameter after comma");
-            Some(self.new_node(Node {
-                kind: NodeKind::ParamEllipsis,
-                origin: comma.origin,
-            }))
+        let ellipsis = if self.match_kind(TokenKind::Comma).is_some() {
+            // `ParamEllipsis` formatting prints `str_from_source(origin)`,
+            // so the origin must point at `...` (the token text), not at
+            // the preceding comma.
+            let dotdotdot = self.expect(TokenKind::DotDotDot, "ellipsis parameter after comma");
+            dotdotdot.map(|tok| {
+                self.new_node(Node {
+                    kind: NodeKind::ParamEllipsis,
+                    origin: tok.origin,
+                })
+            })
         } else {
             None
         };
@@ -3230,7 +3235,14 @@ impl<'a> Parser<'a> {
         let param = self.parse_parameter_declaration()?;
         let mut params = vec![param];
 
-        while let Some(comma) = self.match_kind(TokenKind::Comma) {
+        // Stop before a trailing `, ...` — the vararg marker is parsed by
+        // the caller (`parse_parameter_type_list`) so the `Parameters`
+        // node and the `ParamEllipsis` end up as sibling fields of
+        // `ParameterTypeList`.
+        while self.peek1().kind == TokenKind::Comma
+            && self.peek2().kind != TokenKind::DotDotDot
+        {
+            let comma = self.match_kind(TokenKind::Comma).unwrap();
             let param = self.parse_parameter_declaration().unwrap_or_else(|| {
                 self.error(
                     ErrorKind::MissingFunctionParameter,

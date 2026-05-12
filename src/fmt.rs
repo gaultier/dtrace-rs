@@ -1744,6 +1744,44 @@ syscall::close:entry
     }
 
     #[test]
+    fn test_vararg_function_declaration_only_ellipsis() {
+        // `extern f(...);` — vararg with no fixed parameters. Needed both
+        // the lexer's `...` arm to fire in `InsideClauseAndExpr` (was
+        // restricted to `ProgramOuterScope`), and the parser to route the
+        // bare ellipsis through `parse_function_parameters`.
+        let input = "extern int varargs1(...);";
+        assert_eq!(fmt(input), "extern int varargs1(...);\n");
+    }
+
+    #[test]
+    fn test_vararg_function_declaration_with_fixed_params() {
+        // `extern f(int x, ...);` — also exercises (a) `parse_parameter_list`
+        // stopping before a trailing `, ...` so the ellipsis is captured by
+        // `parse_parameter_type_list` and (b) the ellipsis-node origin
+        // pointing at `...` (not the preceding comma) so the formatter
+        // prints `...` rather than `,`.
+        let input = "extern int f(int x, ...);";
+        assert_eq!(fmt(input), "extern int f(int x, ...);\n");
+    }
+
+    #[test]
+    fn test_function_pointer_declarator() {
+        // The C `direct_declarator: '(' declarator ')'` production is used
+        // for function pointers like `int (*fp)();`. The parser's closing
+        // `)` arm previously expected `LeftParen` instead of `RightParen`
+        // — a copy-paste bug analogous to the earlier `parse_array` one.
+        let input = "int (*fp)();";
+        assert_eq!(fmt(input), "int (*fp)();\n");
+    }
+
+    #[test]
+    fn test_function_pointer_returning_pointer() {
+        // `int *(*fp)(void)` — pointer to function returning pointer.
+        let input = "int *(*fp)(void);";
+        assert_eq!(fmt(input), "int *(*fp)(void);\n");
+    }
+
+    #[test]
     fn test_struct_pointer_field() {
         // Struct with a pointer field exercises `Declarator` with a non-null pointer.
         let input = "struct Node { int *value; };";

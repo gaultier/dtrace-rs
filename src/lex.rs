@@ -1392,7 +1392,12 @@ impl<'a> Lexer<'a> {
                     origin: start.extend_to_inclusive(self.position),
                 }
             }
-            ((Some('.'), Some('.'), Some('.')), LexerState::ProgramOuterScope) => {
+            // `...` is the vararg-parameter marker — valid both in
+            // declarator parameter lists (`f(int, ...)`) and at the top
+            // level (`pragma D depends_on ...`). The state guard was
+            // previously restricted to `ProgramOuterScope`, which broke
+            // declarators inside probe bodies / inside `extern …`.
+            ((Some('.'), Some('.'), Some('.')), _) => {
                 let start = self.position;
                 self.advance(3);
                 Token {
