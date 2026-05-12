@@ -1115,6 +1115,27 @@ mod tests {
     }
 
     #[test]
+    fn test_if_else_braceless_bodies() {
+        // The official grammar's `statement_or_block` allows either a
+        // braced block or a single statement (e.g. `if (c) x = 1;`).
+        // The braceless form must parse, and the formatter wraps the
+        // single statement in `{ ... }` for consistency.
+        let input = "BEGIN {\n  if (1)\n    n = 0;\n  else\n    n = 1;\n}";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  if (1) {
+    n = 0;
+  } else {
+    n = 1;
+  }
+}
+"
+        );
+    }
+
+    #[test]
     fn test_if_with_block_body() {
         let input = "syscall::open:entry  {  if  (  x  ==  1  )  {  y  =  2  ;  }  }";
         assert_eq!(

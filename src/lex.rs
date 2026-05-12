@@ -465,6 +465,9 @@ const BUILTIN_TYPE_NAMES: &[&str] = &[
     "lwpsinfo_t",
     "proc_t",
     "kthread_t",
+    "hrtime_t",
+    "mblk_t",
+    "kstat_named_t",
 ];
 
 impl<'a> Lexer<'a> {

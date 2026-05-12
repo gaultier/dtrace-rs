@@ -1779,7 +1779,25 @@ impl<'a> Parser<'a> {
                     origin: if_token.origin.merge(end_origin),
                 }))
             }
-            _ => self.parse_expr(),
+            // Bare `expression ';'` form, used for the braceless body of
+            // an `if`/`else` (e.g. `if (cond) n = 0; else n = 1;`). The
+            // grammar production is `statement: expression ';'`, so the
+            // trailing `;` is part of the statement and must be consumed
+            // here; otherwise the `;` is left for the parent and the
+            // subsequent `else` (or next statement) fails to parse.
+            _ => {
+                let expr = self.parse_expr()?;
+                let expr_origin = self.origin(expr);
+                let semicolon = self.expect(
+                    TokenKind::SemiColon,
+                    "expected semicolon after expression statement",
+                );
+                let end_origin = semicolon.map(|t| t.origin).unwrap_or(expr_origin);
+                Some(self.new_node(Node {
+                    kind: NodeKind::ExprStmt(expr),
+                    origin: expr_origin.merge(end_origin),
+                }))
+            }
         }
     }
 
@@ -4461,9 +4479,9 @@ mod tests {
         };
         let if_id = stmts[0];
         assert!(matches!(parser.nodes[if_id].kind, NodeKind::If { .. }));
-        // The semicolon after `y = 1` is consumed as a separate `EmptyStmt` in the
-        // outer block, so the `if` node's origin ends at the end of its body expression.
-        assert_eq!(origin_str(input, &parser, if_id), "if (x) y = 1");
+        // The `;` is part of the braceless body (`statement: expression ';'`),
+        // so the `if` node's origin extends to and includes it.
+        assert_eq!(origin_str(input, &parser, if_id), "if (x) y = 1;");
     }
 
     #[test]
