@@ -666,6 +666,7 @@ impl<'a> Parser<'a> {
                     | TokenKind::KeywordSigned
                     | TokenKind::KeywordString
                     | TokenKind::KeywordStruct
+                    | TokenKind::KeywordUnion
                     | TokenKind::KeywordUnsigned
                     | TokenKind::KeywordUserland
                     | TokenKind::KeywordVoid
@@ -808,14 +809,58 @@ impl<'a> Parser<'a> {
                 ..
             } => {
                 let op = self.lexer.lex();
-                let left_paren = self.match_kind(TokenKind::LeftParen);
+                // Official grammar (`dt_grammar.y`):
+                //   unary_expression: DT_TOK_SIZEOF unary_expression
+                //                   | DT_TOK_SIZEOF '(' type_name ')'
+                // The parens-with-type alternative is detected by checking
+                // whether the next token after `(` is something only a
+                // type_name can start with (a registered TypeName or a
+                // type keyword). Anything else — including
+                // `sizeof (10 * 'c')` — is `sizeof <unary_expression>`,
+                // with the parens belonging to a parenthesised primary
+                // expression handled by `parse_unary_expr` →
+                // `parse_primary_expr`.
+                let is_paren_type = self.peek1().kind == TokenKind::LeftParen
+                    && matches!(
+                        self.peek2().kind,
+                        TokenKind::TypeName
+                            | TokenKind::KeywordChar
+                            | TokenKind::KeywordConst
+                            | TokenKind::KeywordEnum
+                            | TokenKind::KeywordInt
+                            | TokenKind::KeywordLong
+                            | TokenKind::KeywordShort
+                            | TokenKind::KeywordSigned
+                            | TokenKind::KeywordString
+                            | TokenKind::KeywordStruct
+                            | TokenKind::KeywordUnion
+                            | TokenKind::KeywordUnsigned
+                            | TokenKind::KeywordUserland
+                            | TokenKind::KeywordVoid
+                            | TokenKind::KeywordVolatile
+                    );
 
-                let operand = if left_paren.is_none() {
-                    // Parenthesis absent: must be a unary expression.
-                    self.parse_unary_expr().unwrap_or_else(|| {
+                let (left_paren, operand) = if is_paren_type {
+                    let lp = self.lexer.lex();
+                    let typ = self.parse_type_name().unwrap_or_else(|| {
+                        self.error(
+                            ErrorKind::MissingExprOrTypename,
+                            lp.origin,
+                            String::from("expected type name after `sizeof(`"),
+                            &[
+                                TokenKind::RightParen,
+                                TokenKind::SemiColon,
+                                TokenKind::RightCurly,
+                            ],
+                        );
+                        self.new_node_unknown()
+                    });
+                    (Some(lp), typ)
+                } else {
+                    let expr = self.parse_unary_expr().unwrap_or_else(|| {
                         self.error(
                             ErrorKind::MissingExpr,
-                            left_paren.map(|t| t.origin).unwrap_or(op.origin),
+                            op.origin,
                             String::from("expected expression after `sizeof`"),
                             &[
                                 TokenKind::SemiColon,
@@ -824,26 +869,9 @@ impl<'a> Parser<'a> {
                             ],
                         );
                         self.new_node_unknown()
-                    })
-                } else {
-                    // Parenthesis present: could be a unary expression or a typename.
-                    self.parse_type_name()
-                        .or_else(|| self.parse_unary_expr())
-                        .unwrap_or_else(|| {
-                            self.error(
-                                ErrorKind::MissingExprOrTypename,
-                                left_paren.map(|t| t.origin).unwrap_or(op.origin),
-                                String::from("expected type name or expression after `sizeof(`"),
-                                &[
-                                    TokenKind::RightParen,
-                                    TokenKind::SemiColon,
-                                    TokenKind::RightCurly,
-                                ],
-                            );
-                            self.new_node_unknown()
-                        })
+                    });
+                    (None, expr)
                 };
-                // Bottom line: `sizeof typename` e.g. `sizeof int` is forbidden.
 
                 let end_origin = if left_paren.is_some() {
                     self.expect(TokenKind::RightParen, "matching parenthesis for sizeof")
@@ -4278,9 +4306,12 @@ mod tests {
 
     #[test]
     fn test_sizeof_paren_negative_number() {
-        // `sizeof(-2)` — a parenthesized expression; the parenthesized path tries
-        // `parse_type_name` first, fails (no type keyword), then succeeds with
-        // `parse_unary_expr` on the negation. Produces `Sizeof(Unary(Minus, 2), true)`.
+        // `sizeof(-2)` — per the official grammar, the operand is a
+        // unary_expression. `(-2)` is a parenthesised primary (a unary),
+        // so the outer `Sizeof` is `parenthesized: false` and its operand
+        // is `Unary(LeftParen, Unary(Minus, 2))`. The `sizeof '(' type_name ')'`
+        // alternative only fires when the token after `(` is a type
+        // keyword or a registered `TypeName`.
         let input = "sizeof(-2)";
         let (parser, root_id) = parse_expr_input(input);
         assert!(parser.lexer.errors.is_empty());
@@ -4291,9 +4322,18 @@ mod tests {
         else {
             panic!("expected Sizeof node");
         };
-        assert!(with_paren);
+        assert!(!with_paren);
+        // Operand is the parenthesised primary `(-2)`.
+        let NodeKind::Unary {
+            op: outer_op,
+            expr: inner_id,
+        } = parser.nodes[operand_id].kind
+        else {
+            panic!("expected outer parenthesised primary");
+        };
+        assert_eq!(outer_op.kind, TokenKind::LeftParen);
         assert!(matches!(
-            parser.nodes[operand_id].kind,
+            parser.nodes[inner_id].kind,
             NodeKind::Unary {
                 op: Token {
                     kind: TokenKind::Minus,

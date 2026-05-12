@@ -1599,6 +1599,24 @@ syscall::close:entry
     }
 
     #[test]
+    fn test_sizeof_paren_full_expression() {
+        // `sizeof (10 * 'c')` parses as `sizeof <unary_expression>` per
+        // the official grammar, where the unary is the parenthesised
+        // primary `(10 * 'c')`. Output: `sizeof (10 * 'c')` — the `(` is
+        // part of the inner primary, not part of the `sizeof '(' type ')'`
+        // alternative, hence the space after `sizeof`.
+        let input = "BEGIN { trace(sizeof (10 * 'c')); }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  trace(sizeof (10 * 'c'));
+}
+"
+        );
+    }
+
+    #[test]
     fn test_sizeof_pointer_type() {
         // Abstract declarator with a plain pointer — no qualifier, so no extra space.
         let input = "BEGIN { n = sizeof(int *); }";
@@ -1741,6 +1759,22 @@ syscall::close:entry
         // An enum used by name only (forward reference, no body).
         let input = "enum Color c;";
         assert_eq!(fmt(input), "enum Color c;\n");
+    }
+
+    #[test]
+    fn test_cast_to_union_pointer() {
+        // Regression: the cast lookahead included `KeywordStruct` but
+        // forgot `KeywordUnion`, so `(union u *)expr` never matched the
+        // cast production and fell into the parenthesised-primary path.
+        let input = "BEGIN { myi = (union u *) p; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  myi = (union u *)p;
+}
+"
+        );
     }
 
     #[test]
