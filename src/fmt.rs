@@ -192,18 +192,26 @@ impl<'a, W: Write> Formatter<'a, W> {
     }
 
     /// Drains any pending comments whose start byte is on the same source
-    /// line as `after_byte` (i.e. before the next `\n`). Each is emitted
-    /// preceded by a single space so trailing annotations such as
-    /// `stmt; // explanation` stay attached to the statement they belong
-    /// to. The trailing newline is left to the caller.
-    fn drain_trailing_line_comments(&mut self, after_byte: u32) -> std::io::Result<()> {
+    /// line as `after_byte` (i.e. before the next `\n`) AND strictly before
+    /// `max_byte`. Each is emitted preceded by a single space so trailing
+    /// annotations such as `stmt; // explanation` stay attached to the
+    /// statement they belong to. The trailing newline is left to the
+    /// caller. `max_byte` is used to prevent a probe specifier's drain
+    /// from claiming a comment that actually sits inside the following
+    /// `{ ... }` body on the same source line.
+    fn drain_trailing_line_comments(
+        &mut self,
+        after_byte: u32,
+        max_byte: u32,
+    ) -> std::io::Result<()> {
         let start = (after_byte as usize).min(self.input.len());
         let line_end = self.input[start..]
             .find('\n')
             .map(|i| (start + i) as u32)
             .unwrap_or(self.input.len() as u32);
+        let limit = line_end.min(max_byte);
         while let Some(c) = self.comments.get(self.comment_idx) {
-            if c.origin.start.byte_offset >= line_end {
+            if c.origin.start.byte_offset >= limit {
                 break;
             }
             let text = lex::str_from_source(self.input, c.origin);
@@ -267,7 +275,10 @@ impl<'a, W: Write> Formatter<'a, W> {
             self.indent(indent + 2)?;
             self.fmt(child_id, indent + 2)?;
             // Same-line trailing comments stay with the statement.
-            self.drain_trailing_line_comments(self.nodes[child_id].origin.end.byte_offset)?;
+            self.drain_trailing_line_comments(
+                self.nodes[child_id].origin.end.byte_offset,
+                u32::MAX,
+            )?;
             self.w.write_all(b"\n")?;
         }
         // Flush comments/directives between the last statement and `}` so
@@ -327,7 +338,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.fmt(*id, indent + 2)?;
                     // Keep any comment that sits on the same source line as
                     // this statement attached to it — `stmt; // remark`.
-                    self.drain_trailing_line_comments(self.nodes[*id].origin.end.byte_offset)?;
+                    self.drain_trailing_line_comments(
+                        self.nodes[*id].origin.end.byte_offset,
+                        u32::MAX,
+                    )?;
                     self.w.write_all(b"\n")?;
                     prev_end = Some(self.nodes[*id].origin.end.byte_offset);
                 }
@@ -342,6 +356,19 @@ impl<'a, W: Write> Formatter<'a, W> {
                 action: actions,
             } => {
                 self.fmt(probe, indent)?;
+                // Same-line trailing comments stay with the probe specifier
+                // line — `pid$target::foo:entry // remark`. Cap the drain
+                // at the start of the next significant node (predicate or
+                // body) so a comment that's actually *inside* `{ … }` on
+                // the same source line isn't pulled out.
+                let probe_trailing_max = pred
+                    .or(actions)
+                    .map(|n| self.nodes[n].origin.start.byte_offset)
+                    .unwrap_or(u32::MAX);
+                self.drain_trailing_line_comments(
+                    self.nodes[probe].origin.end.byte_offset,
+                    probe_trailing_max,
+                )?;
                 self.w.write_all(b"\n")?;
 
                 if let Some(pred_id) = pred {
@@ -353,7 +380,19 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.emit_pending_annotations(pred_start, indent)?;
                     self.w.write_all(b"/ ")?;
                     self.fmt(pred_id, indent)?;
-                    self.w.write_all(b" /\n")?;
+                    self.w.write_all(b" /")?;
+                    // Same-line trailing comments after `/ pred /` stay with
+                    // the predicate line. Cap at the body's start so a
+                    // comment that lives inside `{ … }` on the same line
+                    // isn't pulled out.
+                    let pred_trailing_max = actions
+                        .map(|n| self.nodes[n].origin.start.byte_offset)
+                        .unwrap_or(u32::MAX);
+                    self.drain_trailing_line_comments(
+                        self.nodes[pred_id].origin.end.byte_offset,
+                        pred_trailing_max,
+                    )?;
+                    self.w.write_all(b"\n")?;
                 }
 
                 if let Some(actions_id) = actions {
@@ -1775,6 +1814,25 @@ BEGIN
 {
   if (foo) /* bar */ {
   }
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_trailing_comment_on_probe_spec_and_predicate_lines() {
+        // A `//` comment sitting on the same source line as the probe
+        // specifier or the predicate must stay attached to that line in
+        // the output, not get pushed onto its own line below.
+        let input = "io:::start // Listen to I/O requests.\n\
+                     /execname == \"go\"/ // Filter by exec name.\n\
+                     {\n  this->p = args[2]->fi_pathname;\n}";
+        assert_eq!(
+            fmt(input),
+            "io:::start // Listen to I/O requests.
+/ execname == \"go\" / // Filter by exec name.
+{
+  this->p = args[2]->fi_pathname;
 }
 "
         );
