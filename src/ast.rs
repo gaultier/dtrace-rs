@@ -1278,8 +1278,14 @@ impl<'a> Parser<'a> {
             | TokenKind::StarEq
             | TokenKind::SlashEq
             | TokenKind::PercentEq
-            | TokenKind::LtEq
-            | TokenKind::GtEq
+            // `<<=` / `>>=` — shift-assignment. The previous arm listed
+            // `LtEq` / `GtEq` (the *relational* operators `<=` and `>=`),
+            // which was a copy-paste bug — those are handled by
+            // `parse_relational_expr` and never belonged here. The official
+            // `dt_grammar.y`'s `assignment_operator` rule lists
+            // `DT_TOK_LSH_EQ` and `DT_TOK_RSH_EQ`.
+            | TokenKind::LtLtEq
+            | TokenKind::GtGtEq
             | TokenKind::AmpersandEq
             | TokenKind::CaretEq
             | TokenKind::PipeEq => {

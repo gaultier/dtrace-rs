@@ -1115,6 +1115,23 @@ mod tests {
     }
 
     #[test]
+    fn test_compound_shift_assign_operators() {
+        // `<<=` and `>>=` are valid `assignment_operator`s in the official
+        // `dt_grammar.y`. The parser used to list `<=` / `>=` in their slot
+        // — a copy-paste typo — so neither shift-assign parsed.
+        let input = "BEGIN { x <<= 3; y >>= 1; }";
+        assert_eq!(
+            fmt(input),
+            "BEGIN
+{
+  x <<= 3;
+  y >>= 1;
+}
+"
+        );
+    }
+
+    #[test]
     fn test_if_else_braceless_bodies() {
         // The official grammar's `statement_or_block` allows either a
         // braced block or a single statement (e.g. `if (c) x = 1;`).
