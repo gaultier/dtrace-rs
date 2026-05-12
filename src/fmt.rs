@@ -128,6 +128,17 @@ impl<'a, W: Write> Formatter<'a, W> {
             if next >= before_byte {
                 break;
             }
+            // Preserve a blank line between two consecutive annotations
+            // when the source had one — e.g. a shebang followed by a
+            // blank line and then a pragma.
+            if !last_was_multiline_comment && let Some(prev_end) = last_annotation_end {
+                let gap_start = prev_end as usize;
+                let gap_end = (next as usize).min(self.input.len());
+                if gap_start < gap_end && self.input[gap_start..gap_end].contains("\n\n") {
+                    self.w.write_all(b"\n")?;
+                }
+            }
+
             if next_comment <= next_directive && next_comment <= next_attribute {
                 last_was_multiline_comment =
                     self.comments[self.comment_idx].kind == CommentKind::MultiLine;
@@ -1652,6 +1663,27 @@ syscall::close:entry
         // A `depends_on` pragma must be emitted before the following declaration.
         let input = "#pragma D depends_on module isa\nint  x  ;";
         assert_eq!(fmt(input), "#pragma D depends_on module isa\nint x;\n");
+    }
+
+    #[test]
+    fn test_blank_line_between_shebang_and_pragma_preserved() {
+        // Two consecutive top-level annotations (here a shebang and a
+        // pragma) separated by a blank line in the source must remain
+        // separated by a blank line in the output. `emit_pending_annotations`
+        // checks the gap between each annotation pair, not just between
+        // the last annotation and the next AST node.
+        let input = "#!/usr/sbin/dtrace -s\n\n#pragma D option strsize=16K\nBEGIN { trace(1); }";
+        assert_eq!(
+            fmt(input),
+            "#!/usr/sbin/dtrace -s
+
+#pragma D option strsize=16K
+BEGIN
+{
+  trace(1);
+}
+"
+        );
     }
 
     #[test]
