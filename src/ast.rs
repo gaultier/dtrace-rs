@@ -2606,7 +2606,14 @@ impl<'a> Parser<'a> {
         }
 
         let mut lhs = match self.peek1().kind {
-            TokenKind::Identifier => {
+            // `TypeName` is accepted here as well as plain `Identifier` to
+            // mirror the official `id_or_type` heuristic: when a type
+            // specifier has already been shifted in the current
+            // declaration, the next identifier token is the declarator
+            // name even if its lexeme is also a registered type — as in
+            // `struct m *m;` or the classic `typedef int foo; struct s {
+            // foo foo; };`.
+            TokenKind::Identifier | TokenKind::TypeName => {
                 let tok = self.lexer.lex();
                 let identifier = lex::str_from_source(self.lexer.input, tok.origin).to_owned();
                 let identifier_node = self.new_node(Node {
@@ -3181,15 +3188,9 @@ impl<'a> Parser<'a> {
             }));
         }
 
-        let params = self.parse_parameter_list().unwrap_or_else(|| {
-            self.error(
-                ErrorKind::MissingFunctionParameters,
-                self.current_or_last_origin_for_err(),
-                String::from("missing function parameters"),
-                &[TokenKind::RightParen, TokenKind::Comma],
-            );
-            self.new_node_unknown()
-        });
+        // Return `None` if no parameter parsed — callers like
+        // `parse_array_parameters` then fall back to `parse_const_expr`.
+        let params = self.parse_parameter_list()?;
 
         let ellipsis = if let Some(comma) = self.match_kind(TokenKind::Comma) {
             self.expect(TokenKind::DotDotDot, "ellipsis parameter after comma");
@@ -3279,24 +3280,16 @@ impl<'a> Parser<'a> {
         {
             specifiers.push(spec);
         }
+        // Return `None` rather than emitting an error so callers (notably
+        // `parse_array_parameters`) can speculatively try the parameter
+        // path and fall back cleanly to `parse_const_expr` when the array
+        // size is a constant expression rather than a parameter list.
         if specifiers.is_empty() {
-            self.error(
-                ErrorKind::MissingParameterDeclarationSpecifiers,
-                self.current_or_last_origin_for_err(),
-                String::from("expected parameter declaration specifiers"),
-                &[TokenKind::Comma, TokenKind::RightParen],
-            );
+            return None;
         }
 
-        let first_origin = specifiers
-            .first()
-            .map(|n| self.origin(*n))
-            .unwrap_or_else(|| self.current_or_last_origin_for_err());
-        let last_origin = specifiers
-            .last()
-            .map(|n| self.origin(*n))
-            .unwrap_or(first_origin);
-
+        let first_origin = self.origin(specifiers[0]);
+        let last_origin = self.origin(*specifiers.last().unwrap());
         Some(self.new_node(Node {
             kind: NodeKind::ParameterDeclarationSpecifiers(specifiers),
             origin: first_origin.merge(last_origin),

@@ -1923,6 +1923,25 @@ BEGIN
     }
 
     #[test]
+    fn test_struct_with_array_field_and_inline_forward_struct_pointer() {
+        // Two regressions combined:
+        //   - `uint8_t pad[48];` parses without falsely going down the
+        //     parameter-list path inside the array brackets,
+        //   - `struct m *m;` parses even though `m` was just registered as
+        //     a struct tag (the lexer returns `TypeName` for the declarator
+        //     position, and `parse_direct_declarator` accepts it).
+        let input = "struct g {\n  uint8_t pad[48];\n  struct m* m;\n};";
+        assert_eq!(
+            fmt(input),
+            "struct g {
+  uint8_t pad[48];
+  struct m *m;
+};
+"
+        );
+    }
+
+    #[test]
     fn test_struct_with_unresolved_identifier_field_types() {
         // A struct body referencing types that haven't been declared in
         // the program (e.g. forward-referenced or external types) must
