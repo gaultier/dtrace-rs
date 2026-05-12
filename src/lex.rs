@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::{collections::HashMap, ops::Range};
 
@@ -157,6 +158,48 @@ pub struct Attribute {
 pub type Declarations = Vec<(String, Declaration)>;
 
 #[derive(Debug)]
+/// Identifier-vs-type lookup tables consulted by `Lexer::id_or_type` and by
+/// `record_type_decl`. Stored behind `Rc<RefCell<…>>` on the `Lexer` so that
+/// `Parser::peek1`/`peek2` can clone a `Lexer` without deep-copying the
+/// (potentially large) tables — they were the dominant cost in the profile
+/// (see benchmark report). A shared reference is safe because the peek's
+/// `id_or_type` either reads or memoises into `identifiers` (a benign,
+/// monotone insertion that the real `lex` would have done anyway), and
+/// state mutations (e.g. keyword-driven `state` transitions) happen on the
+/// peek copy's own primitive fields.
+pub struct LexerContext {
+    pub decls: Declarations,
+    pub globals: HashMap<String, Origin>,
+    pub identifiers: HashMap<String, Origin>,
+}
+
+impl LexerContext {
+    pub fn new() -> Self {
+        let mut decls: Declarations = Vec::with_capacity(BUILTIN_TYPE_NAMES.len());
+        for name in BUILTIN_TYPE_NAMES {
+            decls.push((
+                (*name).to_owned(),
+                Declaration {
+                    kind: DeclarationKind::Typedef,
+                    origin: Origin::new_builtin(),
+                    is_forward: false,
+                },
+            ));
+        }
+        Self {
+            decls,
+            globals: HashMap::new(),
+            identifiers: HashMap::new(),
+        }
+    }
+}
+
+impl Default for LexerContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct Lexer<'a> {
     pub(crate) position: Position,
     pub errors: Vec<Error>,
@@ -167,9 +210,7 @@ pub struct Lexer<'a> {
     pub(crate) chars: Rc<[char]>,
     pub(crate) chars_idx: usize,
     pub(crate) attributes: Vec<Attribute>,
-    pub(crate) decls: Declarations,
-    pub(crate) globals: HashMap<String, Origin>,
-    pub(crate) identifiers: HashMap<String, Origin>,
+    pub(crate) ctx: Rc<RefCell<LexerContext>>,
 }
 
 #[derive(PartialEq, Eq, Debug, Serialize, Clone)]
@@ -472,17 +513,13 @@ const BUILTIN_TYPE_NAMES: &[&str] = &[
 
 impl<'a> Lexer<'a> {
     pub fn new(file_id: FileId, input: &'a str) -> Self {
-        let mut decls: Declarations = Vec::with_capacity(BUILTIN_TYPE_NAMES.len());
-        for name in BUILTIN_TYPE_NAMES {
-            decls.push((
-                (*name).to_owned(),
-                Declaration {
-                    kind: DeclarationKind::Typedef,
-                    origin: Origin::new_builtin(),
-                    is_forward: false,
-                },
-            ));
-        }
+        Self::with_ctx(file_id, input, Rc::new(RefCell::new(LexerContext::new())))
+    }
+
+    /// Construct a `Lexer` that shares its lookup tables with another
+    /// instance. Used by `Parser::peek1`/`peek2` so the copy doesn't deep-
+    /// clone the tables.
+    pub fn with_ctx(file_id: FileId, input: &'a str, ctx: Rc<RefCell<LexerContext>>) -> Self {
         Self {
             position: Position {
                 kind: PositionKind::File(file_id),
@@ -496,9 +533,7 @@ impl<'a> Lexer<'a> {
             chars: input.chars().collect::<Vec<_>>().into(),
             chars_idx: 0,
             attributes: Vec::new(),
-            decls,
-            globals: HashMap::new(),
-            identifiers: HashMap::new(),
+            ctx,
         }
     }
 
@@ -784,7 +819,13 @@ impl<'a> Lexer<'a> {
         // to a registered type, return `TypeName` and switch to clause/expr
         // mode so the declaration parses, rather than treating it as a probe
         // specifier.
-        if self.decls.iter().any(|(name, _)| name == lexeme) {
+        if self
+            .ctx
+            .borrow()
+            .decls
+            .iter()
+            .any(|(name, _)| name == lexeme)
+        {
             self.state = LexerState::InsideClauseAndExpr;
             return Token {
                 kind: TokenKind::TypeName,
@@ -2709,13 +2750,20 @@ impl<'a> Lexer<'a> {
      * unlike in C.
      */
     fn id_or_type(&mut self, s: &str, origin: Origin) -> TokenKind {
+        // Held across the early-return and the final memoising insert. A
+        // single `borrow_mut()` keeps the RefCell borrow flag flipped for
+        // the whole function; this is safe as long as nothing called from
+        // here re-borrows `ctx` (currently nothing does — `lex_*` callers
+        // borrow only outside `id_or_type`).
+        let ctx = self.ctx.clone();
+        let mut ctx = ctx.borrow_mut();
         /*
          * If the lexeme is a global variable or likely identifier or *not* a
          * type_name, then it is an identifier token.
          */
-        if self.globals.contains_key(s)
-            || self.identifiers.contains_key(s)
-            || self.decls.iter().find(|(name, _)| name == s).is_none()
+        if ctx.globals.contains_key(s)
+            || ctx.identifiers.contains_key(s)
+            || !ctx.decls.iter().any(|(name, _)| name == s)
         {
             return TokenKind::Identifier;
         }
@@ -2754,7 +2802,7 @@ impl<'a> Lexer<'a> {
         };
 
         if res == TokenKind::Identifier {
-            self.identifiers.insert(s.to_owned(), origin);
+            ctx.identifiers.insert(s.to_owned(), origin);
         }
 
         res
@@ -6085,7 +6133,7 @@ mod tests {
         let input = "MyType;";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.decls.push((
+        lexer.ctx.borrow_mut().decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
@@ -6106,7 +6154,7 @@ mod tests {
         let input = "MyType++";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.decls.push((
+        lexer.ctx.borrow_mut().decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
@@ -6122,7 +6170,7 @@ mod tests {
         let input = "MyType--";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.decls.push((
+        lexer.ctx.borrow_mut().decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
@@ -6138,7 +6186,7 @@ mod tests {
         let input = "MyType[0]";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.decls.push((
+        lexer.ctx.borrow_mut().decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
@@ -6155,7 +6203,7 @@ mod tests {
         let input = "MyType = 1";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.decls.push((
+        lexer.ctx.borrow_mut().decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
@@ -6172,7 +6220,7 @@ mod tests {
         let input = "MyType == 1";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.decls.push((
+        lexer.ctx.borrow_mut().decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
@@ -6190,7 +6238,7 @@ mod tests {
         let input = "MyType;";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.decls.push((
+        lexer.ctx.borrow_mut().decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
@@ -6199,6 +6247,8 @@ mod tests {
             },
         ));
         lexer
+            .ctx
+            .borrow_mut()
             .globals
             .insert("MyType".to_owned(), crate::origin::Origin::default());
         assert_eq!(lexer.lex().kind, TokenKind::Identifier);
@@ -6210,7 +6260,7 @@ mod tests {
         let input = "MyType;";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.decls.push((
+        lexer.ctx.borrow_mut().decls.push((
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
@@ -6219,6 +6269,8 @@ mod tests {
             },
         ));
         lexer
+            .ctx
+            .borrow_mut()
             .identifiers
             .insert("MyType".to_owned(), crate::origin::Origin::default());
         assert_eq!(lexer.lex().kind, TokenKind::Identifier);

@@ -7,7 +7,7 @@ use std::{
 use crate::{
     error::{Error, ErrorKind},
     lex::{
-        self, Declaration, DeclarationKind, Declarations, Lexer, NumberSuffix, Token, TokenKind,
+        self, Declaration, DeclarationKind, Lexer, LexerContext, NumberSuffix, Token, TokenKind,
     },
     origin::{FileId, Origin},
     type_checker::Type,
@@ -264,7 +264,7 @@ pub struct Parser<'a> {
 }
 
 fn record_type_decl(
-    decls: &mut Declarations,
+    ctx: &mut LexerContext,
     errors: &mut Vec<Error>,
     name: &str,
     kind: DeclarationKind,
@@ -274,7 +274,7 @@ fn record_type_decl(
     let conflicting = if is_forward {
         None
     } else {
-        decls
+        ctx.decls
             .iter()
             .rev()
             .find(|(n, decl)| !decl.is_forward && decl.kind == kind && n == name)
@@ -293,7 +293,7 @@ fn record_type_decl(
         origin,
         is_forward,
     };
-    decls.push((name.to_owned(), decl));
+    ctx.decls.push((name.to_owned(), decl));
 }
 
 /// Walks `Declarator` → `DirectDeclarator` (peeling parenthesised wrappers as
@@ -316,16 +316,12 @@ fn declarator_inner_identifier(nodes: &[Node], decl_id: NodeId) -> Option<(Strin
     }
 }
 
-fn lookup_type<'a>(
-    decls: &'a Declarations,
-    name: &'a str,
-    kind: DeclarationKind,
-) -> Option<&'a Declaration> {
-    // Build the filtered iterator lazily; we need it twice because `find` exhausts the
-    // iterator, so calling `next` on the same one after finding nothing would always return
-    // `None`.
+fn lookup_type(ctx: &LexerContext, name: &str, kind: DeclarationKind) -> Option<Declaration> {
+    // Returns an owned `Declaration` so callers don't have to keep a
+    // `Ref<LexerContext>` alive across the call. `Declaration` is small
+    // (a kind, an origin, and a bool), so the clone is cheap.
     let iter = || {
-        decls
+        ctx.decls
             .iter()
             .rev()
             .filter(move |(n, decl)| decl.kind == kind && n == name)
@@ -336,6 +332,7 @@ fn lookup_type<'a>(
     iter()
         .find(|decl| !decl.is_forward)
         .or_else(|| iter().next())
+        .cloned()
 }
 
 impl<'a> Parser<'a> {
@@ -360,7 +357,6 @@ impl<'a> Parser<'a> {
         NodeId(self.nodes.len() - 1)
     }
 
-    // FIXME: Clone.
     fn peek1(&self) -> Token {
         let mut cpy = Lexer {
             position: self.lexer.position,
@@ -372,17 +368,19 @@ impl<'a> Parser<'a> {
             attributes: Vec::new(),
             chars: self.lexer.chars.clone(),
             chars_idx: self.lexer.chars_idx,
-            // The lookup tables drive `id_or_type`, so peeks must see the
-            // same registered types as the live lexer; otherwise typedef
-            // names look like plain identifiers during lookahead.
-            decls: self.lexer.decls.clone(),
-            globals: self.lexer.globals.clone(),
-            identifiers: self.lexer.identifiers.clone(),
+            // Share the lookup tables (decls / globals / identifiers) via
+            // the same `Rc<RefCell<_>>`. Cloning is now an `Rc::clone` —
+            // not a deep copy of the maps. The peek's own copies of
+            // `state`/`position`/`chars_idx` mean any state mutations
+            // during the speculative `lex` stay local; the only shared
+            // mutation `id_or_type` may perform is a benign memoising
+            // insertion into `identifiers` that the real lex would do
+            // anyway.
+            ctx: self.lexer.ctx.clone(),
         };
         cpy.lex()
     }
 
-    // FIXME: Clone.
     fn peek2(&self) -> Token {
         let mut cpy = Lexer {
             position: self.lexer.position,
@@ -394,9 +392,7 @@ impl<'a> Parser<'a> {
             attributes: Vec::new(),
             chars: self.lexer.chars.clone(),
             chars_idx: self.lexer.chars_idx,
-            decls: self.lexer.decls.clone(),
-            globals: self.lexer.globals.clone(),
-            identifiers: self.lexer.identifiers.clone(),
+            ctx: self.lexer.ctx.clone(),
         };
         let _ = cpy.lex();
         cpy.lex()
@@ -2373,7 +2369,7 @@ impl<'a> Parser<'a> {
             for id in ids {
                 if let Some((name, origin)) = declarator_inner_identifier(&self.nodes, *id) {
                     record_type_decl(
-                        &mut self.lexer.decls,
+                        &mut self.lexer.ctx.borrow_mut(),
                         &mut self.lexer.errors,
                         &name,
                         DeclarationKind::Typedef,
@@ -2719,7 +2715,7 @@ impl<'a> Parser<'a> {
         if let Some(name) = name_tok {
             let is_forward = left_curly.is_none();
             record_type_decl(
-                &mut self.lexer.decls,
+                &mut self.lexer.ctx.borrow_mut(),
                 &mut self.lexer.errors,
                 lex::str_from_source(self.lexer.input, name.origin),
                 DeclarationKind::Enum,
@@ -2837,7 +2833,7 @@ impl<'a> Parser<'a> {
                 _ => unreachable!(),
             };
             record_type_decl(
-                &mut self.lexer.decls,
+                &mut self.lexer.ctx.borrow_mut(),
                 &mut self.lexer.errors,
                 lex::str_from_source(self.lexer.input, name.origin),
                 kind,
@@ -4529,7 +4525,8 @@ mod tests {
         let mut parser = Parser::new(lexer);
         parser.parse_enum_specifier();
 
-        let lookup = lookup_type(&parser.lexer.decls, "Color", DeclarationKind::Enum).unwrap();
+        let lookup =
+            lookup_type(&parser.lexer.ctx.borrow(), "Color", DeclarationKind::Enum).unwrap();
         assert!(!lookup.is_forward);
     }
 
@@ -4543,7 +4540,8 @@ mod tests {
         let mut parser = Parser::new(lexer);
         parser.parse_struct_or_union_specifier();
 
-        let lookup = lookup_type(&parser.lexer.decls, "Point", DeclarationKind::Struct).unwrap();
+        let lookup =
+            lookup_type(&parser.lexer.ctx.borrow(), "Point", DeclarationKind::Struct).unwrap();
         assert!(!lookup.is_forward);
     }
 
@@ -4557,7 +4555,8 @@ mod tests {
         let mut parser = Parser::new(lexer);
         parser.parse_struct_or_union_specifier();
 
-        let lookup = lookup_type(&parser.lexer.decls, "Data", DeclarationKind::Union).unwrap();
+        let lookup =
+            lookup_type(&parser.lexer.ctx.borrow(), "Data", DeclarationKind::Union).unwrap();
         assert!(!lookup.is_forward);
     }
 
@@ -4569,8 +4568,8 @@ mod tests {
         lexer.begin(lex::LexerState::InsideClauseAndExpr);
         let mut parser = Parser::new(lexer);
         parser.parse_enum_specifier();
-        assert!(lookup_type(&parser.lexer.decls, "", DeclarationKind::Enum).is_none());
-        assert!(lookup_type(&parser.lexer.decls, "Red", DeclarationKind::Enum).is_none());
+        assert!(lookup_type(&parser.lexer.ctx.borrow(), "", DeclarationKind::Enum).is_none());
+        assert!(lookup_type(&parser.lexer.ctx.borrow(), "Red", DeclarationKind::Enum).is_none());
     }
 
     #[test]
@@ -4581,8 +4580,8 @@ mod tests {
         lexer.begin(lex::LexerState::InsideClauseAndExpr);
         let mut parser = Parser::new(lexer);
         parser.parse_struct_or_union_specifier();
-        assert!(lookup_type(&parser.lexer.decls, "", DeclarationKind::Struct).is_none());
-        assert!(lookup_type(&parser.lexer.decls, "x", DeclarationKind::Struct).is_none());
+        assert!(lookup_type(&parser.lexer.ctx.borrow(), "", DeclarationKind::Struct).is_none());
+        assert!(lookup_type(&parser.lexer.ctx.borrow(), "x", DeclarationKind::Struct).is_none());
     }
 
     #[test]
@@ -4596,7 +4595,12 @@ mod tests {
         let mut parser = Parser::new(lexer);
         parser.parse_struct_or_union_specifier();
 
-        let lookup = lookup_type(&parser.lexer.decls, "Person", DeclarationKind::Struct).unwrap();
+        let lookup = lookup_type(
+            &parser.lexer.ctx.borrow(),
+            "Person",
+            DeclarationKind::Struct,
+        )
+        .unwrap();
         assert!(lookup.is_forward);
     }
 
@@ -4607,7 +4611,8 @@ mod tests {
         lexer.begin(lex::LexerState::InsideClauseAndExpr);
         let mut parser = Parser::new(lexer);
         parser.parse_enum_specifier();
-        let lookup = lookup_type(&parser.lexer.decls, "Color", DeclarationKind::Enum).unwrap();
+        let lookup =
+            lookup_type(&parser.lexer.ctx.borrow(), "Color", DeclarationKind::Enum).unwrap();
         assert!(lookup.is_forward);
     }
 
@@ -4624,7 +4629,12 @@ mod tests {
         parser.lexer.lex(); // skip `;`
         parser.parse_struct_or_union_specifier(); // consumes `struct Person { int age; }`
 
-        let lookup = lookup_type(&parser.lexer.decls, "Person", DeclarationKind::Struct).unwrap();
+        let lookup = lookup_type(
+            &parser.lexer.ctx.borrow(),
+            "Person",
+            DeclarationKind::Struct,
+        )
+        .unwrap();
         assert!(!lookup.is_forward);
 
         // The origin must point to the full `struct Person` span in the full definition (line 2),
@@ -4643,7 +4653,8 @@ mod tests {
         parser.lexer.lex(); // skip `;`
         parser.parse_enum_specifier();
 
-        let lookup = lookup_type(&parser.lexer.decls, "Color", DeclarationKind::Enum).unwrap();
+        let lookup =
+            lookup_type(&parser.lexer.ctx.borrow(), "Color", DeclarationKind::Enum).unwrap();
         assert!(!lookup.is_forward);
         assert_eq!(lookup.origin.start.line, 2);
         assert_eq!(lex::str_from_source(input, lookup.origin), "enum Color");
@@ -4655,7 +4666,12 @@ mod tests {
             "struct Person { int age; int id; };\nBEGIN { print(offsetof(struct Person, id)); }";
         let (parser, _) = parse_program_input(input);
 
-        let lookup = lookup_type(&parser.lexer.decls, "Person", DeclarationKind::Struct).unwrap();
+        let lookup = lookup_type(
+            &parser.lexer.ctx.borrow(),
+            "Person",
+            DeclarationKind::Struct,
+        )
+        .unwrap();
         assert!(!lookup.is_forward);
         // Origin must still point to the full definition on line 1.
         assert_eq!(lookup.origin.start.line, 1);
@@ -4815,19 +4831,21 @@ mod tests {
         assert!(parser.lexer.errors.is_empty());
 
         // The outer struct must be registered as a non-forward `Struct`.
-        let outer = lookup_type(&parser.lexer.decls, "Outer", DeclarationKind::Struct).unwrap();
+        let outer =
+            lookup_type(&parser.lexer.ctx.borrow(), "Outer", DeclarationKind::Struct).unwrap();
         assert!(!outer.is_forward);
         // The anonymous union leaves no named entry: among user-defined
         // declarations (i.e. excluding the pre-registered built-in types),
         // only `Outer` is present.
-        let user_decls: Vec<_> = parser
-            .lexer
+        let ctx = parser.lexer.ctx.borrow();
+        let user_decls: Vec<_> = ctx
             .decls
             .iter()
             .filter(|(_, d)| d.origin.kind() != crate::origin::PositionKind::Builtin)
             .collect();
         assert_eq!(user_decls.len(), 1);
         assert_eq!(user_decls[0].0, "Outer");
+        drop(ctx);
 
         // Root: StructDeclaration with name token "Outer" and a body.
         let NodeKind::StructDeclaration {
