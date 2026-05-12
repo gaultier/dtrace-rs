@@ -51,6 +51,16 @@ inline string LABEL = "ok";
 
 inline int computed = x > 0 ? x : 0;
 
+  #define  FOO 1
+
+#ifdef FOO 
+ int* foo;
+#else
+ int* bar;
+#endif
+
+#undef FOO
+
 int *ptr;
 
 const int * const cptr;

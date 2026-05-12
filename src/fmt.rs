@@ -2001,6 +2001,148 @@ BEGIN
     }
 
     #[test]
+    fn test_cpp_include_preserved() {
+        // `#include` reaches the D lexer only when the user has not run `cpp`
+        // beforehand. The formatter must pass it through verbatim, just like
+        // `#pragma`.
+        let input = "#include \"stdio.h\"\nBEGIN { trace(1); }";
+        assert_eq!(
+            fmt(input),
+            "#include \"stdio.h\"
+BEGIN
+{
+  trace(1);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_cpp_define_preserved() {
+        // A single-line `#define` must be emitted verbatim and the body that
+        // references the macro identifier must still format.
+        let input = "#define VALUE 5\nBEGIN { x = VALUE; }";
+        assert_eq!(
+            fmt(input),
+            "#define VALUE 5
+BEGIN
+{
+  x = VALUE;
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_cpp_define_with_line_continuation_preserved() {
+        // A `\\` at end of line continues a `#define` onto the next physical
+        // line. The directive origin spans both physical lines, so the raw
+        // source text — including the backslash and newline — is emitted
+        // unchanged.
+        let input = "#define\tTST(name)\t\\\n\tprintf(\"foo\\n\", name)\nBEGIN { trace(1); }";
+        assert_eq!(
+            fmt(input),
+            "#define\tTST(name)\t\\\n\tprintf(\"foo\\n\", name)
+BEGIN
+{
+  trace(1);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_cpp_undef_preserved() {
+        // `#undef` is opaque to the D lexer; pass through verbatim.
+        let input = "#undef VALUE\nBEGIN { trace(1); }";
+        assert_eq!(
+            fmt(input),
+            "#undef VALUE
+BEGIN
+{
+  trace(1);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_cpp_ifdef_else_endif_preserved() {
+        // `#ifdef … #else … #endif` is opaque to the D lexer: each directive
+        // is stored individually and emitted in source order. The body
+        // between directives still parses (here, two `#define` lines).
+        let input = "#ifdef FLAG\n#define VALUE 5\n#else\n#define VALUE 10\n#endif\nBEGIN { trace(VALUE); }";
+        assert_eq!(
+            fmt(input),
+            "#ifdef FLAG
+#define VALUE 5
+#else
+#define VALUE 10
+#endif
+BEGIN
+{
+  trace(VALUE);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_cpp_if_defined_preserved() {
+        // `#if defined(FLAG)` — the `if` keyword is a D statement keyword
+        // but at column 1 after `#` it can only be the preprocessor
+        // directive, so the lexer routes it to the directive branch.
+        let input = "#if defined (FLAG)\n#define VALUE 5\n#endif\nBEGIN { trace(1); }";
+        assert_eq!(
+            fmt(input),
+            "#if defined (FLAG)
+#define VALUE 5
+#endif
+BEGIN
+{
+  trace(1);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_cpp_ifndef_elif_preserved() {
+        // `#ifndef` and `#elif` must also pass through. The body between
+        // each directive still parses.
+        let input = "#ifndef VALUE\n#define VALUE 1\n#elif VALUE == 2\n#define VALUE 3\n#endif\nBEGIN { trace(1); }";
+        assert_eq!(
+            fmt(input),
+            "#ifndef VALUE
+#define VALUE 1
+#elif VALUE == 2
+#define VALUE 3
+#endif
+BEGIN
+{
+  trace(1);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_cpp_warning_preserved() {
+        // `#warning` reaches the D lexer when `cpp` was not run; pass
+        // through verbatim rather than treating as a D `#error` directive.
+        let input = "#warning deprecated\nBEGIN { trace(1); }";
+        assert_eq!(
+            fmt(input),
+            "#warning deprecated
+BEGIN
+{
+  trace(1);
+}
+"
+        );
+    }
+
+    #[test]
     fn test_multi_line_comment_between_close_paren_and_open_brace_of_if() {
         // A comment sitting between `)` and `{` of an `if` must stay there.
         let input = "BEGIN {\n  if (foo) /* bar */ {\n  }\n}";
