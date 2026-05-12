@@ -86,37 +86,17 @@ impl<'a, W: Write> Formatter<'a, W> {
     /// Emits one directive at the current `directive_idx`, advancing the index.
     fn emit_one_directive(&mut self, indent: usize) -> std::io::Result<()> {
         let directive = &self.directives[self.directive_idx];
-        match &directive.kind {
-            ControlDirectiveKind::Ignored => {
-                // Null directives (`#` with nothing after) have a zero-length origin;
-                // skip them entirely.  Non-null ignored directives (`#ident`, unknown
-                // pragmas) are preserved verbatim.
-                let text = lex::str_from_source(self.input, directive.origin);
-                if !text.is_empty() {
-                    self.indent(indent)?;
-                    self.w.write_all(text.as_bytes())?;
-                    self.w.write_all(b"\n")?;
-                }
-            }
-            ControlDirectiveKind::PragmaError(_) => {
-                // Emit verbatim from the directive's origin (which now spans
-                // `#` through the last token) so the surface form is
-                // preserved — `#error foo`, `#pragma error foo`, and
-                // `#pragma D error foo` all round-trip unchanged.
-                self.indent(indent)?;
-                let text = lex::str_from_source(self.input, directive.origin);
-                self.w.write_all(text.as_bytes())?;
-                self.w.write_all(b"\n")?;
-            }
-            _ => {
-                // All other directive kinds have origins that span from `#` to the
-                // end of the directive line, so the raw source text is complete.
-                self.indent(indent)?;
-                let text = lex::str_from_source(self.input, directive.origin);
-                self.w.write_all(text.as_bytes())?;
-                self.w.write_all(b"\n")?;
-            }
-        }
+        let text = lex::str_from_source(self.input, directive.origin);
+        let text = text.trim_start_matches(|c: char| c.is_ascii_whitespace());
+        assert_eq!(text.chars().next(), Some('#'));
+        let text = text[1..].trim_start_matches(|c: char| c.is_ascii_whitespace());
+        let text = text.trim_end_matches(|c: char| c.is_ascii_whitespace());
+
+        self.indent(indent)?;
+        self.w.write_all(b"# ")?;
+        self.w.write_all(text.as_bytes())?;
+        self.w.write_all(b"\n")?;
+
         self.directive_idx += 1;
         Ok(())
     }
