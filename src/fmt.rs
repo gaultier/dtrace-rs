@@ -88,14 +88,17 @@ impl<'a, W: Write> Formatter<'a, W> {
         let directive = &self.directives[self.directive_idx];
         let text = lex::str_from_source(self.input, directive.origin);
         let text = text.trim_start_matches(|c: char| c.is_ascii_whitespace());
-        assert_eq!(text.chars().next(), Some('#'));
-        let text = text[1..].trim_start_matches(|c: char| c.is_ascii_whitespace());
-        let text = text.trim_end_matches(|c: char| c.is_ascii_whitespace());
+        if text.chars().next() == Some('#') {
+            let text = text[1..].trim_start_matches(|c: char| c.is_ascii_whitespace());
+            let text = text.trim_end_matches(|c: char| c.is_ascii_whitespace());
 
-        self.indent(indent)?;
-        self.w.write_all(b"#")?;
-        self.w.write_all(text.as_bytes())?;
-        self.w.write_all(b"\n")?;
+            self.indent(indent)?;
+            self.w.write_all(b"#")?;
+            self.w.write_all(text.as_bytes())?;
+            self.w.write_all(b"\n")?;
+        } else {
+            assert!(matches!(directive.kind, ControlDirectiveKind::Ignored));
+        }
 
         self.directive_idx += 1;
         Ok(())
