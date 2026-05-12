@@ -2072,6 +2072,45 @@ BEGIN
     }
 
     #[test]
+    fn test_directive_bare_hash_is_dropped() {
+        // K&R[A12.9] makes a null directive (`#` alone on a line) a no-op:
+        // the lexer records it as an `Ignored` directive whose origin is
+        // empty (no `#` character even appears in the trimmed text), and
+        // the formatter drops it from the output entirely.
+        let input = "#\nint x;";
+        assert_eq!(fmt(input), "int x;\n");
+    }
+
+    #[test]
+    fn test_directive_hash_followed_by_only_whitespace_is_dropped() {
+        // Same rule for `#` followed by only horizontal whitespace and a
+        // newline — there is no directive keyword, so nothing to emit.
+        let input = "#   \nint x;";
+        assert_eq!(fmt(input), "int x;\n");
+    }
+
+    #[test]
+    fn test_directive_multiple_bare_hashes_between_declarations() {
+        // Null directives are dropped from the output, but they still
+        // exist in the directive list — so the between-decls blank-line
+        // rule sees them as "annotations in the gap" and skips the
+        // separator. The two declarations end up stacked tightly. This is
+        // the same behaviour as `#ifdef`/`#else` arms; the gap heuristic
+        // does not introspect directive contents.
+        let input = "int x;\n#\n#\nint y;";
+        assert_eq!(fmt(input), "int x;\nint y;\n");
+    }
+
+    #[test]
+    fn test_directive_bare_pragma_is_preserved() {
+        // `#pragma` with no payload is a distinct case from the null
+        // directive: the `pragma` keyword is present in the origin, so
+        // the formatter emits `#pragma` verbatim.
+        let input = "#pragma\nint x;";
+        assert_eq!(fmt(input), "#pragma\nint x;\n");
+    }
+
+    #[test]
     fn test_directive_trailing_whitespace_with_cpp_define() {
         // The trimming rule applies to all directive kinds, not just
         // `#pragma` — `#define` lines from the illumos corpus often have
