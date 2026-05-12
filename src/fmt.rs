@@ -1785,6 +1785,24 @@ syscall::close:entry
     }
 
     #[test]
+    fn test_pragma_inside_probe_body() {
+        // `dt_lex.l`'s `<S0>{RGX_CTL} | <S2>{RGX_CTL}` rule accepts a
+        // control directive (`#pragma …`) inside a probe body, not just
+        // at top level. Mirrors `test/tst/common/probes/tst.pragmainside.d`
+        // in the official dtrace test corpus.
+        let input = "tick-10ms\n{\n#pragma D option quiet\n  exit(0);\n}";
+        assert_eq!(
+            fmt(input),
+            "tick-10ms
+{
+  #pragma D option quiet
+  exit(0);
+}
+"
+        );
+    }
+
+    #[test]
     fn test_pragma_option_before_declaration() {
         // A pragma directive appearing before a top-level declaration must be emitted
         // before that declaration, preserving its source order.

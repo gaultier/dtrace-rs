@@ -1308,14 +1308,23 @@ impl<'a> Lexer<'a> {
                 });
                 self.lex()
             }
-            ((Some('#'), _, _), LexerState::ProgramOuterScope) => {
+            (
+                (Some('#'), _, _),
+                prior_state @ (LexerState::ProgramOuterScope | LexerState::InsideClauseAndExpr),
+            ) => {
+                // Matches `dt_lex.l`'s `<S0>{RGX_CTL} | <S2>{RGX_CTL}` rule:
+                // a control directive (`#pragma …`, `#line …`, etc.) is
+                // accepted both at top-level and inside a probe body, and
+                // the prior lexer state is restored after the directive's
+                // trailing newline.
+                let saved_state = *prior_state;
                 self.state = LexerState::InsideControlDirective(self.position.line);
                 let start = self.position;
                 self.advance(1);
                 let mut tokens = Vec::with_capacity(8);
                 loop {
                     if let Some('\n') = self.peek1() {
-                        self.state = LexerState::ProgramOuterScope;
+                        self.state = saved_state;
                         break;
                     }
                     let token = self.lex();
