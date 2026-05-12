@@ -123,6 +123,20 @@ volatile int vval;
 string sstr;
 // `storage_class_specifier`: `extern`.
 extern int extvar;
+// `storage_class_specifier`: `auto`.
+auto int aval;
+// `storage_class_specifier`: `static`.
+static int sval2;
+// `storage_class_specifier`: `register`.
+register int rval;
+// `type_qualifier`: `restrict` (rare but in the grammar).
+restrict int *rptr;
+// `d_storage_class_specifier`: `this` (clause-local variable).
+this int tlsvar;
+// `d_storage_class_specifier`: `self` (thread-local variable).
+self int sclvar;
+// `array` with no `array_parameters` — declaration of an unsized array.
+int empty_arr[];
 // `init_declarator_list` with two `init_declarator`s sharing one specifier.
 int multi_a, multi_b;
 // Function declarator (`direct_declarator` with `function_parameters`),
@@ -304,6 +318,28 @@ syscall::open:entry
   // `primary_expression`: aggregation (D extension `@name`).
   @n++;
 
+  // Anonymous aggregation `@` assigned from an aggregating function.
+  @ = count();
+
+  // Anonymous aggregation with a tuple key (`@[key]`).
+  @[pid] = count();
+
+  // Named aggregation with a tuple key (`@name[key]`).
+  @x[pid] = sum(1);
+
+  // `primary_expression`: thread-local (`self->name`) and clause-local
+  // (`this->name`) variable references.
+  self->y = 1;
+  this->z = 2;
+
+  // `primary_expression`: macro argument references (`$1`, `$name`).
+  x = $1;
+  x = $name;
+
+  // `sizeof` with an `abstract_declarator` containing an `array`
+  // (`DirectAbstractArray`).
+  x = sizeof(int [10]);
+
   // `primary_expression`: identifier.
   x = NULL;
 
@@ -338,5 +374,17 @@ syscall::open:entry
     y = 3;
   } else {
     y = 4;
+  }
+
+  // Braceless `statement_or_block` body: the grammar rule
+  // `statement: expression ';'` fires here. The formatter wraps the
+  // single statement in `{ … }` on output.
+  if (x == 1) {
+    y = 2;
+  }
+  if (x == 1) {
+    y = 2;
+  } else {
+    y = 3;
   }
 }
