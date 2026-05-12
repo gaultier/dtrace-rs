@@ -98,11 +98,15 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.w.write_all(b"\n")?;
                 }
             }
-            ControlDirectiveKind::PragmaError(msg) => {
-                // The lexer stores only the message portion in the origin, so
-                // reconstruct the full directive header.
+            ControlDirectiveKind::PragmaError(_) => {
+                // Emit verbatim from the directive's origin (which now spans
+                // `#` through the last token) so the surface form is
+                // preserved — `#error foo`, `#pragma error foo`, and
+                // `#pragma D error foo` all round-trip unchanged.
                 self.indent(indent)?;
-                writeln!(self.w, "#pragma D error {}", msg)?;
+                let text = lex::str_from_source(self.input, directive.origin);
+                self.w.write_all(text.as_bytes())?;
+                self.w.write_all(b"\n")?;
             }
             _ => {
                 // All other directive kinds have origins that span from `#` to the
@@ -2175,6 +2179,55 @@ int *foo;
 #else
 int *bar;
 #endif
+"
+        );
+    }
+
+    #[test]
+    fn test_cpp_error_bare_form_preserved() {
+        // Regression: `#error foo` was being rewritten as `#pragma D error`
+        // (with the message dropped) because the formatter reconstructed
+        // the directive from the message field, and the lexer's
+        // `tokens.get(1)` for the message-start was off-by-one. The
+        // directive now round-trips verbatim from its origin.
+        let input = "#error foo bar\nBEGIN { trace(1); }";
+        assert_eq!(
+            fmt(input),
+            "#error foo bar
+BEGIN
+{
+  trace(1);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_cpp_error_pragma_d_form_preserved() {
+        // `#pragma D error msg…` must round-trip verbatim, not be rewritten.
+        let input = "#pragma D error something went wrong\nBEGIN { trace(1); }";
+        assert_eq!(
+            fmt(input),
+            "#pragma D error something went wrong
+BEGIN
+{
+  trace(1);
+}
+"
+        );
+    }
+
+    #[test]
+    fn test_cpp_error_pragma_form_preserved() {
+        // `#pragma error msg…` (without `D`) must also round-trip.
+        let input = "#pragma error my message\nBEGIN { trace(1); }";
+        assert_eq!(
+            fmt(input),
+            "#pragma error my message
+BEGIN
+{
+  trace(1);
+}
 "
         );
     }

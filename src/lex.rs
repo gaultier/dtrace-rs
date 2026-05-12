@@ -2027,7 +2027,7 @@ impl<'a> Lexer<'a> {
                             tokens.last().map_or(origin.end, |t| t.origin.end),
                         ),
                     }),
-                    "error" => self.control_directive_error(&tokens[1..]),
+                    "error" => self.control_directive_error(&tokens[1..], origin),
                     _ => Err(Error::new(
                         ErrorKind::InvalidControlDirective,
                         origin.start.extend_to_inclusive(
@@ -2172,8 +2172,8 @@ impl<'a> Lexer<'a> {
 
         match (directive1, directive2) {
             // `#pragma error`, or  `#pragma D error`.
-            (Some("D"), Some("error")) => self.control_directive_error(&tokens[2..]),
-            (Some("error"), _) => self.control_directive_error(&tokens[1..]),
+            (Some("D"), Some("error")) => self.control_directive_error(&tokens[2..], origin),
+            (Some("error"), _) => self.control_directive_error(&tokens[1..], origin),
 
             // `#pragma line`.
             (Some("D"), Some("line")) => self.control_directive_line(&tokens[2..], origin),
@@ -2207,8 +2207,17 @@ impl<'a> Lexer<'a> {
     }
 
     #[warn(unused_results)]
-    fn control_directive_error(&mut self, tokens: &[Token]) -> Result<ControlDirective, Error> {
-        let src = match (tokens.get(1), tokens.last()) {
+    fn control_directive_error(
+        &mut self,
+        tokens: &[Token],
+        origin: Origin,
+    ) -> Result<ControlDirective, Error> {
+        // `tokens` is the message portion only — the caller has already
+        // stripped the leading `error` (and any preceding `D`/`pragma`).
+        // Use `tokens.first()`, not `tokens.get(1)`: the previous off-by-one
+        // dropped the first word of the message (e.g. `#error foo bar`
+        // emitted msg=`bar`).
+        let src = match (tokens.first(), tokens.last()) {
             (Some(start), Some(end)) => self.input
                 [start.origin.start.byte_offset as usize..end.origin.end.byte_offset as usize]
                 .to_owned(),
@@ -2216,10 +2225,11 @@ impl<'a> Lexer<'a> {
         };
 
         Ok(ControlDirective {
-            origin: tokens[0]
-                .origin
+            // Span the full directive line, from `#` through the last
+            // message token, so the formatter can emit it verbatim.
+            origin: origin
                 .start
-                .extend_to_inclusive(tokens.last().map_or(tokens[0].origin.end, |t| t.origin.end)),
+                .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
             kind: ControlDirectiveKind::PragmaError(src),
         })
     }

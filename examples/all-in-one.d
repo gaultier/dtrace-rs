@@ -5,6 +5,11 @@
 #pragma  D  option  bufsize=4m
 #pragma  D  depends_on  module  isa
 #pragma  D  depends_on  library  procfs.d
+
+#error foo bar
+#pragma D error baz
+#pragma error something
+
 #pragma  D  line  1
 
 int *baz;
