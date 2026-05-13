@@ -1034,14 +1034,14 @@ impl<'a, W: Write> Formatter<'a, W> {
 
 pub fn format<W: Write>(
     w: &mut W,
-    node_id: NodeId,
+    node_id: Option<NodeId>,
     nodes: &[Node],
     comments: &[lex::Comment],
     directives: &[lex::ControlDirective],
     attributes: &[lex::Attribute],
     input: &str,
 ) -> std::io::Result<()> {
-    Formatter {
+    let mut formatter = Formatter {
         w,
         nodes,
         comments,
@@ -1051,8 +1051,14 @@ pub fn format<W: Write>(
         attributes,
         attribute_idx: 0,
         input,
+    };
+    match node_id {
+        Some(id) => formatter.fmt(id, 0),
+        // No AST root (the file is comments / directives only). Emit the
+        // pending annotations anyway so a header-only file doesn't round-trip
+        // to the empty string.
+        None => formatter.emit_pending_annotations(u32::MAX, 0),
     }
-    .fmt(node_id, 0)
 }
 
 #[cfg(test)]
@@ -1071,7 +1077,7 @@ mod tests {
         let mut out = Vec::new();
         format(
             &mut out,
-            root_id,
+            Some(root_id),
             &parser.nodes,
             &parser.lexer.comments,
             &parser.lexer.control_directives,
@@ -2017,6 +2023,67 @@ BEGIN
         assert_eq!(
             fmt(input),
             "#pragma D option quiet\n__attribute__((nodtrace));\nint x;\n"
+        );
+    }
+
+    #[test]
+    fn test_comment_only_file_preserves_comments() {
+        // Regression: a file with only comments (no `external_declaration`s
+        // and no `probe_definition`s) parses to an empty translation unit
+        // — i.e. `ast_root == None`. The formatter must still emit the
+        // recorded comments and directives so the file does not round-trip
+        // to the empty string. `man.APIVersion.d` in the illumos corpus is
+        // a real-world example.
+        let input = "/* header */\n// trailing\n";
+        let lexer = Lexer::new(FILE_ID, input);
+        let mut parser = Parser::new(lexer);
+        let root = parser.parse();
+        let mut out = Vec::new();
+        format(
+            &mut out,
+            root,
+            &parser.nodes,
+            &parser.lexer.comments,
+            &parser.lexer.control_directives,
+            &parser.lexer.attributes,
+            input,
+        )
+        .unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert!(
+            out.contains("/* header */"),
+            "missing block comment: {out:?}"
+        );
+        assert!(out.contains("// trailing"), "missing line comment: {out:?}");
+    }
+
+    #[test]
+    fn test_directive_only_file_preserves_directives() {
+        // Same rule for directive-only files: `ast_root == None`, but the
+        // recorded `#pragma`/`#include`/etc. must still appear.
+        let input = "#pragma D option quiet\n#include \"stdio.h\"\n";
+        let lexer = Lexer::new(FILE_ID, input);
+        let mut parser = Parser::new(lexer);
+        let root = parser.parse();
+        let mut out = Vec::new();
+        format(
+            &mut out,
+            root,
+            &parser.nodes,
+            &parser.lexer.comments,
+            &parser.lexer.control_directives,
+            &parser.lexer.attributes,
+            input,
+        )
+        .unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert!(
+            out.contains("#pragma D option quiet"),
+            "missing pragma: {out:?}"
+        );
+        assert!(
+            out.contains("#include \"stdio.h\""),
+            "missing include: {out:?}"
         );
     }
 

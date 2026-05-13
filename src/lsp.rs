@@ -575,7 +575,7 @@ fn formatting(
     let mut formatted_bytes = Vec::with_capacity(1024);
     fmt::format(
         &mut formatted_bytes,
-        root,
+        Some(root),
         &compiled.ast_nodes,
         &compiled.comments,
         &compiled.control_directives,

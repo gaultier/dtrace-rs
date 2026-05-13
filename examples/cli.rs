@@ -100,18 +100,16 @@ fn format_dtrace(out: &mut impl Write, source: &str, file_name: &str, offset_lin
     if !compiled.errors.is_empty() {
         return false;
     }
-    if let Some(root) = compiled.ast_root {
-        compiler_rs_lib::fmt::format(
-            out,
-            root,
-            &compiled.ast_nodes,
-            &compiled.comments,
-            &compiled.control_directives,
-            &compiled.attributes,
-            source,
-        )
-        .unwrap();
-    }
+    compiler_rs_lib::fmt::format(
+        out,
+        compiled.ast_root,
+        &compiled.ast_nodes,
+        &compiled.comments,
+        &compiled.control_directives,
+        &compiled.attributes,
+        source,
+    )
+    .unwrap();
     true
 }
 
