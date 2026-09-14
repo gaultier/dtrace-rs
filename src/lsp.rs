@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    io::{self, BufRead, Write},
+    io::{self, BufRead, Read, Write},
 };
 
 use lsp_types::{
@@ -138,6 +138,13 @@ fn origin_to_lsp_range(origin: Origin) -> lsp_types::Range {
     }
 }
 
+/// Largest LSP message accepted, in bytes.
+///
+/// `Content-Length` is attacker-controlled: without a bound, a peer can
+/// name any size, and `18446744073709551615` aborted the process outright
+/// with a capacity overflow.
+const MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
+
 impl Message {
     fn write_payload(writer: &mut impl Write, msg: &str) -> std::io::Result<()> {
         write!(writer, "Content-Length: {}\r\n\r\n", msg.len())?;
@@ -218,10 +225,27 @@ impl Message {
             io::ErrorKind::InvalidData,
             "missing content length",
         ))?;
+        if size > MAX_MESSAGE_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("content length {size} exceeds the maximum of {MAX_MESSAGE_BYTES}"),
+            ));
+        }
 
+        // `read_to_end` on a `take` commits memory as the bytes actually
+        // arrive. `resize(size, 0)` would allocate and zero the peer's
+        // claimed length up front, so a header alone was enough to make the
+        // server reserve it — `Content-Length: 4000000000` took 3.2 GB
+        // without the peer sending a body.
         let mut buf = buf.into_bytes();
-        buf.resize(size, 0);
-        reader.read_exact(&mut buf)?;
+        buf.clear();
+        let read = Read::take(&mut *reader, size as u64).read_to_end(&mut buf)?;
+        if read != size {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!("expected {size} bytes of payload, got {read}"),
+            ));
+        }
         let buf = String::from_utf8(buf)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid utf8"))?;
         Ok(Some(buf))
@@ -709,5 +733,37 @@ mod tests {
         let mut reader = std::io::BufReader::new(&input[..]);
         let mut writer = Vec::new();
         run(&mut reader, &mut writer);
+    }
+    #[test]
+    fn test_read_payload_rejects_an_oversized_content_length() {
+        // Regression: `buf.resize(size, 0)` allocated and zeroed the peer's
+        // claimed length before reading a single byte of the body, so the
+        // header alone was enough to reserve it.
+        let err = read_payload("Content-Length: 4000000000\r\n\r\n").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn test_read_payload_rejects_a_content_length_that_overflows() {
+        // `18446744073709551615` used to abort with a capacity overflow.
+        let err = read_payload("Content-Length: 18446744073709551615\r\n\r\n").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn test_read_payload_rejects_a_truncated_body() {
+        // The header promises more than the peer sent.
+        let err = read_payload("Content-Length: 100\r\n\r\n{}").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof);
+    }
+
+    #[test]
+    fn test_read_payload_accepts_a_message_at_the_size_limit() {
+        let body = "\"".to_owned() + &"a".repeat(64) + "\"";
+        let input = format!("Content-Length: {}\r\n\r\n{body}", body.len());
+        assert_eq!(
+            read_payload(&input).unwrap().as_deref(),
+            Some(body.as_str())
+        );
     }
 }
