@@ -664,7 +664,7 @@ impl<'a> Lexer<'a> {
             (_, end) = self.advance(1);
         }
 
-        let origin = start.extend_to_inclusive(end);
+        let origin = start.extend_to(end);
         let s = str_from_source(self.input, origin);
 
         Token {
@@ -687,7 +687,7 @@ impl<'a> Lexer<'a> {
             self.advance(1);
         }
 
-        let origin = start.extend_to_inclusive(self.position);
+        let origin = start.extend_to(self.position);
 
         Token {
             kind: TokenKind::Identifier,
@@ -896,7 +896,7 @@ impl<'a> Lexer<'a> {
                     // type-introducing keyword or a registered typedef —
                     // i.e. `int*foo` stops after `int`, leaving `*foo` for
                     // the next call.
-                    let so_far_origin = start.extend_to_inclusive(self.position);
+                    let so_far_origin = start.extend_to(self.position);
                     let so_far = str_from_source(self.input, so_far_origin);
                     if is_type_introducing_keyword(so_far) || self.ctx.borrow().is_declared(so_far)
                     {
@@ -910,7 +910,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let origin = start.extend_to_inclusive(self.position);
+        let origin = start.extend_to(self.position);
         let lexeme = str_from_source(self.input, origin);
 
         // Match `<S2>{RGX_PSPEC}` in `dt_lex.l`: if the bare lexeme resolves
@@ -981,7 +981,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let origin = start.extend_to_inclusive(self.position);
+        let origin = start.extend_to(self.position);
 
         Token {
             kind: TokenKind::LiteralString,
@@ -1162,7 +1162,7 @@ impl<'a> Lexer<'a> {
 
         Token {
             kind: TokenKind::LiteralCharacter(value),
-            origin: start.extend_to_inclusive(self.position),
+            origin: start.extend_to(self.position),
         }
     }
 
@@ -1310,7 +1310,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let origin = start.extend_to_inclusive(self.position);
+        let origin = start.extend_to(self.position);
 
         Token {
             kind: TokenKind::LiteralNumber(value, suffix),
@@ -1499,7 +1499,7 @@ impl<'a> Lexer<'a> {
                 let start = self.position;
                 self.advance(2);
                 self.skip_until_exclusive('\n');
-                let origin = start.extend_to_inclusive(self.position);
+                let origin = start.extend_to(self.position);
                 let s = str_from_source(self.input, origin.forwards(2))
                     .trim_ascii()
                     .to_owned();
@@ -1566,7 +1566,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::MinusMinus,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('-'), Some('='), _), _) => {
@@ -1574,7 +1574,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::MinusEq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('-'), Some('>'), _), _) => {
@@ -1582,7 +1582,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::Arrow,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('-'), _, _), _) => {
@@ -1590,7 +1590,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Minus,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('+'), Some('+'), _), _) => {
@@ -1598,7 +1598,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::PlusPlus,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('+'), Some('='), _), _) => {
@@ -1606,7 +1606,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::PlusEq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('+'), _, _), _) => {
@@ -1614,7 +1614,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Plus,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             // `...` is the vararg-parameter marker — valid both in
@@ -1627,7 +1627,7 @@ impl<'a> Lexer<'a> {
                 self.advance(3);
                 Token {
                     kind: TokenKind::DotDotDot,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('.'), Some(d), _), _) if d.is_ascii_digit() => {
@@ -1635,12 +1635,12 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 self.add_error(
                     ErrorKind::UnsupportedLiteralFloatNumber,
-                    start.extend_to_inclusive(self.position),
+                    start.extend_to(self.position),
                     "floating-point literals are not supported",
                 );
                 Token {
                     kind: TokenKind::LiteralNumber(0, NumberSuffix::NONE),
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('.'), _, _), LexerState::InsideClauseAndExpr) => {
@@ -1648,7 +1648,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Dot,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('*'), Some('='), _), _) => {
@@ -1656,7 +1656,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::StarEq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('*'), _, _), _) => {
@@ -1664,7 +1664,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Star,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('>'), Some('>'), Some('=')), _) => {
@@ -1672,7 +1672,7 @@ impl<'a> Lexer<'a> {
                 self.advance(3);
                 Token {
                     kind: TokenKind::GtGtEq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('>'), Some('>'), _), _) => {
@@ -1680,7 +1680,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::GtGt,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('>'), Some('='), _), _) => {
@@ -1688,7 +1688,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::GtEq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('>'), _, _), _) => {
@@ -1696,7 +1696,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Gt,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('<'), Some('<'), Some('=')), _) => {
@@ -1704,7 +1704,7 @@ impl<'a> Lexer<'a> {
                 self.advance(3);
                 Token {
                     kind: TokenKind::LtLtEq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('<'), Some('<'), _), _) => {
@@ -1712,7 +1712,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::LtLt,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('<'), Some('='), _), _) => {
@@ -1720,7 +1720,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::LtEq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('<'), _, _), _) => {
@@ -1728,7 +1728,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Lt,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('^'), Some('='), _), _) => {
@@ -1736,7 +1736,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::CaretEq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('^'), Some('^'), _), _) => {
@@ -1744,7 +1744,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::CaretCaret,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('^'), _, _), _) => {
@@ -1752,7 +1752,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Caret,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('&'), Some('='), _), _) => {
@@ -1760,7 +1760,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::AmpersandEq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('&'), Some('&'), _), _) => {
@@ -1768,7 +1768,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::AmpersandAmpersand,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('&'), _, _), _) => {
@@ -1776,7 +1776,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Ampersand,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('?'), _, _), _) => {
@@ -1784,7 +1784,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Question,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('|'), Some('='), _), _) => {
@@ -1792,7 +1792,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::PipeEq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('|'), Some('|'), _), _) => {
@@ -1800,7 +1800,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::PipePipe,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('|'), _, _), _) => {
@@ -1808,7 +1808,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Pipe,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some(':'), _, _), _) => {
@@ -1816,7 +1816,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Colon,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('!'), Some('='), _), _) => {
@@ -1824,7 +1824,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::BangEq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('!'), _, _), _) => {
@@ -1832,7 +1832,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Bang,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('='), Some('='), _), _) => {
@@ -1840,7 +1840,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::EqEq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('='), _, _), _) => {
@@ -1848,7 +1848,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Eq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('/'), Some('='), _), _) => {
@@ -1856,7 +1856,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::SlashEq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('/'), Some('/'), _), _) => {
@@ -1896,7 +1896,7 @@ impl<'a> Lexer<'a> {
 
                 Token {
                     kind,
-                    origin: start.extend_to_inclusive(end),
+                    origin: start.extend_to(end),
                 }
             }
             ((Some('/'), _, _), LexerState::ProgramOuterScope) => {
@@ -1904,7 +1904,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Slash,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('%'), Some('='), _), _) => {
@@ -1912,7 +1912,7 @@ impl<'a> Lexer<'a> {
                 self.advance(2);
                 Token {
                     kind: TokenKind::PercentEq,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('%'), _, _), _) => {
@@ -1920,7 +1920,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Percent,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('~'), _, _), _) => {
@@ -1928,7 +1928,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Tilde,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('{'), _, _), _) => {
@@ -1939,7 +1939,7 @@ impl<'a> Lexer<'a> {
                 // `Lexer::begin`.
                 Token {
                     kind: TokenKind::LeftCurly,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('}'), _, _), _) => {
@@ -1947,7 +1947,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::RightCurly,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('('), _, _), _) => {
@@ -1955,7 +1955,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::LeftParen,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some(')'), _, _), _) => {
@@ -1963,7 +1963,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::RightParen,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some(','), _, _), _) => {
@@ -1971,7 +1971,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::Comma,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('['), _, _), _) => {
@@ -1979,7 +1979,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::LeftSquareBracket,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some(']'), _, _), _) => {
@@ -1987,7 +1987,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::RightSquareBracket,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some(';'), _, _), _) => {
@@ -1995,7 +1995,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 Token {
                     kind: TokenKind::SemiColon,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
             ((Some('"'), _, _), _) => self.lex_literal_string(),
@@ -2102,13 +2102,13 @@ impl<'a> Lexer<'a> {
                 let start = self.position;
                 self.errors.push(Error::new(
                     ErrorKind::UnknownToken,
-                    start.extend_to_inclusive(self.position),
+                    start.extend_to(self.position),
                     format!("unexpected character '{c}'"),
                 ));
                 self.advance(1);
                 Token {
                     kind: TokenKind::Unknown(Some(c)),
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 }
             }
         }
@@ -2667,7 +2667,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let origin = origin.extend_to_inclusive(self.position);
+        let origin = origin.extend_to(self.position);
 
         self.comments.push(Comment {
             kind: CommentKind::SingleLine,
@@ -2713,7 +2713,7 @@ impl<'a> Lexer<'a> {
                     // file as if the missing text had never been there.
                     self.add_error(
                         ErrorKind::UnterminatedComment,
-                        origin.extend_to_inclusive(self.position),
+                        origin.extend_to(self.position),
                         "unterminated block comment, expected `*/` before the end of the input",
                     );
                     break;
@@ -2721,7 +2721,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        let origin = origin.extend_to_inclusive(self.position);
+        let origin = origin.extend_to(self.position);
 
         self.comments.push(Comment {
             kind: CommentKind::MultiLine,
@@ -2745,7 +2745,7 @@ impl<'a> Lexer<'a> {
             _ => {
                 return Token {
                     kind: TokenKind::Aggregation,
-                    origin: start.extend_to_inclusive(self.position),
+                    origin: start.extend_to(self.position),
                 };
             }
         }
@@ -2758,7 +2758,7 @@ impl<'a> Lexer<'a> {
 
         Token {
             kind: TokenKind::Aggregation,
-            origin: start.extend_to_inclusive(self.position),
+            origin: start.extend_to(self.position),
         }
     }
 
@@ -2799,7 +2799,7 @@ impl<'a> Lexer<'a> {
 
         Token {
             kind: TokenKind::MacroArgumentReferenceNumerical(num),
-            origin: start.extend_to_inclusive(self.position),
+            origin: start.extend_to(self.position),
         }
     }
 
@@ -2825,7 +2825,7 @@ impl<'a> Lexer<'a> {
 
         Token {
             kind: TokenKind::MacroArgumentReferenceIdentifier,
-            origin: start.extend_to_inclusive(self.position),
+            origin: start.extend_to(self.position),
         }
     }
 
@@ -2885,7 +2885,7 @@ impl<'a> Lexer<'a> {
                 (Some(')'), Some(')'), Some(';')) => {
                     self.advance(3);
                     return Some(Attribute {
-                        origin: bck_position.extend_to_inclusive(self.position),
+                        origin: bck_position.extend_to(self.position),
                     });
                 }
                 (Some('\n'), _, _) | (None, _, _) => {
@@ -2922,7 +2922,7 @@ impl<'a> Lexer<'a> {
                 (Some(')'), Some(')')) => {
                     self.advance(2);
                     return Some(Attribute {
-                        origin: bck_position.extend_to_inclusive(self.position),
+                        origin: bck_position.extend_to(self.position),
                     });
                 }
                 (Some('\n'), _) | (None, _) => {

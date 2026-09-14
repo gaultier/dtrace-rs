@@ -148,7 +148,10 @@ impl<'a, 'b> Display for OriginFormatter<'a, 'b> {
 }
 
 impl Position {
-    pub(crate) fn extend_to_inclusive(&self, to: Position) -> Origin {
+    /// The origin running from this position up to — but not including —
+    /// `to`. Callers pass the cursor after the text they lexed, so the
+    /// resulting range covers exactly that text.
+    pub(crate) fn extend_to(&self, to: Position) -> Origin {
         Origin {
             start: self.byte_offset,
             end: to.byte_offset,
