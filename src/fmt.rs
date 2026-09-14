@@ -54,6 +54,22 @@ impl<'a, W: Write> Formatter<'a, W> {
         next_comment_in || next_directive_in || next_attribute_in
     }
 
+    /// Drops every pending comment whose start byte lies in `[from, to)`.
+    ///
+    /// Used when a construct is written out from its raw source, which
+    /// already contains the comment text. Leaving such a comment queued
+    /// emits it a second time, and since the duplicate is then part of the
+    /// input, every further format pass adds another copy.
+    fn discard_comments_within(&mut self, from: u32, to: u32) {
+        while let Some(c) = self.comments.get(self.comment_idx) {
+            let start = c.origin.start.byte_offset;
+            if start < from || start >= to {
+                break;
+            }
+            self.comment_idx += 1;
+        }
+    }
+
     /// Emits one comment at the current `comment_idx`, advancing the index.
     fn emit_one_comment(&mut self, indent: usize) -> std::io::Result<()> {
         let comment = &self.comments[self.comment_idx];
@@ -86,6 +102,10 @@ impl<'a, W: Write> Formatter<'a, W> {
     /// Emits one directive at the current `directive_idx`, advancing the index.
     fn emit_one_directive(&mut self, indent: usize) -> std::io::Result<()> {
         let directive = &self.directives[self.directive_idx];
+        let (directive_start, directive_end) = (
+            directive.origin.start.byte_offset,
+            directive.origin.end.byte_offset,
+        );
         let text = lex::str_from_source(self.input, directive.origin);
         let text = text.trim_start_matches(|c: char| c.is_ascii_whitespace());
         if text.chars().next() == Some('#') {
@@ -100,6 +120,7 @@ impl<'a, W: Write> Formatter<'a, W> {
             assert!(matches!(directive.kind, ControlDirectiveKind::Ignored));
         }
 
+        self.discard_comments_within(directive_start, directive_end);
         self.directive_idx += 1;
         Ok(())
     }
@@ -532,6 +553,12 @@ impl<'a, W: Write> Formatter<'a, W> {
                 expr: inner,
             } => {
                 write!(self.w, "({})", &type_name)?;
+                // The type name is written from its captured source, which
+                // already contains any comment inside the parentheses.
+                self.discard_comments_within(
+                    self.nodes[node_id].origin.start.byte_offset,
+                    self.nodes[inner].origin.start.byte_offset,
+                );
                 self.fmt(inner, indent)?;
             }
             NodeKind::ExprStmt(inner) => {
@@ -1089,11 +1116,13 @@ mod tests {
         assert!(lexer.errors.is_empty());
         let mut parser = Parser::new(lexer);
         assert!(parser.lexer.errors.is_empty());
-        let root_id = parser.parse().unwrap();
+        // `parse` returns `None` for input that is only directives and
+        // comments, which `format` handles.
+        let root_id = parser.parse();
         let mut out = Vec::new();
         format(
             &mut out,
-            Some(root_id),
+            root_id,
             &parser.nodes,
             &parser.lexer.comments,
             &parser.lexer.control_directives,
@@ -2848,5 +2877,43 @@ typedef struct {
             fmt("BEGIN { if (1) { x = 1; // c\n} }\n"),
             "BEGIN\n{\n  if (1) {\n    x = 1; // c\n  }\n}\n"
         );
+    }
+    // Formats `input` repeatedly and asserts the output stops changing after
+    // the first pass. A formatter that moves or duplicates an annotation
+    // usually still produces plausible output once, and only reveals itself
+    // when its own output is fed back in.
+    fn assert_idempotent(input: &str) -> String {
+        let first = fmt(input);
+        let second = fmt(&first);
+        assert_eq!(first, second, "not idempotent for {input:?}");
+        first
+    }
+
+    #[test]
+    fn test_comment_inside_a_directive_is_not_duplicated() {
+        // Regression: the directive is written out from its raw source,
+        // which already contains the comment, while the comment also stayed
+        // queued. Every pass added another copy.
+        let out = assert_idempotent("#pragma D option /*x*/ quiet\n");
+        assert_eq!(out.matches("/*x*/").count(), 1, "output: {out:?}");
+    }
+
+    #[test]
+    fn test_comment_inside_a_cast_type_is_not_duplicated() {
+        let out = assert_idempotent("BEGIN { x = (int /*c*/ *)y; }\n");
+        assert_eq!(out.matches("/*c*/").count(), 1, "output: {out:?}");
+    }
+
+    #[test]
+    fn test_comment_before_a_directive_is_still_emitted() {
+        let out = assert_idempotent("/*before*/\n#pragma D option quiet\n");
+        assert_eq!(out.matches("/*before*/").count(), 1, "output: {out:?}");
+        assert!(out.contains("#pragma D option quiet"), "output: {out:?}");
+    }
+
+    #[test]
+    fn test_comment_after_a_directive_is_still_emitted() {
+        let out = assert_idempotent("#pragma D option quiet\n/*after*/\n");
+        assert_eq!(out.matches("/*after*/").count(), 1, "output: {out:?}");
     }
 }
