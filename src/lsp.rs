@@ -464,7 +464,13 @@ fn did_change(state: &mut State, params: serde_json::Value) -> Result<Option<Mes
         )
     })?;
 
-    let text = &params.content_changes[0].text;
+    // The server advertises `TextDocumentSyncKind::FULL`, so the last change
+    // carries the whole document. An empty array is legal JSON-RPC and a
+    // client may send one; indexing it unconditionally aborted the server.
+    let Some(change) = params.content_changes.last() else {
+        return Ok(None);
+    };
+    let text = &change.text;
     let compiled = compile(text, 1);
     let resp = PublishDiagnosticsParams {
         uri: params.text_document.uri.clone(),
@@ -765,5 +771,37 @@ mod tests {
             read_payload(&input).unwrap().as_deref(),
             Some(body.as_str())
         );
+    }
+    fn frame(body: &str) -> String {
+        format!("Content-Length: {}\r\n\r\n{body}", body.len())
+    }
+
+    #[test]
+    fn test_did_change_with_no_content_changes() {
+        // Regression: `content_changes[0]` was indexed unconditionally, so a
+        // client that sends an empty (but legal) change array aborted the
+        // server. The later, real change must still be handled.
+        let input = [
+            frame(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}"#),
+            frame(
+                r#"{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///t.d","languageId":"d","version":1,"text":"BEGIN { }\n"}}}"#,
+            ),
+            frame(
+                r#"{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///t.d","version":2},"contentChanges":[]}}"#,
+            ),
+            frame(
+                r#"{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///t.d","version":3},"contentChanges":[{"text":"BEGIN { trace(1); }\n"}]}}"#,
+            ),
+        ]
+        .concat();
+
+        let mut reader = std::io::BufReader::new(input.as_bytes());
+        let mut writer = Vec::new();
+        run(&mut reader, &mut writer);
+
+        let out = String::from_utf8(writer).unwrap();
+        // One for the `didOpen`, one for the change that carries text; the
+        // empty change publishes nothing.
+        assert_eq!(out.matches("publishDiagnostics").count(), 2, "{out}");
     }
 }
