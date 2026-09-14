@@ -3771,6 +3771,14 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// Deepest indentation the AST dump will emit, in spaces.
+///
+/// The indent grows by two per level, so a left-nested chain such as
+/// `1 + 1 + …` writes O(n^2) characters: eight thousand terms took about
+/// fifty seconds, against forty milliseconds to compile and format the same
+/// file. Past this depth the dump stays readable and stops growing.
+const MAX_LOG_INDENT: usize = 80;
+
 pub fn log(
     nodes: &[Node],
     node_id: NodeId,
@@ -3784,7 +3792,7 @@ pub fn log(
         node.origin.display(file_id_to_name),
         node_id.0,
         node.kind,
-        indent = indent
+        indent = indent.min(MAX_LOG_INDENT)
     );
     match &node.kind {
         NodeKind::Unknown => {}

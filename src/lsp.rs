@@ -126,14 +126,17 @@ pub enum Message {
 }
 
 fn origin_to_lsp_range(origin: Origin) -> lsp_types::Range {
+    // `Origin` counts lines and columns from one and LSP counts from zero.
+    // A zero from a synthesised or recovered origin would underflow, so the
+    // conversion saturates rather than wrapping to `u32::MAX`.
     lsp_types::Range {
         start: lsp_types::Position {
-            line: origin.start.line - 1,
-            character: origin.start.column - 1,
+            line: origin.start.line.saturating_sub(1),
+            character: origin.start.column.saturating_sub(1),
         },
         end: lsp_types::Position {
-            line: origin.end.line - 1,
-            character: origin.end.column - 1,
+            line: origin.end.line.saturating_sub(1),
+            character: origin.end.column.saturating_sub(1),
         },
     }
 }
@@ -295,7 +298,9 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
         .take(pos.line as usize)
         .map(|l| l.len() as u32 + 1) // +1 for the '\n'
         .sum();
-    let cursor_byte = line_start_byte + pos.character;
+    // `pos.character` comes from the client and is not validated against the
+    // line's length, so a hostile or buggy value must not wrap.
+    let cursor_byte = line_start_byte.saturating_add(pos.character);
     // FIXME: No need to allocate all the strings before we have picked the most specific (i.e.
     // inner-most) element.
     let found = compiled
