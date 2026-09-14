@@ -2632,11 +2632,18 @@ impl<'a> Lexer<'a> {
                 (Some('\n'), _) => {
                     break;
                 }
-                // Everything up to the newline is comment text, as in C and
-                // in `dt_lex.l`. `//`, `/*`, and `*/` carry no meaning here;
-                // reporting them made `// see http://example.com` an error,
-                // and since `compile` returning errors stops the formatter,
+                // Everything up to the newline is comment text, as in C.
+                // `dt_lex.l` has no rule for `//` at all, because the
+                // official toolchain runs `cpp` first and comments never
+                // reach the lexer; nesting is impossible here in any case
+                // since the comment ends at the newline. `//`, `/*`, and
+                // `*/` therefore carry no meaning, and reporting them made
+                // `// see http://example.com` an error — which, because
+                // `compile` returning errors stops the formatter, meant
                 // such a file could not be formatted at all.
+                //
+                // `/*` inside a block comment is a different matter and is
+                // still reported, matching `<S1>"/*"` in `dt_lex.l`.
                 (Some(_), _) => {
                     self.advance(1);
                 }

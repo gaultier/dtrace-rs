@@ -271,7 +271,14 @@ fn record_type_decl(
     is_forward: bool,
     origin: Origin,
 ) {
-    let conflicting = if is_forward {
+    // Tag redeclarations (`struct`, `union`, `enum`) are reported by
+    // `Resolver`, which sees the full declaration including whether it has a
+    // body. Reporting them here too would emit the same diagnostic twice.
+    let is_tag = matches!(
+        kind,
+        DeclarationKind::Struct | DeclarationKind::Union | DeclarationKind::Enum
+    );
+    let conflicting = if is_forward || is_tag {
         None
     } else {
         ctx.decls

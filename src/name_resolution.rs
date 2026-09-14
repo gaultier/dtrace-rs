@@ -17,6 +17,30 @@ impl<'a> Resolver<'a> {
     pub(crate) fn resolve(&mut self, node_id: NodeId) {
         let node = &self.nodes[node_id];
         match &node.kind {
+            // The root of every file. Without this arm `resolve(root)` fell
+            // straight into the catch-all below and the whole module was a
+            // no-op, so none of the redeclaration checks ever ran.
+            crate::ast::NodeKind::TranslationUnit(node_ids)
+            | crate::ast::NodeKind::Block(node_ids) => {
+                for node_id in node_ids {
+                    self.resolve(*node_id);
+                }
+            }
+            crate::ast::NodeKind::ProbeDefinition {
+                probe_specifiers: _,
+                predicate,
+                action,
+            } => {
+                if let Some(predicate) = predicate {
+                    self.resolve(*predicate);
+                }
+                if let Some(action) = action {
+                    self.resolve(*action);
+                }
+            }
+            crate::ast::NodeKind::ExprStmt(node_id) => {
+                self.resolve(*node_id);
+            }
             crate::ast::NodeKind::Declaration {
                 specifiers,
                 declarators,
@@ -51,7 +75,12 @@ impl<'a> Resolver<'a> {
                 }
             }
             crate::ast::NodeKind::EnumDeclaration { name, enumerators } => {
-                if let Some(name) = name {
+                // A tag without a body is a forward declaration, which may
+                // repeat and may precede the definition. Only definitions
+                // conflict with each other.
+                if let Some(name) = name
+                    && enumerators.is_some()
+                {
                     let s = str_from_source(self.input, name.origin);
                     let existing = self.declarations.insert(format!("enum {}", s), node_id);
 
@@ -59,7 +88,7 @@ impl<'a> Resolver<'a> {
                         self.errors.push(Error {
                             kind: ErrorKind::Redeclaration,
                             origin: node.origin,
-                            explanation: String::from("enum already declared"),
+                            explanation: format!("{} is already defined", s),
                             related_origin: Some(self.nodes[existing].origin),
                         });
                     }
@@ -83,7 +112,12 @@ impl<'a> Resolver<'a> {
                 }
             }
             crate::ast::NodeKind::StructDeclaration { name, fields } => {
-                if let Some(name) = name {
+                // A tag without a body is a forward declaration, which may
+                // repeat and may precede the definition. Only definitions
+                // conflict with each other.
+                if let Some(name) = name
+                    && fields.is_some()
+                {
                     let s = str_from_source(self.input, name.origin);
                     let existing = self.declarations.insert(format!("struct {}", s), node_id);
 
@@ -91,7 +125,7 @@ impl<'a> Resolver<'a> {
                         self.errors.push(Error {
                             kind: ErrorKind::Redeclaration,
                             origin: node.origin,
-                            explanation: String::from("struct already declared"),
+                            explanation: format!("{} is already defined", s),
                             related_origin: Some(self.nodes[existing].origin),
                         });
                     }
@@ -139,7 +173,12 @@ impl<'a> Resolver<'a> {
                 self.resolve(*expr);
             }
             crate::ast::NodeKind::UnionDeclaration { name, fields } => {
-                if let Some(name) = name {
+                // A tag without a body is a forward declaration, which may
+                // repeat and may precede the definition. Only definitions
+                // conflict with each other.
+                if let Some(name) = name
+                    && fields.is_some()
+                {
                     let s = str_from_source(self.input, name.origin);
                     let existing = self.declarations.insert(format!("union {}", s), node_id);
 
@@ -147,7 +186,7 @@ impl<'a> Resolver<'a> {
                         self.errors.push(Error {
                             kind: ErrorKind::Redeclaration,
                             origin: node.origin,
-                            explanation: String::from("union already declared"),
+                            explanation: format!("{} is already defined", s),
                             related_origin: Some(self.nodes[existing].origin),
                         });
                     }
