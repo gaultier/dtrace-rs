@@ -2734,7 +2734,7 @@ impl<'a> Lexer<'a> {
         }
 
         while let Some(c) = self.peek1()
-            && c.is_ascii_alphanumeric()
+            && (c.is_ascii_alphanumeric() || c == '_')
         {
             self.advance(1);
         }
@@ -6654,5 +6654,36 @@ mod tests {
                 ..
             }]
         ));
+    }
+    #[test]
+    fn test_aggregation_name_with_an_underscore() {
+        // Regression: the leading-character check accepted `_` but the
+        // trailing loop did not, so `@my_agg` lexed as `@my` followed by an
+        // identifier and the enclosing clause failed to parse.
+        let input = "@my_agg";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        let token = lexer.lex();
+        assert_eq!(token.kind, TokenKind::Aggregation);
+        assert_eq!(str_from_source(input, token.origin), "@my_agg");
+        assert_eq!(lexer.lex().kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_aggregation_names() {
+        for (input, expected) in [
+            ("@", "@"),
+            ("@a", "@a"),
+            ("@a1b", "@a1b"),
+            ("@_leading", "@_leading"),
+            ("@trailing_", "@trailing_"),
+            ("@a_b_c_1", "@a_b_c_1"),
+        ] {
+            let mut lexer = Lexer::new(FILE_ID, input);
+            lexer.begin(LexerState::InsideClauseAndExpr);
+            let token = lexer.lex();
+            assert_eq!(token.kind, TokenKind::Aggregation, "for {input:?}");
+            assert_eq!(str_from_source(input, token.origin), expected);
+        }
     }
 }
