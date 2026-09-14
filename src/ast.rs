@@ -5350,12 +5350,32 @@ mod tests {
     }
 
     #[test]
-    fn test_program_rejects_trailing_input_after_an_expression_root() {
-        // Regression: the whole probe clause used to be discarded silently,
-        // leaving `*` as the entire program, which made `fmt -i` truncate the
-        // file to one byte.
-        let errors = parse_program_errors("*:::entry\n{\n  trace(probefunc);\n}\n");
-        assert!(!errors.is_empty());
+    fn test_program_with_a_punctuation_leading_probe_description() {
+        // Regression: the clause used to be discarded silently, leaving `*`
+        // as the entire program, which made `fmt -i` truncate the file to one
+        // byte.
+        for input in [
+            "*:::entry\n{\n  trace(probefunc);\n}\n",
+            ":::entry { trace(1); }\n",
+            "* { trace(1); }\n",
+            "*:::entry /pid == 1/ { trace(1); }\n",
+        ] {
+            let errors = parse_program_errors(input);
+            assert!(errors.is_empty(), "errors for {input:?}: {errors:?}");
+        }
+    }
+
+    #[test]
+    fn test_declarations_are_not_mistaken_for_probe_descriptions() {
+        for input in [
+            "int a[10 / 2];\n",
+            "int *p;\n",
+            "struct S { int x : 3; };\n",
+            "extern int f(char *p);\n",
+        ] {
+            let errors = parse_program_errors(input);
+            assert!(errors.is_empty(), "errors for {input:?}: {errors:?}");
+        }
     }
 
     #[test]

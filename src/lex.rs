@@ -454,6 +454,14 @@ fn is_character_probe_specifier_rest(c: char) -> bool {
    '-' | '<' | '>' | '+' | '$' | ':' | '0'..='9' | 'a'..='z'  |  'A'..='Z' | '_' | '`' | '.' | '?' | '*' | '\\' | '[' | ']' | '!' | '(' | ')' )
 }
 
+/// The probe-specifier characters that also begin an operator token.
+/// `lex` matches the operator arms first, so a specifier starting with one
+/// of these never reaches `lex_probe_specifier` on its own; see
+/// `Lexer::starts_probe_specifier`.
+fn is_character_probe_specifier_punctuation_start(c: char) -> bool {
+    is_character_probe_specifier_start(c) && !c.is_ascii_alphanumeric() && c != '_'
+}
+
 /// Returns `true` for the C/D keywords that introduce a type or type
 /// qualifier, used by `lex_probe_specifier` to resolve the `int*` /
 /// `int*foo` ambiguity in favour of a pointer declaration.
@@ -1317,6 +1325,38 @@ impl<'a> Lexer<'a> {
         )
     }
 
+    /// Disambiguates a probe description that starts with punctuation, such
+    /// as `*:::entry`, from the operator token of the same shape (`*` as the
+    /// pointer/multiplication operator, `:` as a bitfield or label colon).
+    ///
+    /// `dt_lex.l` resolves this in favour of the operator and relies on the
+    /// user writing a `:` delimiter; that is not enough here because a
+    /// bitfield (`int x:3;`) also carries one. The unambiguous signal is what
+    /// follows the specifier: only a probe description is followed by an
+    /// action block (`{`) or a predicate (`/`).
+    fn starts_probe_specifier(&self) -> bool {
+        let mut i = self.chars_idx;
+        while self
+            .chars
+            .get(i)
+            .is_some_and(|c| is_character_probe_specifier_rest(*c))
+        {
+            i += 1;
+        }
+
+        // A specifier must consume at least the leading character, otherwise
+        // this is an operator that merely shares its first character.
+        if i == self.chars_idx {
+            return false;
+        }
+
+        while self.chars.get(i).is_some_and(|c| c.is_ascii_whitespace()) {
+            i += 1;
+        }
+
+        matches!(self.chars.get(i), Some('{') | Some('/'))
+    }
+
     pub fn lex(&mut self) -> Token {
         match (self.peek3(), &self.state) {
             ((None, _, _), _) => Token {
@@ -1417,6 +1457,18 @@ impl<'a> Lexer<'a> {
                     Err(err) => self.errors.push(err),
                 }
                 self.lex()
+            }
+            // A probe description starting with punctuation (`*:::entry`,
+            // `:::entry`) is shaped like an operator, so it must be matched
+            // ahead of the operator arms below. Identifier-leading
+            // descriptions are handled by the `ProgramOuterScope` arm further
+            // down, which needs no lookahead.
+            ((Some(c), _, _), LexerState::ProgramOuterScope)
+                if is_character_probe_specifier_punctuation_start(c)
+                    && self.starts_probe_specifier() =>
+            {
+                let token = self.lex_probe_specifier();
+                self.lex_convert_to_keyword(token)
             }
             ((Some('-'), Some('-'), _), _) => {
                 let start = self.position;
