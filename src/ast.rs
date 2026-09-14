@@ -299,10 +299,8 @@ fn record_type_decl(
     let conflicting = if is_forward || is_tag {
         None
     } else {
-        ctx.decls
-            .iter()
-            .rev()
-            .find(|(n, decl)| !decl.is_forward && decl.kind == kind && n == name)
+        ctx.decls_named(name)
+            .find(|(_, decl)| !decl.is_forward && decl.kind == kind)
     };
     if let Some((_, conflicting)) = conflicting {
         errors.push(Error {
@@ -318,7 +316,7 @@ fn record_type_decl(
         origin,
         is_forward,
     };
-    ctx.decls.push((name.to_owned(), decl));
+    ctx.push_decl(name.to_owned(), decl);
 }
 
 /// Walks `Declarator` → `DirectDeclarator` (peeling parenthesised wrappers as
@@ -346,10 +344,8 @@ fn lookup_type(ctx: &LexerContext, name: &str, kind: DeclarationKind) -> Option<
     // `Ref<LexerContext>` alive across the call. `Declaration` is small
     // (a kind, an origin, and a bool), so the clone is cheap.
     let iter = || {
-        ctx.decls
-            .iter()
-            .rev()
-            .filter(move |(n, decl)| decl.kind == kind && n == name)
+        ctx.decls_named(name)
+            .filter(move |(_, decl)| decl.kind == kind)
             .map(|(_, decl)| decl)
     };
 

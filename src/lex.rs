@@ -169,28 +169,64 @@ pub type Declarations = Vec<(String, Declaration)>;
 /// peek copy's own primitive fields.
 pub struct LexerContext {
     pub decls: Declarations,
+    /// Maps a declared name to its positions in `decls`, in declaration
+    /// order.
+    ///
+    /// `decls` stays the ordered list, because the "last non-forward, else
+    /// last" lookup rule and the `CompileResult` both depend on that order.
+    /// Without this index every identifier the lexer saw was matched against
+    /// the whole list, which made lexing cost O(identifiers x declarations):
+    /// a 280 KB file of typedefs spent 2.5 billion string comparisons in
+    /// `compile`.
+    decl_index: HashMap<String, Vec<u32>>,
     pub globals: HashMap<String, Origin>,
     pub identifiers: HashMap<String, Origin>,
 }
 
 impl LexerContext {
     pub fn new() -> Self {
-        let mut decls: Declarations = Vec::with_capacity(BUILTIN_TYPE_NAMES.len());
+        let mut ctx = Self {
+            decls: Vec::with_capacity(BUILTIN_TYPE_NAMES.len()),
+            decl_index: HashMap::with_capacity(BUILTIN_TYPE_NAMES.len()),
+            globals: HashMap::new(),
+            identifiers: HashMap::new(),
+        };
         for name in BUILTIN_TYPE_NAMES {
-            decls.push((
+            ctx.push_decl(
                 (*name).to_owned(),
                 Declaration {
                     kind: DeclarationKind::Typedef,
                     origin: Origin::new_builtin(),
                     is_forward: false,
                 },
-            ));
+            );
         }
-        Self {
-            decls,
-            globals: HashMap::new(),
-            identifiers: HashMap::new(),
-        }
+        ctx
+    }
+
+    /// Records a declaration. The only way to add to `decls`, so the index
+    /// cannot drift out of step with it.
+    pub fn push_decl(&mut self, name: String, decl: Declaration) {
+        let index = self.decls.len() as u32;
+        self.decl_index.entry(name.clone()).or_default().push(index);
+        self.decls.push((name, decl));
+    }
+
+    /// Whether any declaration carries this name.
+    pub fn is_declared(&self, name: &str) -> bool {
+        self.decl_index.contains_key(name)
+    }
+
+    /// The declarations carrying this name, most recent first.
+    pub fn decls_named<'a>(
+        &'a self,
+        name: &'a str,
+    ) -> impl Iterator<Item = &'a (String, Declaration)> + 'a {
+        self.decl_index
+            .get(name)
+            .into_iter()
+            .flat_map(|indices| indices.iter().rev())
+            .map(|i| &self.decls[*i as usize])
     }
 }
 
@@ -858,13 +894,7 @@ impl<'a> Lexer<'a> {
                     // the next call.
                     let so_far_origin = start.extend_to_inclusive(self.position);
                     let so_far = str_from_source(self.input, so_far_origin);
-                    if is_type_introducing_keyword(so_far)
-                        || self
-                            .ctx
-                            .borrow()
-                            .decls
-                            .iter()
-                            .any(|(name, _)| name == so_far)
+                    if is_type_introducing_keyword(so_far) || self.ctx.borrow().is_declared(so_far)
                     {
                         break;
                     }
@@ -883,13 +913,7 @@ impl<'a> Lexer<'a> {
         // to a registered type, return `TypeName` and switch to clause/expr
         // mode so the declaration parses, rather than treating it as a probe
         // specifier.
-        if self
-            .ctx
-            .borrow()
-            .decls
-            .iter()
-            .any(|(name, _)| name == lexeme)
-        {
+        if self.ctx.borrow().is_declared(lexeme) {
             self.state = LexerState::InsideClauseAndExpr;
             return Token {
                 kind: TokenKind::TypeName,
@@ -2960,10 +2984,7 @@ impl<'a> Lexer<'a> {
          * If the lexeme is a global variable or likely identifier or *not* a
          * type_name, then it is an identifier token.
          */
-        if ctx.globals.contains_key(s)
-            || ctx.identifiers.contains_key(s)
-            || !ctx.decls.iter().any(|(name, _)| name == s)
-        {
+        if ctx.globals.contains_key(s) || ctx.identifiers.contains_key(s) || !ctx.is_declared(s) {
             return TokenKind::Identifier;
         }
 
@@ -6408,14 +6429,14 @@ mod tests {
         let input = "MyType;";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.ctx.borrow_mut().decls.push((
+        lexer.ctx.borrow_mut().push_decl(
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
                 is_forward: true,
             },
-        ));
+        );
         assert_eq!(lexer.lex().kind, TokenKind::TypeName);
         assert_eq!(lexer.lex().kind, TokenKind::SemiColon);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
@@ -6429,14 +6450,14 @@ mod tests {
         let input = "MyType++";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.ctx.borrow_mut().decls.push((
+        lexer.ctx.borrow_mut().push_decl(
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
                 is_forward: true,
             },
-        ));
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Identifier);
     }
 
@@ -6445,14 +6466,14 @@ mod tests {
         let input = "MyType--";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.ctx.borrow_mut().decls.push((
+        lexer.ctx.borrow_mut().push_decl(
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
                 is_forward: true,
             },
-        ));
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Identifier);
     }
 
@@ -6461,14 +6482,14 @@ mod tests {
         let input = "MyType[0]";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.ctx.borrow_mut().decls.push((
+        lexer.ctx.borrow_mut().push_decl(
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
                 is_forward: true,
             },
-        ));
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Identifier);
     }
 
@@ -6478,14 +6499,14 @@ mod tests {
         let input = "MyType = 1";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.ctx.borrow_mut().decls.push((
+        lexer.ctx.borrow_mut().push_decl(
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
                 is_forward: true,
             },
-        ));
+        );
         assert_eq!(lexer.lex().kind, TokenKind::Identifier);
     }
 
@@ -6495,14 +6516,14 @@ mod tests {
         let input = "MyType == 1";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.ctx.borrow_mut().decls.push((
+        lexer.ctx.borrow_mut().push_decl(
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
                 is_forward: true,
             },
-        ));
+        );
         assert_eq!(lexer.lex().kind, TokenKind::TypeName);
     }
 
@@ -6513,14 +6534,14 @@ mod tests {
         let input = "MyType;";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.ctx.borrow_mut().decls.push((
+        lexer.ctx.borrow_mut().push_decl(
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
                 is_forward: true,
             },
-        ));
+        );
         lexer
             .ctx
             .borrow_mut()
@@ -6535,14 +6556,14 @@ mod tests {
         let input = "MyType;";
         let mut lexer = Lexer::new(FILE_ID, input);
         lexer.begin(LexerState::InsideClauseAndExpr);
-        lexer.ctx.borrow_mut().decls.push((
+        lexer.ctx.borrow_mut().push_decl(
             "MyType".to_owned(),
             crate::lex::Declaration {
                 kind: crate::lex::DeclarationKind::Typedef,
                 origin: crate::origin::Origin::default(),
                 is_forward: true,
             },
-        ));
+        );
         lexer
             .ctx
             .borrow_mut()
@@ -6809,5 +6830,60 @@ mod tests {
                 ..
             }]
         ));
+    }
+    #[test]
+    fn test_decl_index_agrees_with_a_linear_scan() {
+        // `decls` is the ordered list and `decl_index` is a lookup over it;
+        // the two must not drift apart. `push_decl` is the only way to add,
+        // so this checks that contract, duplicates included.
+        let mut ctx = crate::lex::LexerContext::new();
+        let decl = |is_forward| crate::lex::Declaration {
+            kind: crate::lex::DeclarationKind::Typedef,
+            origin: crate::origin::Origin::default(),
+            is_forward,
+        };
+        ctx.push_decl("a".to_owned(), decl(true));
+        ctx.push_decl("b".to_owned(), decl(false));
+        ctx.push_decl("a".to_owned(), decl(false));
+
+        for name in ["a", "b", "c", "int8_t"] {
+            let linear: Vec<_> = ctx
+                .decls
+                .iter()
+                .rev()
+                .filter(|(n, _)| n == name)
+                .map(|(_, d)| (d.kind, d.is_forward))
+                .collect();
+            let indexed: Vec<_> = ctx
+                .decls_named(name)
+                .map(|(_, d)| (d.kind, d.is_forward))
+                .collect();
+            assert_eq!(indexed, linear, "for {name:?}");
+            assert_eq!(ctx.is_declared(name), !linear.is_empty(), "for {name:?}");
+        }
+    }
+
+    #[test]
+    fn test_decls_named_is_most_recent_first() {
+        let mut ctx = crate::lex::LexerContext::new();
+        for is_forward in [true, false] {
+            ctx.push_decl(
+                "t".to_owned(),
+                crate::lex::Declaration {
+                    kind: crate::lex::DeclarationKind::Typedef,
+                    origin: crate::origin::Origin::default(),
+                    is_forward,
+                },
+            );
+        }
+        let order: Vec<bool> = ctx.decls_named("t").map(|(_, d)| d.is_forward).collect();
+        assert_eq!(order, vec![false, true]);
+    }
+
+    #[test]
+    fn test_builtin_types_are_indexed() {
+        let ctx = crate::lex::LexerContext::new();
+        assert!(ctx.is_declared("size_t"));
+        assert!(!ctx.is_declared("not_a_builtin"));
     }
 }
