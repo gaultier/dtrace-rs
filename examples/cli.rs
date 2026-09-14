@@ -326,10 +326,40 @@ fn fmt_md_file(file: String, in_place: bool, file_content: &str) {
     }
 }
 
+/// Re-compiles formatted output before it is allowed to replace the file it
+/// came from.
+///
+/// Overwriting the user's file is not reversible, so a formatter bug must
+/// cost a refused write rather than the file. Without this, an input the
+/// lexer accepted but mis-modelled came back as output that no longer
+/// parses, with the original already gone.
+fn verify_formatted(formatted: &[u8], file_path: &str) -> Result<(), String> {
+    let text = std::str::from_utf8(formatted)
+        .map_err(|err| format!("the formatted output is not valid UTF-8: {err}"))?;
+
+    let compiled = compile(text, 1);
+    if compiled.errors.is_empty() {
+        return Ok(());
+    }
+
+    let mut file_id_to_name = HashMap::new();
+    file_id_to_name.insert(1, file_path.to_owned());
+    for err in &compiled.errors {
+        err.write(&mut std::io::stderr(), text, &file_id_to_name)
+            .unwrap();
+        eprintln!();
+    }
+    Err(String::from("the formatted output does not parse"))
+}
+
 fn fmt_file(file_path: &String, in_place: bool, file_content: String) {
     if in_place {
         let mut buf = Vec::new();
         if !format_dtrace(&mut buf, &file_content, file_path, 0) {
+            std::process::exit(1);
+        }
+        if let Err(err) = verify_formatted(&buf, file_path) {
+            eprintln!("{file_path}: refusing to overwrite the file: {err}");
             std::process::exit(1);
         }
         std::fs::write(file_path, &buf).unwrap();
