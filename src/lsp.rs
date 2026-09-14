@@ -5,10 +5,10 @@ use std::{
 
 use lsp_types::{
     Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, DidChangeTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentFormattingParams, Hover, HoverContents, HoverParams,
-    HoverProviderCapability, Location, MarkedString, OneOf, PositionEncodingKind,
-    PublishDiagnosticsParams, Range, ServerCapabilities, TextDocumentSyncCapability,
-    TextDocumentSyncKind, TextDocumentSyncOptions, TextEdit, Uri,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentFormattingParams, Hover,
+    HoverContents, HoverParams, HoverProviderCapability, Location, MarkedString, OneOf,
+    PositionEncodingKind, PublishDiagnosticsParams, Range, ServerCapabilities,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions, TextEdit, Uri,
 };
 use serde::{Deserialize, Serialize};
 
@@ -148,6 +148,10 @@ fn origin_to_lsp_range(origin: Origin) -> lsp_types::Range {
 /// with a capacity overflow.
 const MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
 
+/// Largest number of header lines accepted before the blank line that
+/// starts the body.
+const MAX_HEADER_LINES: usize = 100;
+
 impl Message {
     fn write_payload(writer: &mut impl Write, msg: &str) -> std::io::Result<()> {
         write!(writer, "Content-Length: {}\r\n\r\n", msg.len())?;
@@ -178,7 +182,12 @@ impl Message {
         let mut buf = String::with_capacity(8192);
         let mut size: Option<usize> = None;
 
-        for _ in 0..100 {
+        // Bounded so a peer cannot stream headers forever. Running out
+        // without reaching the blank line is an error: continuing would read
+        // a body using whatever `Content-Length` had been seen so far, which
+        // leaves the stream out of sync with the peer.
+        let mut saw_end_of_headers = false;
+        for _ in 0..MAX_HEADER_LINES {
             buf.clear();
 
             if reader.read_line(&mut buf)? == 0 {
@@ -195,6 +204,7 @@ impl Message {
 
             if buf.is_empty() {
                 // Start of real data.
+                saw_end_of_headers = true;
                 break;
             }
 
@@ -222,6 +232,13 @@ impl Message {
                     )
                 })?);
             }
+        }
+
+        if !saw_end_of_headers {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("more than {MAX_HEADER_LINES} header lines without a blank line"),
+            ));
         }
 
         let size = size.ok_or(io::Error::new(
@@ -455,6 +472,28 @@ fn did_open(state: &mut State, params: serde_json::Value) -> io::Result<Option<M
     })))
 }
 
+/// Drops a closed document.
+///
+/// Without this the `docs` map only ever grew: every file opened in a
+/// session kept its text and its whole AST alive until the server exited.
+fn did_close(state: &mut State, params: serde_json::Value) -> Result<Option<Message>, io::Error> {
+    let docs = match state {
+        State::Initialized { docs } => docs,
+        _ => {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid state"));
+        }
+    };
+    let params: DidCloseTextDocumentParams = serde_json::from_value(params).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid params: {}", err),
+        )
+    })?;
+
+    let _ = docs.remove(&params.text_document.uri);
+    Ok(None)
+}
+
 fn did_change(state: &mut State, params: serde_json::Value) -> Result<Option<Message>, io::Error> {
     let docs = match state {
         State::Initialized { docs } => docs,
@@ -545,6 +584,11 @@ fn handle(msg: Message, state: &mut State) -> io::Result<Option<Message>> {
             if m == "textDocument/didChange" =>
         {
             did_change(state, params)
+        }
+        Message::Notification(Notification { method: m, params })
+            if m == "textDocument/didClose" =>
+        {
+            did_close(state, params)
         }
         Message::Notification(Notification { method: m, .. }) if m == "exit" => match state {
             State::ShuttingDown => std::process::exit(0),
@@ -692,7 +736,13 @@ pub fn run(reader: &mut dyn BufRead, writer: &mut impl Write) {
 
         match handle(msg, &mut state) {
             Ok(Some(resp)) => {
-                resp.write(writer).unwrap();
+                // The client can disappear between reading its request and
+                // answering it; `EPIPE` is an ordinary end of session, not a
+                // reason to abort.
+                if let Err(err) = resp.write(writer) {
+                    eprintln!("failed to write response: {err:?}");
+                    break;
+                }
             }
             Ok(None) => {}
             Err(err) => {
@@ -808,5 +858,67 @@ mod tests {
         // One for the `didOpen`, one for the change that carries text; the
         // empty change publishes nothing.
         assert_eq!(out.matches("publishDiagnostics").count(), 2, "{out}");
+    }
+    #[test]
+    fn test_read_payload_rejects_endless_headers() {
+        // Regression: running out of header lines fell through and read a
+        // body using whatever `Content-Length` had been seen, leaving the
+        // stream out of sync with the peer.
+        let input = "X: y\r\n".repeat(MAX_HEADER_LINES + 10);
+        let err = read_payload(&input).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn test_did_close_releases_the_document() {
+        // Regression: `docs` only ever grew, so every file opened in a
+        // session kept its text and its AST alive until the server exited.
+        let input = [
+            frame(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}"#),
+            frame(
+                r#"{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///t.d","languageId":"d","version":1,"text":"BEGIN { }\n"}}}"#,
+            ),
+            frame(
+                r#"{"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":"file:///t.d"}}}"#,
+            ),
+            // Hovering a closed document must be an error, not a hit.
+            frame(
+                r#"{"jsonrpc":"2.0","id":2,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///t.d"},"position":{"line":0,"character":1}}}"#,
+            ),
+        ]
+        .concat();
+
+        let mut reader = std::io::BufReader::new(input.as_bytes());
+        let mut writer = Vec::new();
+        run(&mut reader, &mut writer);
+
+        let out = String::from_utf8(writer).unwrap();
+        assert_eq!(out.matches("publishDiagnostics").count(), 1, "{out}");
+    }
+
+    #[test]
+    fn test_run_stops_when_the_writer_fails() {
+        // A client that goes away mid-session gives `EPIPE` on the write;
+        // that used to be an `unwrap` and abort the process.
+        struct BrokenPipe;
+        impl std::io::Write for BrokenPipe {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "gone"))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let input = [
+            frame(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}"#),
+            frame(
+                r#"{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///t.d","languageId":"d","version":1,"text":"BEGIN { }\n"}}}"#,
+            ),
+        ]
+        .concat();
+
+        let mut reader = std::io::BufReader::new(input.as_bytes());
+        run(&mut reader, &mut BrokenPipe);
     }
 }
