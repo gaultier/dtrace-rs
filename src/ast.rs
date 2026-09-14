@@ -3358,9 +3358,7 @@ impl<'a> Parser<'a> {
 
         let param_decl_specifiers = self.parse_parameter_declaration_specifiers()?;
 
-        let declarator = self
-            .parse_declarator()
-            .or_else(|| self.parse_abstract_declarator());
+        let declarator = self.parse_parameter_declarator();
 
         let start_origin = self.origin(param_decl_specifiers);
         let end_origin = declarator.map(|d| self.origin(d)).unwrap_or(start_origin);
@@ -3368,6 +3366,54 @@ impl<'a> Parser<'a> {
             kind: NodeKind::ParameterDeclaration {
                 param_decl_specifiers,
                 declarator,
+            },
+            origin: start_origin.merge(end_origin),
+        }))
+    }
+
+    // The declarator of a parameter is either concrete (`char *p`) or
+    // abstract (`char *`), and the pointer chain is shared between the two.
+    //
+    // `parse_declarator().or_else(|| parse_abstract_declarator())` cannot
+    // express this: `parse_declarator` consumes the pointer and then commits
+    // a `MissingDirectDeclarator` error rather than backtracking, so the
+    // abstract alternative was unreachable and `extern int f(char *);`
+    // failed to parse.
+    fn parse_parameter_declarator(&mut self) -> Option<NodeId> {
+        if self.error_mode {
+            return None;
+        }
+
+        let ptr = self.parse_pointer();
+
+        if let Some(direct) = self.parse_direct_declarator() {
+            let start_origin = ptr
+                .map(|p| self.origin(p))
+                .unwrap_or_else(|| self.origin(direct));
+            let end_origin = self.origin(direct);
+            return Some(self.new_node(Node {
+                kind: NodeKind::Declarator {
+                    pointer: ptr,
+                    direct,
+                },
+                origin: start_origin.merge(end_origin),
+            }));
+        }
+
+        let direct = self.parse_direct_abstract_declarator();
+        if ptr.is_none() && direct.is_none() {
+            return None;
+        }
+
+        let start_origin = ptr
+            .map(|p| self.origin(p))
+            .or_else(|| direct.map(|d| self.origin(d)))
+            .unwrap();
+        let end_origin = direct.map(|d| self.origin(d)).unwrap_or(start_origin);
+        Some(self.new_node(Node {
+            kind: NodeKind::AbstractDeclarator {
+                pointer: ptr,
+                direct,
             },
             origin: start_origin.merge(end_origin),
         }))
@@ -5423,5 +5469,49 @@ mod tests {
     fn test_statement_list_with_a_valid_if_statement() {
         let errors = parse_program_errors("BEGIN { if (1) { y = 2; } }");
         assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+    }
+    #[test]
+    fn test_unnamed_pointer_parameters() {
+        // Regression: `parse_declarator` consumed the `*` and then committed
+        // a `MissingDirectDeclarator` error instead of backtracking, so the
+        // abstract-declarator alternative was unreachable. `provider` blocks
+        // with `char *` arguments are the normal case in USDT provider files.
+        for input in [
+            "extern int f(char *);\n",
+            "int (*fp)(int, char *);\n",
+            "provider p { probe start(int, char *); };\n",
+            "extern int g(int, char *, void *);\n",
+            "extern int i(char *[]);\n",
+        ] {
+            let errors = parse_program_errors(input);
+            assert!(errors.is_empty(), "errors for {input:?}: {errors:?}");
+        }
+    }
+
+    #[test]
+    fn test_named_parameters_still_parse() {
+        for input in [
+            "extern int f(char *p);\n",
+            "extern int h(void);\n",
+            "extern int j(int a, char *b);\n",
+        ] {
+            let errors = parse_program_errors(input);
+            assert!(errors.is_empty(), "errors for {input:?}: {errors:?}");
+        }
+    }
+
+    #[test]
+    fn test_unnamed_pointer_parameter_has_an_abstract_declarator() {
+        let input = "extern int f(char *);\n";
+        let lexer = Lexer::new(FILE_ID, input);
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse();
+        assert!(
+            parser
+                .nodes
+                .iter()
+                .any(|n| matches!(n.kind, NodeKind::AbstractDeclarator { .. })),
+            "expected an abstract declarator node"
+        );
     }
 }
