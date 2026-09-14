@@ -501,27 +501,30 @@ fn did_change(state: &mut State, params: serde_json::Value) -> Result<Option<Mes
             return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid state"));
         }
     };
-    let params: DidChangeTextDocumentParams = serde_json::from_value(params).map_err(|err| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("invalid params: {}", err),
-        )
-    })?;
+    let mut params: DidChangeTextDocumentParams =
+        serde_json::from_value(params).map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("invalid params: {}", err),
+            )
+        })?;
 
     // The server advertises `TextDocumentSyncKind::FULL`, so the last change
     // carries the whole document. An empty array is legal JSON-RPC and a
     // client may send one; indexing it unconditionally aborted the server.
-    let Some(change) = params.content_changes.last() else {
+    let Some(change) = params.content_changes.last_mut() else {
         return Ok(None);
     };
-    let text = &change.text;
-    let compiled = compile(text, 1);
+    // The change already owns its text, so it can be moved into `docs`
+    // rather than copied. On a large file that clone ran per keystroke.
+    let text = std::mem::take(&mut change.text);
+    let compiled = compile(&text, 1);
     let resp = PublishDiagnosticsParams {
         uri: params.text_document.uri.clone(),
         diagnostics: errors_to_diagnostics(&compiled.errors, &params.text_document.uri),
         version: Some(params.text_document.version),
     };
-    docs.insert(params.text_document.uri.clone(), (text.clone(), compiled));
+    let _ = docs.insert(params.text_document.uri.clone(), (text, compiled));
     Ok(Some(Message::Notification(Notification {
         method: String::from("textDocument/publishDiagnostics"),
         params: serde_json::to_value(resp).map_err(|err| {

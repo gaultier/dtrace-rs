@@ -177,25 +177,19 @@ pub fn compile(input: &str, file_id: FileId) -> CompileResult {
         resolver.resolve(root);
     }
 
-    if !parser.lexer.errors.is_empty() {
-        return CompileResult {
-            comments: parser.lexer.comments,
-            attributes: parser.lexer.attributes,
-            control_directives: parser.lexer.control_directives,
-            declarations: parser.lexer.ctx.borrow().decls.clone(),
-            ast_nodes: parser.nodes,
-            errors: parser.lexer.errors,
-            ast_root: root,
-        };
-    }
+    // TODO: Type checking.
 
-    // TODO: Resolving, type checking, etc.
+    // The parser is finished with, so the declaration table can be taken
+    // rather than deep-copied. Cloning it allocated one `String` per
+    // declaration on every call, which for the language server is every
+    // keystroke.
+    let declarations = std::mem::take(&mut parser.lexer.ctx.borrow_mut().decls);
 
     CompileResult {
         comments: parser.lexer.comments,
         attributes: parser.lexer.attributes,
         control_directives: parser.lexer.control_directives,
-        declarations: parser.lexer.ctx.borrow().decls.clone(),
+        declarations,
         ast_nodes: parser.nodes,
         errors: parser.lexer.errors,
         ast_root: root,
