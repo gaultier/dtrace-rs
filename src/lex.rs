@@ -2621,32 +2621,11 @@ impl<'a> Lexer<'a> {
                 (Some('\n'), _) => {
                     break;
                 }
-                (Some('/'), Some('/' | '*')) => {
-                    self.errors.push(Error {
-                        kind: ErrorKind::NestedComment,
-                        origin: self.position.extend_to_inclusive(crate::origin::Position {
-                            byte_offset: self.position.byte_offset + 2,
-                            column: self.position.column + 2,
-                            ..self.position
-                        }),
-                        explanation: String::from("nested comment"),
-                        related_origin: None,
-                    });
-                    self.advance(1);
-                }
-                (Some('*'), Some('/')) => {
-                    self.errors.push(Error {
-                        kind: ErrorKind::NestedComment,
-                        origin: self.position.extend_to_inclusive(crate::origin::Position {
-                            byte_offset: self.position.byte_offset + 2,
-                            column: self.position.column + 2,
-                            ..self.position
-                        }),
-                        explanation: String::from("nested comment"),
-                        related_origin: None,
-                    });
-                    self.advance(1);
-                }
+                // Everything up to the newline is comment text, as in C and
+                // in `dt_lex.l`. `//`, `/*`, and `*/` carry no meaning here;
+                // reporting them made `// see http://example.com` an error,
+                // and since `compile` returning errors stops the formatter,
+                // such a file could not be formatted at all.
                 (Some(_), _) => {
                     self.advance(1);
                 }
@@ -3863,63 +3842,59 @@ mod tests {
 
     #[test]
     fn test_lex_single_line_comment_nested_double_slash() {
-        // "//" inside a single-line comment is forbidden.
+        // "//" inside a single-line comment is ordinary comment text; a URL
+        // such as `// see http://example.com` must not be an error.
         let input = "// hello // world\n+";
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(str_from_source(input, token.origin), "+");
         assert_eq!(lexer.comments.len(), 1);
-        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
-        assert_eq!(lexer.errors[0].kind, ErrorKind::NestedComment);
+        assert!(lexer.errors.is_empty(), "errors: {:?}", lexer.errors);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+        assert!(lexer.errors.is_empty(), "errors: {:?}", lexer.errors);
     }
 
     #[test]
     fn test_lex_single_line_comment_nested_block_open() {
-        // "/*" inside a single-line comment is forbidden.
+        // "/*" inside a single-line comment is ordinary comment text.
         let input = "// hello /* world\n+";
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(str_from_source(input, token.origin), "+");
         assert_eq!(lexer.comments.len(), 1);
-        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
-        assert_eq!(lexer.errors[0].kind, ErrorKind::NestedComment);
+        assert!(lexer.errors.is_empty(), "errors: {:?}", lexer.errors);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+        assert!(lexer.errors.is_empty(), "errors: {:?}", lexer.errors);
     }
 
     #[test]
     fn test_lex_single_line_comment_nested_block_close() {
-        // "*/" inside a single-line comment is forbidden.
+        // "*/" inside a single-line comment is ordinary comment text.
         let input = "// hello */ world\n+";
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(str_from_source(input, token.origin), "+");
         assert_eq!(lexer.comments.len(), 1);
-        assert_eq!(lexer.errors.len(), 1, "expected 1 error");
-        assert_eq!(lexer.errors[0].kind, ErrorKind::NestedComment);
+        assert!(lexer.errors.is_empty(), "errors: {:?}", lexer.errors);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert_eq!(lexer.errors.len(), 1, "no new errors after Eof");
+        assert!(lexer.errors.is_empty(), "errors: {:?}", lexer.errors);
     }
 
     #[test]
     fn test_lex_single_line_comment_nested_block_open_and_close() {
-        // Both "/*" and "*/" inside a single-line comment each produce an error.
+        // Neither "/*" nor "*/" inside a single-line comment is an error.
         let input = "// hello /* */\n+";
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(str_from_source(input, token.origin), "+");
         assert_eq!(lexer.comments.len(), 1);
-        assert_eq!(lexer.errors.len(), 2, "expected 2 errors");
-        assert_eq!(lexer.errors[0].kind, ErrorKind::NestedComment);
-        assert_eq!(lexer.errors[1].kind, ErrorKind::NestedComment);
+        assert!(lexer.errors.is_empty(), "errors: {:?}", lexer.errors);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
-        assert_eq!(lexer.errors.len(), 2, "no new errors after Eof");
+        assert!(lexer.errors.is_empty(), "errors: {:?}", lexer.errors);
     }
 
     #[test]
@@ -6685,5 +6660,15 @@ mod tests {
             assert_eq!(token.kind, TokenKind::Aggregation, "for {input:?}");
             assert_eq!(str_from_source(input, token.origin), expected);
         }
+    }
+    #[test]
+    fn test_lex_single_line_comment_with_a_url() {
+        // Regression: `//` in `http://` was reported as a nested comment,
+        // which made the formatter refuse the whole file.
+        let input = "// see http://example.com for details\nBEGIN { }\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        while lexer.lex().kind != TokenKind::Eof {}
+        assert_eq!(lexer.comments.len(), 1);
+        assert!(lexer.errors.is_empty(), "errors: {:?}", lexer.errors);
     }
 }
