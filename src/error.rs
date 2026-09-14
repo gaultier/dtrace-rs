@@ -176,6 +176,7 @@ pub fn write_excerpt<W: Write>(w: &mut W, input: &str, origin: Origin) -> std::i
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::origin::LineIndex;
 
     const FILE_ID: u32 = 1;
 
@@ -188,6 +189,66 @@ mod tests {
         let mut buf = Vec::new();
         write_excerpt(&mut buf, input, origin).unwrap();
         String::from_utf8(buf).unwrap()
+    }
+
+    fn rendered(input: &str, err: &Error) -> String {
+        let mut buf = Vec::new();
+        let mut names = HashMap::new();
+        names.insert(FILE_ID, String::from("t.d"));
+        err.write(&mut buf, &LineIndex::new(input), &names).unwrap();
+        String::from_utf8(buf).unwrap()
+    }
+
+    fn file_origin(start: u32, end: u32) -> Origin {
+        Origin {
+            start,
+            end,
+            kind: crate::origin::PositionKind::File(FILE_ID),
+        }
+    }
+
+    #[test]
+    fn test_write_names_the_line_the_origin_falls_on() {
+        // The line and column are recovered from the byte offsets, so a
+        // diagnostic on the third line must say so.
+        let input = "one\ntwo\nthree\n";
+        let err = Error::new(
+            ErrorKind::MissingExpr,
+            file_origin(8, 13),
+            String::from("boom"),
+        );
+        assert_eq!(
+            rendered(input, &err),
+            "t.d:3:1:8-3:6:13: Error MissingExpr: boom: \u{1b}[4mthree\u{1b}[0m"
+        );
+    }
+
+    #[test]
+    fn test_write_renders_a_related_origin_on_its_own_line() {
+        let input = "struct P;\nstruct P;\n";
+        let mut err = Error::new(
+            ErrorKind::Redeclaration,
+            file_origin(10, 18),
+            String::from("P is already declared"),
+        );
+        err.related_origin = Some(file_origin(0, 8));
+        let out = rendered(input, &err);
+        assert_eq!(
+            out,
+            "t.d:2:1:10-2:9:18: Error Redeclaration: P is already declared: \
+             \u{1b}[4mstruct P\u{1b}[0m;\n\
+             Here: t.d:1:1:0-1:9:8: \u{1b}[4mstruct P\u{1b}[0m;"
+        );
+    }
+
+    #[test]
+    fn test_write_omits_an_empty_explanation() {
+        let input = "abc\n";
+        let err = Error::new(ErrorKind::UnknownToken, file_origin(0, 3), String::new());
+        assert_eq!(
+            rendered(input, &err),
+            "t.d:1:1:0-1:4:3: Error UnknownToken: \u{1b}[4mabc\u{1b}[0m"
+        );
     }
 
     #[test]

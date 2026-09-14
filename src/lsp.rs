@@ -877,6 +877,115 @@ mod tests {
     }
 
     #[test]
+    fn test_origin_to_lsp_range_is_zero_based() {
+        // `Origin` is a byte range and LSP wants zero-based line and
+        // character, where `character` counts bytes because the server
+        // negotiates UTF-8 position encoding.
+        let index = LineIndex::new("one\ntwo\nthree\n");
+        let range = origin_to_lsp_range(
+            Origin {
+                start: 5,
+                end: 10,
+                kind: crate::origin::PositionKind::File(1),
+            },
+            &index,
+        );
+        assert_eq!(range.start.line, 1);
+        assert_eq!(range.start.character, 1);
+        assert_eq!(range.end.line, 2);
+        assert_eq!(range.end.character, 2);
+    }
+
+    #[test]
+    fn test_hover_reports_the_range_of_the_node_under_the_cursor() {
+        // Covers the whole position round trip: an LSP (line, character)
+        // becomes a byte offset, the node found at it carries byte offsets,
+        // and those become an LSP range again. A document whose interesting
+        // node is not on the first line is what makes the line arithmetic
+        // observable.
+        let input = [
+            frame(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}"#),
+            frame(
+                r#"{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///t.d","languageId":"d","version":1,"text":"BEGIN\n{\n  abc = 1;\n}\n"}}}"#,
+            ),
+            // `abc` starts at character 2 of line 2 (both zero-based).
+            frame(
+                r#"{"jsonrpc":"2.0","id":2,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///t.d"},"position":{"line":2,"character":3}}}"#,
+            ),
+        ]
+        .concat();
+
+        let mut reader = std::io::BufReader::new(input.as_bytes());
+        let mut writer = Vec::new();
+        run(&mut reader, &mut writer);
+
+        let out = String::from_utf8(writer).unwrap();
+        assert!(out.contains(r#"Identifier(\"abc\")"#), "{out}");
+        assert!(
+            out.contains(r#""start":{"character":2,"line":2}"#),
+            "hover range start: {out}"
+        );
+        assert!(
+            out.contains(r#""end":{"character":5,"line":2}"#),
+            "hover range end: {out}"
+        );
+    }
+
+    #[test]
+    fn test_formatting_returns_a_whole_document_edit() {
+        let input = [
+            frame(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}"#),
+            frame(
+                r#"{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///t.d","languageId":"d","version":1,"text":"BEGIN{trace(1);}\n"}}}"#,
+            ),
+            frame(
+                r#"{"jsonrpc":"2.0","id":2,"method":"textDocument/formatting","params":{"textDocument":{"uri":"file:///t.d"},"options":{"tabSize":2,"insertSpaces":true}}}"#,
+            ),
+        ]
+        .concat();
+
+        let mut reader = std::io::BufReader::new(input.as_bytes());
+        let mut writer = Vec::new();
+        run(&mut reader, &mut writer);
+
+        let out = String::from_utf8(writer).unwrap();
+        // The edit replaces the document from its start through its last
+        // line, so the range must reach the end of the text.
+        assert!(
+            out.contains(
+                r#""range":{"end":{"character":0,"line":1},"start":{"character":0,"line":0}}"#
+            ),
+            "{out}"
+        );
+        assert!(out.contains("newText"), "{out}");
+    }
+
+    #[test]
+    fn test_formatting_refuses_a_document_with_parse_errors() {
+        // Formatting a partial AST would produce best-effort text that,
+        // applied as a whole-document edit, would overwrite the user's
+        // source with something broken.
+        let input = [
+            frame(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}"#),
+            frame(
+                r#"{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///t.d","languageId":"d","version":1,"text":"BEGIN{ x = ; }\n"}}}"#,
+            ),
+            frame(
+                r#"{"jsonrpc":"2.0","id":2,"method":"textDocument/formatting","params":{"textDocument":{"uri":"file:///t.d"},"options":{"tabSize":2,"insertSpaces":true}}}"#,
+            ),
+        ]
+        .concat();
+
+        let mut reader = std::io::BufReader::new(input.as_bytes());
+        let mut writer = Vec::new();
+        run(&mut reader, &mut writer);
+
+        let out = String::from_utf8(writer).unwrap();
+        assert!(out.contains("cannot format"), "{out}");
+        assert!(!out.contains("newText"), "{out}");
+    }
+
+    #[test]
     fn test_did_close_releases_the_document() {
         // Regression: `docs` only ever grew, so every file opened in a
         // session kept its text and its AST alive until the server exited.

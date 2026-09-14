@@ -104,10 +104,6 @@ impl<'a> LineIndex<'a> {
     pub fn line_start(&self, line: u32) -> Option<u32> {
         self.line_starts.get(line as usize).copied()
     }
-
-    pub fn line_count(&self) -> u32 {
-        self.line_starts.len() as u32
-    }
 }
 
 impl From<Origin> for std::ops::Range<usize> {
@@ -315,6 +311,73 @@ mod tests {
         let index = LineIndex::new("one\ntwo\n");
         assert_eq!(index.line_character(4), (1, 0));
         assert_eq!(index.line_character(6), (1, 2));
+    }
+
+    #[test]
+    fn test_display_of_a_file_origin_spanning_two_lines() {
+        // The rendered line and column come from the `LineIndex`, not from
+        // the origin, which carries byte offsets alone.
+        let input = "one\ntwo\nthree\n";
+        let index = LineIndex::new(input);
+        let mut names = HashMap::new();
+        names.insert(1, String::from("t.d"));
+        let origin = Origin {
+            start: 5,
+            end: 10,
+            kind: PositionKind::File(1),
+        };
+        assert_eq!(
+            origin.display(&names, &index).to_string(),
+            "t.d:2:2:5-3:3:10"
+        );
+    }
+
+    #[test]
+    fn test_display_of_a_builtin_origin_names_no_file() {
+        let index = LineIndex::new("");
+        let names = HashMap::new();
+        assert_eq!(
+            Origin::new_builtin().display(&names, &index).to_string(),
+            "builtin:1:1:0-1:1:0"
+        );
+    }
+
+    #[test]
+    fn test_display_of_an_unknown_origin_names_no_file() {
+        let index = LineIndex::new("");
+        let names = HashMap::new();
+        let origin = Origin::default();
+        assert_eq!(
+            origin.display(&names, &index).to_string(),
+            "unknown:1:1:0-1:1:0"
+        );
+    }
+
+    #[test]
+    fn test_slice_is_relative_to_the_start_of_the_origin() {
+        let origin = Origin {
+            start: 10,
+            end: 20,
+            kind: PositionKind::File(1),
+        };
+        let sliced = origin.slice(3, 4);
+        assert_eq!(sliced.start, 13);
+        assert_eq!(sliced.end, 17);
+        assert_eq!(sliced.kind, PositionKind::File(1));
+    }
+
+    #[test]
+    fn test_extend_to_covers_the_text_between_two_positions() {
+        // The end is exclusive: callers pass the cursor sitting after the
+        // text they lexed, and the origin must cover exactly that text.
+        let input = "abcdef";
+        let at = |byte_offset| Position {
+            byte_offset,
+            kind: PositionKind::File(1),
+        };
+        let origin = at(1).extend_to(at(4));
+        assert_eq!(&input[std::ops::Range::<usize>::from(origin)], "bcd");
+        assert_eq!(origin.len(), 3);
     }
 
     #[test]
