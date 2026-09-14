@@ -183,7 +183,20 @@ pub fn compile(input: &str, file_id: FileId) -> CompileResult {
     // rather than deep-copied. Cloning it allocated one `String` per
     // declaration on every call, which for the language server is every
     // keystroke.
-    let declarations = std::mem::take(&mut parser.lexer.ctx.borrow_mut().decls);
+    let mut declarations = std::mem::take(&mut parser.lexer.ctx.borrow_mut().decls);
+
+    // Every one of these grew by doubling, so each ends up holding as much
+    // as half its buffer in slack — on a 185 KiB input, 159 KiB of the
+    // 498 KiB the result retains. The language server keeps a
+    // `CompileResult` per open document for as long as it stays open, so
+    // that slack is not transient; handing it back costs one copy of data
+    // that has just been written and is still in cache.
+    parser.nodes.shrink_to_fit();
+    parser.lexer.comments.shrink_to_fit();
+    parser.lexer.control_directives.shrink_to_fit();
+    parser.lexer.attributes.shrink_to_fit();
+    parser.lexer.errors.shrink_to_fit();
+    declarations.shrink_to_fit();
 
     CompileResult {
         comments: parser.lexer.comments,
