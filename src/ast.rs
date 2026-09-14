@@ -256,11 +256,29 @@ impl Index<NodeId> for Vec<Node> {
     }
 }
 
+/// Maximum nesting depth of the recursive-descent parser.
+///
+/// Each level of expression nesting costs a dozen or so stack frames as the
+/// precedence cascade is walked, so without a cap an input such as
+/// `BEGIN{x=((((…1…))));}` overflows the stack at around four hundred
+/// parentheses. A stack overflow cannot be caught, and `panic = "abort"` in
+/// the release profile makes it a hard process abort, which takes the
+/// language server down with it. Exceeding the cap is reported as an
+/// ordinary parse error instead.
+///
+/// The value is chosen to be safe in the tightest stack the parser is
+/// likely to run in — a 2 MiB thread stack with unoptimised frames, which
+/// is what the test harness uses — while staying above the 63 nested
+/// parenthesised expressions that C requires an implementation to support.
+const MAX_RECURSION_DEPTH: u32 = 64;
+
 pub struct Parser<'a> {
     pub(crate) lexer: Lexer<'a>,
     pub(crate) nodes: Vec<Node>,
     pub(crate) node_to_type: HashMap<NodeId, Type>,
     error_mode: bool,
+    /// Current nesting depth, compared against `MAX_RECURSION_DEPTH`.
+    depth: u32,
 }
 
 fn record_type_decl(
@@ -349,7 +367,27 @@ impl<'a> Parser<'a> {
             node_to_type: HashMap::new(),
             lexer,
             error_mode: false,
+            depth: 0,
         }
+    }
+
+    /// Runs `f` one level deeper, refusing to recurse past
+    /// `MAX_RECURSION_DEPTH`.
+    fn with_depth(&mut self, f: impl FnOnce(&mut Self) -> Option<NodeId>) -> Option<NodeId> {
+        if self.depth >= MAX_RECURSION_DEPTH {
+            self.error(
+                ErrorKind::NestingTooDeep,
+                self.current_or_last_origin_for_err(),
+                format!("nesting is deeper than the limit of {MAX_RECURSION_DEPTH}"),
+                &[TokenKind::SemiColon, TokenKind::RightCurly],
+            );
+            return None;
+        }
+
+        self.depth += 1;
+        let result = f(self);
+        self.depth -= 1;
+        result
     }
 
     fn new_node_unknown(&mut self) -> NodeId {
@@ -731,6 +769,10 @@ impl<'a> Parser<'a> {
 
     // expression              → assignment_expression ( "," assignment_expression )* ;
     fn parse_expr(&mut self) -> Option<NodeId> {
+        self.with_depth(Self::parse_expr_inner)
+    }
+
+    fn parse_expr_inner(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
@@ -1770,6 +1812,10 @@ impl<'a> Parser<'a> {
     //                          "else" statement_or_block ;
 
     fn parse_statement(&mut self) -> Option<NodeId> {
+        self.with_depth(Self::parse_statement_inner)
+    }
+
+    fn parse_statement_inner(&mut self) -> Option<NodeId> {
         if self.error_mode {
             return None;
         }
@@ -5521,5 +5567,35 @@ mod tests {
             let errors = compile_errors(input);
             assert!(errors.is_empty(), "for {input:?}: {errors:?}");
         }
+    }
+    #[test]
+    fn test_deeply_nested_expression_does_not_overflow_the_stack() {
+        // Regression: the recursive-descent parser had no depth limit, so
+        // `((((…1…))))` overflowed the stack at around four hundred levels.
+        // A stack overflow cannot be caught, and `panic = "abort"` makes it a
+        // hard process abort that takes the language server down.
+        for n in [1_000usize, 50_000] {
+            let input = format!("BEGIN{{x={}1{};}}", "(".repeat(n), ")".repeat(n));
+            let errors = parse_program_errors(&input);
+            assert!(
+                errors.iter().any(|e| e.kind == ErrorKind::NestingTooDeep),
+                "expected a `NestingTooDeep` error for {n} levels, got {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_nesting_just_below_the_limit_still_parses() {
+        let n = (MAX_RECURSION_DEPTH - 1) as usize;
+        let input = format!("BEGIN{{x={}1{};}}", "(".repeat(n), ")".repeat(n));
+        let errors = parse_program_errors(&input);
+        assert!(errors.is_empty(), "errors at {n} levels: {errors:?}");
+    }
+
+    #[test]
+    fn test_deeply_nested_blocks_do_not_overflow_the_stack() {
+        let input = format!("BEGIN{{{}{}}}", "{".repeat(5_000), "}".repeat(5_000));
+        // The assertion is that this returns at all rather than aborting.
+        let _ = parse_program_errors(&input);
     }
 }

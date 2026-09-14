@@ -60,6 +60,7 @@ pub enum ErrorKind {
     InvalidMacroArgument,
     MissingExprOrTypename,
     Redeclaration,
+    NestingTooDeep,
 }
 
 #[derive(Serialize, Debug, Clone)]
