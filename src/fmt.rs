@@ -28,7 +28,17 @@ struct Formatter<'a, W> {
 
 impl<'a, W: Write> Formatter<'a, W> {
     fn indent(&mut self, n: usize) -> std::io::Result<()> {
-        write!(self.w, "{:width$}", "", width = n)
+        // `write!(self.w, "{:width$}", "")` goes through `core::fmt`'s
+        // padding machinery for what is only ever a run of spaces, and it
+        // runs once per line of output.
+        const SPACES: &[u8; 64] = &[b' '; 64];
+        let mut left = n;
+        while left > 0 {
+            let chunk = left.min(SPACES.len());
+            self.w.write_all(&SPACES[..chunk])?;
+            left -= chunk;
+        }
+        Ok(())
     }
 
     /// Returns `true` if any not-yet-emitted directive, comment, or
@@ -359,9 +369,11 @@ impl<'a, W: Write> Formatter<'a, W> {
     /// Formats a single node. Does not emit leading indent or trailing newline;
     /// the caller is responsible for surrounding whitespace.
     fn fmt(&mut self, node_id: NodeId, indent: usize) -> std::io::Result<()> {
-        // Clone to avoid holding a shared borrow of `self.nodes` across recursive calls.
-        let kind = self.nodes[node_id].kind.clone();
-        let origin = self.nodes[node_id].origin;
+        // `nodes` is a shared slice with lifetime `'a`, independent of the
+        // `&mut self` borrow, so the node is referenced rather than cloned.
+        let nodes: &'a [Node] = self.nodes;
+        let kind = &nodes[node_id].kind;
+        let origin = nodes[node_id].origin;
 
         // Emit any pending `/* */` comments that appear *before* this node's
         // start so inter-token annotations like `int /* x */ y;` land in the
@@ -395,7 +407,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                 )?;
                 self.w.write_all(b"\n")?;
                 let mut prev_end: Option<u32> = None;
-                for id in &node_ids {
+                for id in node_ids {
                     let start_byte = self.nodes[*id].origin.start.byte_offset;
                     // Preserve a blank line between two consecutive statements
                     // when the source had one. Two-or-more newlines in the
@@ -441,18 +453,18 @@ impl<'a, W: Write> Formatter<'a, W> {
                 predicate: pred,
                 action: actions,
             } => {
-                self.fmt(probe, indent)?;
+                self.fmt(*probe, indent)?;
                 // Same-line trailing comments stay with the probe specifier
                 // line — `pid$target::foo:entry // remark`. Cap the drain
                 // at the start of the next significant node (predicate or
                 // body) so a comment that's actually *inside* `{ … }` on
                 // the same source line isn't pulled out.
                 let probe_trailing_max = pred
-                    .or(actions)
+                    .or(*actions)
                     .map(|n| self.nodes[n].origin.start.byte_offset)
                     .unwrap_or(u32::MAX);
                 self.drain_trailing_line_comments(
-                    self.nodes[probe].origin.end.byte_offset,
+                    self.nodes[*probe].origin.end.byte_offset,
                     probe_trailing_max,
                 )?;
                 self.w.write_all(b"\n")?;
@@ -462,10 +474,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                     // specifier and the `/.../` predicate so they land on
                     // their own lines (rather than getting picked up by an
                     // inner expression's `//`-after-op drain).
-                    let pred_start = self.nodes[pred_id].origin.start.byte_offset;
+                    let pred_start = self.nodes[*pred_id].origin.start.byte_offset;
                     self.emit_pending_annotations(pred_start, indent)?;
                     self.w.write_all(b"/ ")?;
-                    self.fmt(pred_id, indent)?;
+                    self.fmt(*pred_id, indent)?;
                     self.w.write_all(b" /")?;
                     // Same-line trailing comments after `/ pred /` stay with
                     // the predicate line. Cap at the body's start so a
@@ -475,7 +487,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                         .map(|n| self.nodes[n].origin.start.byte_offset)
                         .unwrap_or(u32::MAX);
                     self.drain_trailing_line_comments(
-                        self.nodes[pred_id].origin.end.byte_offset,
+                        self.nodes[*pred_id].origin.end.byte_offset,
                         pred_trailing_max,
                     )?;
                     self.w.write_all(b"\n")?;
@@ -484,9 +496,9 @@ impl<'a, W: Write> Formatter<'a, W> {
                 if let Some(actions_id) = actions {
                     // Same idea between the probe spec / predicate and the
                     // action body `{ ... }`.
-                    let actions_start = self.nodes[actions_id].origin.start.byte_offset;
+                    let actions_start = self.nodes[*actions_id].origin.start.byte_offset;
                     self.emit_pending_annotations(actions_start, indent)?;
-                    self.fmt(actions_id, indent)?;
+                    self.fmt(*actions_id, indent)?;
                 }
                 self.w.write_all(b"\n")?;
             }
@@ -500,7 +512,7 @@ impl<'a, W: Write> Formatter<'a, W> {
             }
             NodeKind::Assignment { lhs, op: tok, rhs }
             | NodeKind::BinaryOp { lhs, op: tok, rhs } => {
-                self.fmt(lhs, indent)?;
+                self.fmt(*lhs, indent)?;
                 let src = lex::str_from_source(self.input, tok.origin);
                 write!(self.w, " {} ", src)?;
                 // A `//` comment sitting between the operator and the
@@ -510,7 +522,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                 // rest of the expression lands on the next line (aligning
                 // roughly under the opening token of the enclosing
                 // construct, e.g. `if (`).
-                let rhs_start = self.nodes[rhs].origin.start.byte_offset;
+                let rhs_start = self.nodes[*rhs].origin.start.byte_offset;
                 while let Some(c) = self.comments.get(self.comment_idx) {
                     if c.origin.start.byte_offset >= rhs_start || c.kind != CommentKind::SingleLine
                     {
@@ -521,7 +533,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.indent(indent + 4)?;
                     self.comment_idx += 1;
                 }
-                self.fmt(rhs, indent)?;
+                self.fmt(*rhs, indent)?;
             }
             NodeKind::If {
                 cond,
@@ -530,29 +542,29 @@ impl<'a, W: Write> Formatter<'a, W> {
                 else_block,
             } => {
                 self.w.write_all(b"if (")?;
-                self.fmt(cond, indent)?;
+                self.fmt(*cond, indent)?;
                 // Comments that sit inside the parens — `if (cond /* x */)` —
                 // must be drained before `)` is emitted. The parser records
                 // the `)`'s byte offset for exactly this purpose.
-                self.drain_inline_comments_before_close(cond_close_paren_byte)?;
+                self.drain_inline_comments_before_close(*cond_close_paren_byte)?;
                 self.w.write_all(b") ")?;
                 // Comments between `)` and `{` — `if (cond) /* x */ {` —
                 // are drained before delegating to `fmt_branch`, so the
                 // brace is preceded by them.
-                let then_start = self.nodes[then_block].origin.start.byte_offset;
+                let then_start = self.nodes[*then_block].origin.start.byte_offset;
                 self.drain_inline_comments_before(then_start)?;
-                self.fmt_branch(then_block, indent)?;
+                self.fmt_branch(*then_block, indent)?;
 
                 if let Some(else_id) = else_block {
                     self.w.write_all(b" else ")?;
                     // Same idea between `else` and the `{` or `if`.
-                    let else_start = self.nodes[else_id].origin.start.byte_offset;
+                    let else_start = self.nodes[*else_id].origin.start.byte_offset;
                     self.drain_inline_comments_before(else_start)?;
                     // `else if` chains are not wrapped in an extra set of braces.
-                    if matches!(self.nodes[else_id].kind, NodeKind::If { .. }) {
-                        self.fmt(else_id, indent)?;
+                    if matches!(self.nodes[*else_id].kind, NodeKind::If { .. }) {
+                        self.fmt(*else_id, indent)?;
                     } else {
-                        self.fmt_branch(else_id, indent)?;
+                        self.fmt_branch(*else_id, indent)?;
                     }
                 }
             }
@@ -588,12 +600,12 @@ impl<'a, W: Write> Formatter<'a, W> {
                 // already contains any comment inside the parentheses.
                 self.discard_comments_within(
                     self.nodes[node_id].origin.start.byte_offset,
-                    self.nodes[inner].origin.start.byte_offset,
+                    self.nodes[*inner].origin.start.byte_offset,
                 );
-                self.fmt(inner, indent)?;
+                self.fmt(*inner, indent)?;
             }
             NodeKind::ExprStmt(inner) => {
-                self.fmt(inner, indent)?;
+                self.fmt(*inner, indent)?;
                 self.w.write_all(b";")?;
             }
             NodeKind::EmptyStmt => {}
@@ -601,10 +613,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                 callee: primary,
                 args,
             } => {
-                self.fmt(primary, indent)?;
+                self.fmt(*primary, indent)?;
                 self.w.write_all(b"(")?;
                 if let Some(args_id) = args {
-                    self.fmt(args_id, indent)?;
+                    self.fmt(*args_id, indent)?;
                 }
                 self.w.write_all(b")")?;
             }
@@ -629,13 +641,13 @@ impl<'a, W: Write> Formatter<'a, W> {
                 parenthesized: with_paren,
             } => {
                 self.w.write_all(b"sizeof")?;
-                if with_paren {
+                if *with_paren {
                     self.w.write_all(b"(")?;
                 } else {
                     self.w.write_all(b" ")?;
                 }
-                self.fmt(node_id, indent)?;
-                if with_paren {
+                self.fmt(*node_id, indent)?;
+                if *with_paren {
                     self.w.write_all(b")")?;
                 }
             }
@@ -647,13 +659,13 @@ impl<'a, W: Write> Formatter<'a, W> {
                 if !with_paren {
                     self.w.write_all(b" ")?;
                 }
-                self.fmt(node_id, indent)?;
+                self.fmt(*node_id, indent)?;
             }
             NodeKind::PostfixIncDecrement {
                 expr: node_id,
                 op: token,
             } => {
-                self.fmt(node_id, indent)?;
+                self.fmt(*node_id, indent)?;
                 let s = lex::str_from_source(self.input, token.origin);
                 self.w.write_all(s.as_bytes())?;
             }
@@ -661,9 +673,9 @@ impl<'a, W: Write> Formatter<'a, W> {
                 array: primary,
                 index: args,
             } => {
-                self.fmt(primary, indent)?;
+                self.fmt(*primary, indent)?;
                 self.w.write_all(b"[")?;
-                self.fmt(args, indent)?;
+                self.fmt(*args, indent)?;
                 self.w.write_all(b"]")?;
             }
             NodeKind::TernaryExpr {
@@ -671,18 +683,18 @@ impl<'a, W: Write> Formatter<'a, W> {
                 then_expr: mhs,
                 else_expr: rhs,
             } => {
-                self.fmt(lhs, indent)?;
+                self.fmt(*lhs, indent)?;
                 self.w.write_all(b" ? ")?;
-                self.fmt(mhs, indent)?;
+                self.fmt(*mhs, indent)?;
                 self.w.write_all(b" : ")?;
-                self.fmt(rhs, indent)?;
+                self.fmt(*rhs, indent)?;
             }
             NodeKind::FieldAccess {
                 expr: node_id,
                 op: dot_or_arrow,
                 field: ident,
             } => {
-                self.fmt(node_id, indent)?;
+                self.fmt(*node_id, indent)?;
 
                 let s = lex::str_from_source(self.input, dot_or_arrow.origin);
                 self.w.write_all(s.as_bytes())?;
@@ -694,10 +706,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                 specifiers: specifier,
                 abstract_declarator: declarator,
             } => {
-                self.fmt(specifier, indent)?;
+                self.fmt(*specifier, indent)?;
                 if let Some(declarator) = declarator {
                     self.w.write_all(b" ")?;
-                    self.fmt(declarator, indent)?;
+                    self.fmt(*declarator, indent)?;
                 };
             }
             NodeKind::OffsetOf {
@@ -705,7 +717,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                 field: token,
             } => {
                 self.w.write_all(b"offsetof(")?;
-                self.fmt(node_id, indent)?;
+                self.fmt(*node_id, indent)?;
                 self.w.write_all(b", ")?;
                 let s = lex::str_from_source(self.input, token.origin);
                 self.w.write_all(s.as_bytes())?;
@@ -715,10 +727,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                 specifiers: decl_specifiers,
                 declarators: init_declarator_list,
             } => {
-                self.fmt(decl_specifiers, indent)?;
+                self.fmt(*decl_specifiers, indent)?;
                 if let Some(init_decl_list) = init_declarator_list {
                     self.w.write_all(b" ")?;
-                    self.fmt(init_decl_list, indent)?;
+                    self.fmt(*init_decl_list, indent)?;
                 }
                 self.w.write_all(b";\n")?;
             }
@@ -736,16 +748,16 @@ impl<'a, W: Write> Formatter<'a, W> {
             } => {
                 // Parenthesised declarators (e.g. function-pointer `(*fp)`) require
                 // wrapping the inner declarator in parens at this level.
-                let needs_parens = matches!(self.nodes[base].kind, NodeKind::Declarator { .. });
+                let needs_parens = matches!(self.nodes[*base].kind, NodeKind::Declarator { .. });
                 if needs_parens {
                     self.w.write_all(b"(")?;
                 }
-                self.fmt(base, indent)?;
+                self.fmt(*base, indent)?;
                 if needs_parens {
                     self.w.write_all(b")")?;
                 }
                 if let Some(suffix_id) = suffix {
-                    self.fmt(suffix_id, indent)?;
+                    self.fmt(*suffix_id, indent)?;
                 }
             }
             NodeKind::Declarator {
@@ -753,14 +765,14 @@ impl<'a, W: Write> Formatter<'a, W> {
                 direct: direct_declarator,
             } => {
                 if let Some(ptr_id) = ptr {
-                    self.fmt(ptr_id, indent)?;
+                    self.fmt(*ptr_id, indent)?;
                     // A qualifier keyword (e.g. `const`) at the end of the pointer chain
                     // needs a space before the declarator name.
-                    if Self::pointer_ends_with_qualifier(self.nodes, ptr_id) {
+                    if Self::pointer_ends_with_qualifier(self.nodes, *ptr_id) {
                         self.w.write_all(b" ")?;
                     }
                 }
-                self.fmt(direct_declarator, indent)?;
+                self.fmt(*direct_declarator, indent)?;
             }
             NodeKind::InitDeclarators(node_ids) => {
                 for (i, id) in node_ids.iter().enumerate() {
@@ -789,7 +801,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                 if let Some(enumerators_id) = enumerator_list {
                     self.w.write_all(b" {\n")?;
                     // `EnumeratorsDeclaration` adds indentation and newlines for each item.
-                    self.fmt(enumerators_id, indent + 2)?;
+                    self.fmt(*enumerators_id, indent + 2)?;
                     // Annotations between the last item and the closing brace.
                     self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
                     self.indent(indent)?;
@@ -803,7 +815,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                 self.w.write_all(identifier.as_bytes())?;
                 if let Some(expr_id) = expr {
                     self.w.write_all(b" = ")?;
-                    self.fmt(expr_id, indent)?;
+                    self.fmt(*expr_id, indent)?;
                 }
             }
             NodeKind::EnumeratorsDeclaration(node_ids) => {
@@ -821,7 +833,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                 }
                 if let Some(fields_id) = decl_list {
                     self.w.write_all(b" {\n")?;
-                    self.fmt(fields_id, indent + 2)?;
+                    self.fmt(*fields_id, indent + 2)?;
                     // Annotations between the last field and the closing brace.
                     self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
                     self.indent(indent)?;
@@ -839,7 +851,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                 }
                 if let Some(fields_id) = decl_list {
                     self.w.write_all(b" {\n")?;
-                    self.fmt(fields_id, indent + 2)?;
+                    self.fmt(*fields_id, indent + 2)?;
                     // Annotations between the last field and the closing brace.
                     self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
                     self.indent(indent)?;
@@ -853,21 +865,21 @@ impl<'a, W: Write> Formatter<'a, W> {
                 declarator,
                 bit_field: const_expr,
             } => {
-                self.fmt(declarator, indent)?;
+                self.fmt(*declarator, indent)?;
                 if let Some(expr_id) = const_expr {
                     // Bit-field width after a colon.
                     self.w.write_all(b" : ")?;
-                    self.fmt(expr_id, indent)?;
+                    self.fmt(*expr_id, indent)?;
                 }
             }
             NodeKind::StructFieldDeclaration {
                 specifiers: specifier_qualifier_list,
                 declarators: declarator_list,
             } => {
-                self.fmt(specifier_qualifier_list, indent)?;
+                self.fmt(*specifier_qualifier_list, indent)?;
                 if let Some(decl_list_id) = declarator_list {
                     self.w.write_all(b" ")?;
-                    self.fmt(decl_list_id, indent)?;
+                    self.fmt(*decl_list_id, indent)?;
                 }
                 self.w.write_all(b";")?;
             }
@@ -892,14 +904,14 @@ impl<'a, W: Write> Formatter<'a, W> {
                 expr,
             } => {
                 self.w.write_all(b"xlate <")?;
-                self.fmt(type_name, indent)?;
+                self.fmt(*type_name, indent)?;
                 self.w.write_all(b">(")?;
-                self.fmt(expr, indent)?;
+                self.fmt(*expr, indent)?;
                 self.w.write_all(b")")?;
             }
             NodeKind::DirectAbstractDeclarator(node_id) => {
                 self.w.write_all(b"(")?;
-                self.fmt(node_id, indent)?;
+                self.fmt(*node_id, indent)?;
                 self.w.write_all(b")")?;
             }
             NodeKind::DirectAbstractArray {
@@ -907,33 +919,33 @@ impl<'a, W: Write> Formatter<'a, W> {
                 size: suffix,
             } => {
                 if let Some(base_id) = base {
-                    self.fmt(base_id, indent)?;
+                    self.fmt(*base_id, indent)?;
                 }
-                self.fmt(suffix, indent)?;
+                self.fmt(*suffix, indent)?;
             }
             NodeKind::DirectAbstractFunction {
                 inner: base,
                 params: suffix,
             } => {
                 if let Some(base_id) = base {
-                    self.fmt(base_id, indent)?;
+                    self.fmt(*base_id, indent)?;
                 }
-                self.fmt(suffix, indent)?;
+                self.fmt(*suffix, indent)?;
             }
             NodeKind::AbstractDeclarator {
                 pointer: ptr,
                 direct: abstract_decl,
             } => {
                 if let Some(ptr_id) = ptr {
-                    self.fmt(ptr_id, indent)?;
+                    self.fmt(*ptr_id, indent)?;
                     if let Some(decl_id) = abstract_decl {
-                        if Self::pointer_ends_with_qualifier(self.nodes, ptr_id) {
+                        if Self::pointer_ends_with_qualifier(self.nodes, *ptr_id) {
                             self.w.write_all(b" ")?;
                         }
-                        self.fmt(decl_id, indent)?;
+                        self.fmt(*decl_id, indent)?;
                     }
                 } else if let Some(decl_id) = abstract_decl {
-                    self.fmt(decl_id, indent)?;
+                    self.fmt(*decl_id, indent)?;
                 }
             }
             NodeKind::Pointer {
@@ -941,18 +953,18 @@ impl<'a, W: Write> Formatter<'a, W> {
                 inner: ptr,
             } => {
                 self.w.write_all(b"*")?;
-                for qual_id in &type_qualifiers {
+                for qual_id in type_qualifiers {
                     self.w.write_all(b" ")?;
                     self.fmt(*qual_id, indent)?;
                 }
                 if let Some(ptr_id) = ptr {
-                    self.fmt(ptr_id, indent)?;
+                    self.fmt(*ptr_id, indent)?;
                 }
             }
             NodeKind::Array(params) => {
                 self.w.write_all(b"[")?;
                 if let Some(params_id) = params {
-                    self.fmt(params_id, indent)?;
+                    self.fmt(*params_id, indent)?;
                 }
                 // Drain any `/* */` comments between the last child and `]`,
                 // e.g. `arr[uintptr_t /* data ptr */]`.
@@ -981,7 +993,7 @@ impl<'a, W: Write> Formatter<'a, W> {
             } => {
                 let s = lex::str_from_source(self.input, token.origin);
                 self.w.write_all(s.as_bytes())?;
-                self.fmt(node_id, indent)?;
+                self.fmt(*node_id, indent)?;
 
                 if token.kind == TokenKind::LeftParen {
                     // Need to close the parenthesis manually - all other operators are prefix
@@ -992,7 +1004,7 @@ impl<'a, W: Write> Formatter<'a, W> {
             NodeKind::ArgumentsDeclaration(args) => {
                 self.w.write_all(b"(")?;
                 if let Some(args_id) = args {
-                    self.fmt(args_id, indent)?;
+                    self.fmt(*args_id, indent)?;
                 }
                 self.w.write_all(b")")?;
             }
@@ -1002,11 +1014,11 @@ impl<'a, W: Write> Formatter<'a, W> {
                 expr,
             } => {
                 self.w.write_all(b"inline ")?;
-                self.fmt(decl_specifiers, indent)?;
+                self.fmt(*decl_specifiers, indent)?;
                 self.w.write_all(b" ")?;
-                self.fmt(declarator, indent)?;
+                self.fmt(*declarator, indent)?;
                 self.w.write_all(b" = ")?;
-                self.fmt(expr, indent)?;
+                self.fmt(*expr, indent)?;
                 self.w.write_all(b";\n")?;
             }
             NodeKind::ArgumentsExpr(node_ids) => {
@@ -1019,23 +1031,23 @@ impl<'a, W: Write> Formatter<'a, W> {
             }
             NodeKind::ParameterTypeList { params, ellipsis } => {
                 if let Some(params_id) = params {
-                    self.fmt(params_id, indent)?;
+                    self.fmt(*params_id, indent)?;
                     if ellipsis.is_some() {
                         self.w.write_all(b", ")?;
                     }
                 }
                 if let Some(ellipsis_id) = ellipsis {
-                    self.fmt(ellipsis_id, indent)?;
+                    self.fmt(*ellipsis_id, indent)?;
                 }
             }
             NodeKind::ParameterDeclaration {
                 param_decl_specifiers,
                 declarator,
             } => {
-                self.fmt(param_decl_specifiers, indent)?;
+                self.fmt(*param_decl_specifiers, indent)?;
                 if let Some(decl_id) = declarator {
                     self.w.write_all(b" ")?;
-                    self.fmt(decl_id, indent)?;
+                    self.fmt(*decl_id, indent)?;
                 }
             }
             NodeKind::TranslatorDefinition {
@@ -1045,13 +1057,13 @@ impl<'a, W: Write> Formatter<'a, W> {
                 members,
             } => {
                 self.w.write_all(b"translator ")?;
-                self.fmt(from_type, indent)?;
+                self.fmt(*from_type, indent)?;
                 self.w.write_all(b" < ")?;
-                self.fmt(to_type, indent)?;
+                self.fmt(*to_type, indent)?;
                 write!(self.w, " {} >", ident)?;
                 self.w.write_all(b" {\n")?;
                 if let Some(members_id) = members {
-                    self.fmt(members_id, indent + 2)?;
+                    self.fmt(*members_id, indent + 2)?;
                 }
                 // Annotations between the last member and the closing brace.
                 self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
@@ -1063,13 +1075,13 @@ impl<'a, W: Write> Formatter<'a, W> {
             }
             NodeKind::TranslatorMember { ident, expr } => {
                 write!(self.w, "{} = ", ident)?;
-                self.fmt(expr, indent)?;
+                self.fmt(*expr, indent)?;
                 self.w.write_all(b";")?;
             }
             NodeKind::ProviderDefinition { name, probes } => {
                 writeln!(self.w, "provider {} {{", name)?;
                 if let Some(probes_id) = probes {
-                    self.fmt(probes_id, indent + 2)?;
+                    self.fmt(*probes_id, indent + 2)?;
                 }
                 // Annotations between the last probe and the closing brace.
                 self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
@@ -1085,10 +1097,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                 return_args,
             } => {
                 write!(self.w, "probe {}", name)?;
-                self.fmt(args, indent)?;
+                self.fmt(*args, indent)?;
                 if let Some(ret) = return_args {
                     self.w.write_all(b" : ")?;
-                    self.fmt(ret, indent)?;
+                    self.fmt(*ret, indent)?;
                 }
                 self.w.write_all(b";")?;
             }
@@ -3034,5 +3046,28 @@ typedef struct {
             assert_idempotent("BEGIN {\n  x = 1;\n  y = 2;\n}\n"),
             "BEGIN\n{\n  x = 1;\n  y = 2;\n}\n"
         );
+    }
+    #[test]
+    fn test_indent_writes_the_requested_number_of_spaces() {
+        // `indent` writes spaces in chunks from a fixed buffer, so a width
+        // larger than that buffer must still come out right.
+        for n in [0usize, 1, 2, 63, 64, 65, 200] {
+            let mut out = Vec::new();
+            {
+                let mut formatter = Formatter {
+                    w: &mut out,
+                    nodes: &[],
+                    comments: &[],
+                    comment_idx: 0,
+                    directives: Vec::new(),
+                    directive_idx: 0,
+                    attributes: &[],
+                    attribute_idx: 0,
+                    input: "",
+                };
+                formatter.indent(n).unwrap();
+            }
+            assert_eq!(out, vec![b' '; n], "for width {n}");
+        }
     }
 }
