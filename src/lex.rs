@@ -1178,7 +1178,7 @@ impl<'a> Lexer<'a> {
                     Ok(c) => c,
                     Err(err) => {
                         self.add_error(
-                            ErrorKind::InvalidLiteralCharacter,
+                            ErrorKind::InvalidLiteralNumber,
                             self.position.into(),
                             &format!("hex literal cannot be parsed: {}", err),
                         );
@@ -1232,7 +1232,7 @@ impl<'a> Lexer<'a> {
                         Ok(c) => c,
                         Err(err) => {
                             self.add_error(
-                                ErrorKind::InvalidLiteralCharacter,
+                                ErrorKind::InvalidLiteralNumber,
                                 self.position.into(),
                                 &format!("octal literal cannot be parsed: {}", err),
                             );
@@ -1244,7 +1244,7 @@ impl<'a> Lexer<'a> {
                         Ok(c) => c,
                         Err(err) => {
                             self.add_error(
-                                ErrorKind::InvalidLiteralCharacter,
+                                ErrorKind::InvalidLiteralNumber,
                                 self.position.into(),
                                 &format!("decimal literal cannot be parsed: {}", err),
                             );
@@ -5059,7 +5059,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::LiteralNumber(0, NumberSuffix::NONE));
         assert_eq!(str_from_source(input, token.origin), input);
         assert_eq!(lexer.errors.len(), 1, "expected 1 error");
-        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralNumber);
         assert!(
             lexer.errors[0]
                 .explanation
@@ -5080,7 +5080,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::LiteralNumber(0, NumberSuffix::NONE));
         assert_eq!(str_from_source(input, token.origin), input);
         assert_eq!(lexer.errors.len(), 1, "expected 1 error");
-        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralNumber);
         assert!(
             lexer.errors[0]
                 .explanation
@@ -5102,7 +5102,7 @@ mod tests {
         assert_eq!(token.kind, TokenKind::LiteralNumber(0, NumberSuffix::NONE));
         assert_eq!(str_from_source(input, token.origin), input);
         assert_eq!(lexer.errors.len(), 1, "expected 1 error");
-        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralCharacter);
+        assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralNumber);
         assert!(
             lexer.errors[0]
                 .explanation
