@@ -281,8 +281,13 @@ impl<'a, W: Write> Formatter<'a, W> {
         };
         self.w.write_all(b"{")?;
         // Same-line trailing comment after `{` — `if (foo) { // remark`.
+        // Capped at the first statement, see the `Block` arm.
         let block_start = self.nodes[node_id].origin.start.byte_offset;
-        self.drain_trailing_line_comments(block_start + 1, u32::MAX)?;
+        let block_trailing_max = children
+            .first()
+            .map(|id| self.nodes[*id].origin.start.byte_offset)
+            .unwrap_or(u32::MAX);
+        self.drain_trailing_line_comments(block_start + 1, block_trailing_max)?;
         self.w.write_all(b"\n")?;
         for child_id in children {
             let start_byte = self.nodes[child_id].origin.start.byte_offset;
@@ -330,7 +335,18 @@ impl<'a, W: Write> Formatter<'a, W> {
             NodeKind::Block(node_ids) => {
                 self.w.write_all(b"{")?;
                 // Same-line trailing comment after `{` (e.g. `BEGIN { // x`).
-                self.drain_trailing_line_comments(origin.start.byte_offset + 1, u32::MAX)?;
+                // Cap the drain at the first statement so a comment that
+                // belongs to a statement written on the same line as `{`
+                // isn't hoisted onto the brace, as `ProbeDefinition` does
+                // for the probe specifier.
+                let block_trailing_max = node_ids
+                    .first()
+                    .map(|id| self.nodes[*id].origin.start.byte_offset)
+                    .unwrap_or(u32::MAX);
+                self.drain_trailing_line_comments(
+                    origin.start.byte_offset + 1,
+                    block_trailing_max,
+                )?;
                 self.w.write_all(b"\n")?;
                 let mut prev_end: Option<u32> = None;
                 for id in &node_ids {
@@ -2797,6 +2813,40 @@ typedef struct {
         assert_eq!(
             pass1, pass2,
             "formatter output changed on second pass:\n{pass1}"
+        );
+    }
+    #[test]
+    fn test_trailing_comment_stays_with_the_statement_not_the_brace() {
+        // Regression: the drain after `{` had no upper bound, so it claimed
+        // every comment on the brace's source line, including ones belonging
+        // to a statement written on that line.
+        assert_eq!(
+            fmt("BEGIN { x = 1; // c\n}\n"),
+            "BEGIN\n{\n  x = 1; // c\n}\n"
+        );
+    }
+
+    #[test]
+    fn test_inline_comments_in_a_call_are_not_hoisted_onto_the_brace() {
+        // `/* b */` still ends up after the statement rather than before the
+        // closing paren, but it no longer jumps out of the block onto the
+        // `{` line.
+        assert_eq!(
+            fmt("BEGIN { trace(/* a */ x, y /* b */); }\n"),
+            "BEGIN\n{\n  trace(/* a */ x, y); /* b */\n}\n"
+        );
+    }
+
+    #[test]
+    fn test_comment_on_the_brace_line_without_a_statement_stays_on_the_brace() {
+        assert_eq!(fmt("BEGIN { // c\n}\n"), "BEGIN\n{ // c\n}\n");
+    }
+
+    #[test]
+    fn test_trailing_comment_in_an_if_branch_stays_with_the_statement() {
+        assert_eq!(
+            fmt("BEGIN { if (1) { x = 1; // c\n} }\n"),
+            "BEGIN\n{\n  if (1) {\n    x = 1; // c\n  }\n}\n"
         );
     }
 }
