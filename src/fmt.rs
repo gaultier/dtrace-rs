@@ -399,8 +399,14 @@ impl<'a, W: Write> Formatter<'a, W> {
                     let start_byte = self.nodes[*id].origin.start.byte_offset;
                     // Preserve a blank line between two consecutive statements
                     // when the source had one. Two-or-more newlines in the
-                    // gap means at least one empty line was there.
-                    if let Some(prev) = prev_end {
+                    // gap means at least one empty line was there — unless a
+                    // directive or annotation occupies the gap, in which case
+                    // the newlines are the ones around *it* and the directive
+                    // line is already the visual separator. `TranslationUnit`
+                    // applies the same rule between declarations.
+                    if let Some(prev) = prev_end
+                        && !self.gap_has_annotation(prev, start_byte)
+                    {
                         let gap_start = prev as usize;
                         let gap_end = (start_byte as usize).min(self.input.len());
                         if gap_start < gap_end
@@ -3001,5 +3007,32 @@ typedef struct {
         // separator between declarations.
         let out = assert_idempotent("int x;\n#pragma D option quiet\nint y;\n");
         assert!(out.contains("#pragma D option quiet"), "output: {out:?}");
+    }
+    #[test]
+    fn test_directive_between_statements_does_not_add_a_blank_line() {
+        // Regression: the blank-line heuristic counted the newlines in the
+        // raw gap between two statements without noticing that a directive
+        // sits in it, so the newlines around `#endif` were read as a blank
+        // line the user had written.
+        assert_eq!(
+            assert_idempotent("BEGIN {\n#ifdef A\n  x = 1;\n#endif\n  y = 2;\n}\n"),
+            "BEGIN\n{\n  #ifdef A\n  x = 1;\n  #endif\n  y = 2;\n}\n"
+        );
+    }
+
+    #[test]
+    fn test_blank_line_between_statements_is_still_preserved() {
+        assert_eq!(
+            assert_idempotent("BEGIN {\n  x = 1;\n\n  y = 2;\n}\n"),
+            "BEGIN\n{\n  x = 1;\n\n  y = 2;\n}\n"
+        );
+    }
+
+    #[test]
+    fn test_no_blank_line_between_adjacent_statements() {
+        assert_eq!(
+            assert_idempotent("BEGIN {\n  x = 1;\n  y = 2;\n}\n"),
+            "BEGIN\n{\n  x = 1;\n  y = 2;\n}\n"
+        );
     }
 }
