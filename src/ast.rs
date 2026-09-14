@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     collections::HashMap,
     hash::Hash,
     ops::{Index, IndexMut},
@@ -272,6 +273,19 @@ impl Index<NodeId> for Vec<Node> {
 /// parenthesised expressions that C requires an implementation to support.
 const MAX_RECURSION_DEPTH: u32 = 64;
 
+/// The last token `peek1` produced, together with everything the result
+/// depends on.
+#[derive(Clone, Copy)]
+struct PeekCache {
+    chars_idx: usize,
+    state: lex::LexerState,
+    /// `id_or_type` resolves an identifier against these two tables, so a
+    /// token lexed before either grew may not lex the same way after.
+    decls_len: usize,
+    identifiers_len: usize,
+    token: Token,
+}
+
 pub struct Parser<'a> {
     pub(crate) lexer: Lexer<'a>,
     pub(crate) nodes: Vec<Node>,
@@ -279,6 +293,12 @@ pub struct Parser<'a> {
     error_mode: bool,
     /// Current nesting depth, compared against `MAX_RECURSION_DEPTH`.
     depth: u32,
+    /// Memoises `peek1`.
+    ///
+    /// The parser looks ahead about ten times per token it consumes, and
+    /// each lookahead used to build a throwaway `Lexer` and re-lex from the
+    /// current position — nineteen `lex` calls for every real token.
+    peek_cache: Cell<Option<PeekCache>>,
 }
 
 fn record_type_decl(
@@ -364,6 +384,7 @@ impl<'a> Parser<'a> {
             lexer,
             error_mode: false,
             depth: 0,
+            peek_cache: Cell::new(None),
         }
     }
 
@@ -399,6 +420,34 @@ impl<'a> Parser<'a> {
     }
 
     fn peek1(&self) -> Token {
+        let (decls_len, identifiers_len) = {
+            let ctx = self.lexer.ctx.borrow();
+            (ctx.decls.len(), ctx.identifiers.len())
+        };
+        if let Some(cached) = self.peek_cache.get()
+            && cached.chars_idx == self.lexer.chars_idx
+            && cached.state == self.lexer.state
+            && cached.decls_len == decls_len
+            && cached.identifiers_len == identifiers_len
+        {
+            return cached.token;
+        }
+
+        let token = self.peek1_uncached();
+        // `peek1_uncached` can memoise into `identifiers`, so the key is
+        // taken from the state *after* the lex, not before.
+        let identifiers_len = self.lexer.ctx.borrow().identifiers.len();
+        self.peek_cache.set(Some(PeekCache {
+            chars_idx: self.lexer.chars_idx,
+            state: self.lexer.state,
+            decls_len,
+            identifiers_len,
+            token,
+        }));
+        token
+    }
+
+    fn peek1_uncached(&self) -> Token {
         let mut cpy = Lexer {
             position: self.lexer.position,
             state: self.lexer.state,
@@ -5601,5 +5650,47 @@ mod tests {
         let input = format!("BEGIN{{{}{}}}", "{".repeat(5_000), "}".repeat(5_000));
         // The assertion is that this returns at all rather than aborting.
         let _ = parse_program_errors(&input);
+    }
+    #[test]
+    fn test_peek_cache_agrees_with_an_uncached_peek() {
+        // The cache is keyed on everything `peek1` depends on. If that key
+        // is incomplete it returns a stale token, which is the kind of bug
+        // that shows up as a mysterious parse failure much later.
+        let input = "typedef int my_t;\nmy_t x;\nBEGIN { y = (my_t)1 + 2; }\n";
+        let lexer = Lexer::new(FILE_ID, input);
+        let mut parser = Parser::new(lexer);
+
+        loop {
+            let cached = parser.peek1();
+            assert_eq!(
+                cached,
+                parser.peek1(),
+                "a repeated peek at the same position must agree"
+            );
+            assert_eq!(
+                cached,
+                parser.peek1_uncached(),
+                "the cached peek must agree with a fresh lex"
+            );
+            if matches!(cached.kind, TokenKind::Eof) {
+                break;
+            }
+            let _ = parser.lexer.lex();
+        }
+    }
+
+    #[test]
+    fn test_peek_cache_does_not_change_the_parse() {
+        // A typedef registered mid-file changes how a later identifier
+        // lexes, which is exactly what the cache key must capture.
+        for input in [
+            "typedef int my_t;\nmy_t x;\n",
+            "BEGIN { x = 1 + 2 * 3; }\n",
+            "struct S { int a; };\nstruct S *p;\n",
+            "typedef int t;\nBEGIN { x = (t)1; }\n",
+        ] {
+            let errors = parse_program_errors(input);
+            assert!(errors.is_empty(), "errors for {input:?}: {errors:?}");
+        }
     }
 }
