@@ -306,11 +306,23 @@ fn main() {
         }
         Command::Lsp(_) => {
             init_logger(LevelFilter::Error);
-            let mut stdout = std::io::stdout().lock();
+            // Safe to buffer: `Message::write_payload` flushes after every
+            // response, so the client never waits on bytes sitting in the
+            // buffer.
+            let mut stdout = std::io::BufWriter::new(std::io::stdout().lock());
             let mut stdin = std::io::stdin().lock();
             compiler_rs_lib::lsp::run(&mut stdin, &mut stdout);
         }
     }
+}
+
+/// Stdout for bulk output.
+///
+/// `StdoutLock` is line-buffered, so the formatter's many small writes cost
+/// one `write(2)` per output line. A 1.1 MB file spent more time in the
+/// kernel than in the formatter.
+fn buffered_stdout() -> std::io::BufWriter<std::io::StdoutLock<'static>> {
+    std::io::BufWriter::with_capacity(1 << 16, std::io::stdout().lock())
 }
 
 fn fmt_md_file(file: String, in_place: bool, file_content: &str) {
@@ -320,7 +332,7 @@ fn fmt_md_file(file: String, in_place: bool, file_content: &str) {
     if in_place {
         std::fs::write(&file, output.as_bytes()).unwrap();
     } else {
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = buffered_stdout();
         stdout.write_all(output.as_bytes()).unwrap();
         stdout.flush().unwrap();
     }
@@ -364,7 +376,7 @@ fn fmt_file(file_path: &String, in_place: bool, file_content: String) {
         }
         std::fs::write(file_path, &buf).unwrap();
     } else {
-        let mut stdout = std::io::stdout().lock();
+        let mut stdout = buffered_stdout();
         if !format_dtrace(&mut stdout, &file_content, file_path, 0) {
             std::process::exit(1);
         }
