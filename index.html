@@ -83,13 +83,21 @@
             for (const err of res.errors) {
                 const err_dom = document.createElement("div");
                 err_dom.classList.add("error");
-                err_dom.innerHTML = `
-                    <span>Kind: ${err.kind}</span>
-                    <span>Line: ${err.origin.line}</span>
-                    <span>Column: ${err.origin.column}</span>
-                    <span>Offset: ${err.origin.offset}</span>
-                    <span>Explanation: ${err.explanation}</span>
-                `;
+                // `err.explanation` and `err.kind` are built by the compiler
+                // from the user's own source, so they must go in as text.
+                // Interpolating them into `innerHTML` makes any future way of
+                // loading a program into this page — a shared URL, a saved
+                // snippet — an injection vector.
+                const field = (label, value) => {
+                    const span = document.createElement("span");
+                    span.innerText = `${label}: ${value}`;
+                    err_dom.appendChild(span);
+                };
+                field("Kind", err.kind);
+                field("Line", err.origin.line);
+                field("Column", err.origin.column);
+                field("Offset", err.origin.offset);
+                field("Explanation", err.explanation);
 
                 errors_dom.appendChild(err_dom);
             }
