@@ -2,9 +2,7 @@ use std::io::Write;
 
 use crate::{
     ast::{Node, NodeId, NodeKind},
-    lex::{
-        self, Attribute, Comment, CommentKind, ControlDirective, ControlDirectiveKind, TokenKind,
-    },
+    lex::{self, Attribute, Comment, CommentKind, ControlDirective, TokenKind},
 };
 
 struct Formatter<'a, W> {
@@ -14,8 +12,11 @@ struct Formatter<'a, W> {
     comments: &'a [Comment],
     /// Index of the next comment not yet emitted.
     comment_idx: usize,
-    /// All control directives (pragmas, `#line`, shebangs) from the lexer, sorted by position.
-    directives: &'a [ControlDirective],
+    /// The control directives (pragmas, `#line`, shebangs) from the lexer
+    /// that produce output, sorted by position. A null directive (a bare
+    /// `#`) is filtered out here rather than dropped at emission time, so
+    /// it cannot influence the blank-line heuristics either.
+    directives: Vec<&'a ControlDirective>,
     /// Index of the next directive not yet emitted.
     directive_idx: usize,
     /// All `__attribute__((...))` annotations from the lexer, sorted by source position.
@@ -101,26 +102,19 @@ impl<'a, W: Write> Formatter<'a, W> {
 
     /// Emits one directive at the current `directive_idx`, advancing the index.
     fn emit_one_directive(&mut self, indent: usize) -> std::io::Result<()> {
-        let directive = &self.directives[self.directive_idx];
-        let (directive_start, directive_end) = (
+        let directive = self.directives[self.directive_idx];
+        let text = lex::str_from_source(self.input, directive.origin);
+        let text = directive_text(text).expect("non-emitting directives are filtered out");
+
+        self.indent(indent)?;
+        self.w.write_all(b"#")?;
+        self.w.write_all(text.as_bytes())?;
+        self.w.write_all(b"\n")?;
+
+        self.discard_comments_within(
             directive.origin.start.byte_offset,
             directive.origin.end.byte_offset,
         );
-        let text = lex::str_from_source(self.input, directive.origin);
-        let text = text.trim_start_matches(|c: char| c.is_ascii_whitespace());
-        if text.chars().next() == Some('#') {
-            let text = text[1..].trim_start_matches(|c: char| c.is_ascii_whitespace());
-            let text = text.trim_end_matches(|c: char| c.is_ascii_whitespace());
-
-            self.indent(indent)?;
-            self.w.write_all(b"#")?;
-            self.w.write_all(text.as_bytes())?;
-            self.w.write_all(b"\n")?;
-        } else {
-            assert!(matches!(directive.kind, ControlDirectiveKind::Ignored));
-        }
-
-        self.discard_comments_within(directive_start, directive_end);
         self.directive_idx += 1;
         Ok(())
     }
@@ -1097,6 +1091,16 @@ impl<'a, W: Write> Formatter<'a, W> {
     }
 }
 
+/// Returns the payload of a control directive, without the leading `#` and
+/// the surrounding whitespace, or `None` when the directive produces no
+/// output at all. A null directive (a bare `#`) has a zero-length origin,
+/// so there is nothing to write for it.
+fn directive_text(source: &str) -> Option<&str> {
+    let text = source.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let text = text.strip_prefix('#')?;
+    Some(text.trim_matches(|c: char| c.is_ascii_whitespace()))
+}
+
 pub fn format<W: Write>(
     w: &mut W,
     node_id: Option<NodeId>,
@@ -1111,7 +1115,10 @@ pub fn format<W: Write>(
         nodes,
         comments,
         comment_idx: 0,
-        directives,
+        directives: directives
+            .iter()
+            .filter(|d| directive_text(lex::str_from_source(input, d.origin)).is_some())
+            .collect(),
         directive_idx: 0,
         attributes,
         attribute_idx: 0,
@@ -2225,14 +2232,13 @@ BEGIN
 
     #[test]
     fn test_directive_multiple_bare_hashes_between_declarations() {
-        // Null directives are dropped from the output, but they still
-        // exist in the directive list — so the between-decls blank-line
-        // rule sees them as "annotations in the gap" and skips the
-        // separator. The two declarations end up stacked tightly. This is
-        // the same behaviour as `#ifdef`/`#else` arms; the gap heuristic
-        // does not introspect directive contents.
+        // Null directives produce no output, so they must not count as
+        // "annotations in the gap" for the between-declarations blank-line
+        // rule either. Previously they suppressed the blank line on the
+        // first pass and not on the second, which made the formatter
+        // non-idempotent.
         let input = "int x;\n#\n#\nint y;";
-        assert_eq!(fmt(input), "int x;\nint y;\n");
+        assert_eq!(assert_idempotent(input), "int x;\n\nint y;\n");
     }
 
     #[test]
@@ -2975,5 +2981,25 @@ typedef struct {
         let comment_line = out.lines().position(|l| l.contains("// last")).unwrap();
         let brace_line = out.lines().position(|l| l.starts_with("};")).unwrap();
         assert!(comment_line < brace_line, "output: {out:?}");
+    }
+    #[test]
+    fn test_directive_bare_hash_alone_is_idempotent() {
+        assert_eq!(assert_idempotent("#\n"), "");
+    }
+
+    #[test]
+    fn test_directive_bare_hash_does_not_suppress_a_blank_line() {
+        assert_eq!(
+            assert_idempotent("int x;\n\n#\n\nint y;\n"),
+            "int x;\n\nint y;\n"
+        );
+    }
+
+    #[test]
+    fn test_real_directive_still_suppresses_the_blank_line() {
+        // A directive that does produce output keeps its role as a
+        // separator between declarations.
+        let out = assert_idempotent("int x;\n#pragma D option quiet\nint y;\n");
+        assert!(out.contains("#pragma D option quiet"), "output: {out:?}");
     }
 }
