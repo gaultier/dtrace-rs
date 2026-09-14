@@ -149,11 +149,8 @@ pub fn write_excerpt<W: Write>(w: &mut W, input: &str, origin: Origin) -> std::i
     }
 
     let mut excerpt_end = end;
-    while excerpt_end < input.len() {
+    while excerpt_end < input.len() && input.as_bytes()[excerpt_end] != b'\n' {
         excerpt_end += 1;
-        if input.as_bytes()[excerpt_end] == b'\n' {
-            break;
-        }
     }
 
     let excerpt_before = &input[excerpt_start..start].trim_ascii_start();
@@ -167,4 +164,53 @@ pub fn write_excerpt<W: Write>(w: &mut W, input: &str, origin: Origin) -> std::i
     w.write_all(excerpt_after.as_bytes())?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::origin::Position;
+
+    const FILE_ID: u32 = 1;
+
+    fn origin_of(input: &str, start: usize, end: usize) -> Origin {
+        let position = |byte_offset: usize| Position {
+            line: 1,
+            column: byte_offset as u32 + 1,
+            byte_offset: byte_offset as u32,
+            kind: crate::origin::PositionKind::File(FILE_ID),
+        };
+        let _ = input;
+        Origin {
+            start: position(start),
+            end: position(end),
+        }
+    }
+
+    fn excerpt(input: &str, start: usize, end: usize) -> String {
+        let mut buf = Vec::new();
+        write_excerpt(&mut buf, input, origin_of(input, start, end)).unwrap();
+        String::from_utf8(buf).unwrap()
+    }
+
+    #[test]
+    fn test_write_excerpt_without_a_trailing_newline() {
+        // Regression: the loop incremented before indexing, so an origin
+        // ending at the last byte of a file with no trailing newline read
+        // `input[input.len()]`.
+        assert_eq!(excerpt("abc", 0, 3), "\x1B[4mabc\x1B[0m");
+        assert_eq!(excerpt("abc", 2, 3), "ab\x1B[4mc\x1B[0m");
+    }
+
+    #[test]
+    fn test_write_excerpt_of_an_empty_origin_at_the_end_of_the_input() {
+        assert_eq!(excerpt("abc", 3, 3), "abc\x1B[4m\x1B[0m");
+        assert_eq!(excerpt("", 0, 0), "\x1B[4m\x1B[0m");
+    }
+
+    #[test]
+    fn test_write_excerpt_is_limited_to_the_origin_line() {
+        let input = "one\ntwo\nthree\n";
+        assert_eq!(excerpt(input, 4, 7), "\x1B[4mtwo\x1B[0m");
+    }
 }
