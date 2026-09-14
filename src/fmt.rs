@@ -696,10 +696,10 @@ impl<'a, W: Write> Formatter<'a, W> {
             } => {
                 self.fmt(*node_id, indent)?;
 
-                let s = lex::str_from_source(self.input, dot_or_arrow.origin);
+                let s = lex::str_from_source(self.input, *dot_or_arrow);
                 self.w.write_all(s.as_bytes())?;
 
-                let s = lex::str_from_source(self.input, ident.origin);
+                let s = lex::str_from_source(self.input, *ident);
                 self.w.write_all(s.as_bytes())?;
             }
             NodeKind::TypeName {
@@ -719,7 +719,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                 self.w.write_all(b"offsetof(")?;
                 self.fmt(*node_id, indent)?;
                 self.w.write_all(b", ")?;
-                let s = lex::str_from_source(self.input, token.origin);
+                let s = lex::str_from_source(self.input, *token);
                 self.w.write_all(s.as_bytes())?;
                 self.w.write_all(b")")?;
             }

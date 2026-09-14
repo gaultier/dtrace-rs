@@ -6886,4 +6886,16 @@ mod tests {
         assert!(ctx.is_declared("size_t"));
         assert!(!ctx.is_declared("not_a_builtin"));
     }
+    #[test]
+    fn test_node_stays_narrow() {
+        // `nodes` holds one entry per AST node — half a million for a 1.8 MB
+        // file — so every variant pays for the widest one. `FieldAccess`
+        // used to embed two whole `Token`s and push `NodeKind` to 120 bytes.
+        // Raise this deliberately, not by accident.
+        assert!(
+            std::mem::size_of::<crate::ast::NodeKind>() <= 88,
+            "NodeKind grew to {} bytes",
+            std::mem::size_of::<crate::ast::NodeKind>()
+        );
+    }
 }

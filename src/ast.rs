@@ -98,8 +98,12 @@ pub enum NodeKind {
     },
     FieldAccess {
         expr: NodeId,
-        op: Token,
-        field: Token,
+        /// The `.` or `->`, and the field name, as spans rather than whole
+        /// `Token`s: only their source text is ever needed, and a `Token` is
+        /// 56 bytes against an `Origin`'s 40. This was the widest variant,
+        /// and every variant pays for the widest one.
+        op: Origin,
+        field: Origin,
     },
     TypeName {
         specifiers: NodeId,
@@ -107,7 +111,7 @@ pub enum NodeKind {
     },
     OffsetOf {
         typ: NodeId,
-        field: Token,
+        field: Origin,
     },
     Declaration {
         specifiers: NodeId,
@@ -1136,7 +1140,7 @@ impl<'a> Parser<'a> {
                 self.new_node(Node {
                     kind: NodeKind::OffsetOf {
                         typ: type_name,
-                        field,
+                        field: field.origin,
                     },
                     origin: op.origin.merge(end_origin),
                 })
@@ -1254,8 +1258,8 @@ impl<'a> Parser<'a> {
                         lhs = self.new_node(Node {
                             kind: NodeKind::FieldAccess {
                                 expr: lhs,
-                                op,
-                                field: keyword_as_ident,
+                                op: op.origin,
+                                field: keyword_as_ident.origin,
                             },
                             origin: lhs_origin.merge(keyword_as_ident.origin),
                         });
@@ -1275,8 +1279,8 @@ impl<'a> Parser<'a> {
                         lhs = self.new_node(Node {
                             kind: NodeKind::FieldAccess {
                                 expr: lhs,
-                                op,
-                                field: Token::default(),
+                                op: op.origin,
+                                field: Origin::default(),
                             },
                             origin: lhs_origin.merge(op.origin),
                         });
@@ -4486,7 +4490,7 @@ mod tests {
                 parser.nodes[root_id].kind
             );
         };
-        assert_eq!(dot.kind, TokenKind::Dot);
+        assert_eq!(lex::str_from_source(input, dot), ".");
         assert_eq!(
             origin_str(input, &parser, root_id),
             "curthread->last_processor->runq.count"
@@ -4501,7 +4505,7 @@ mod tests {
         else {
             panic!("expected FieldAccess for ->runq");
         };
-        assert_eq!(arrow.kind, TokenKind::Arrow);
+        assert_eq!(lex::str_from_source(input, arrow), "->");
         assert_eq!(
             origin_str(input, &parser, arrow_runq),
             "curthread->last_processor->runq"
