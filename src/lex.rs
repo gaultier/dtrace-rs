@@ -1255,19 +1255,30 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        // Optional suffix: `u`/`U`, then up to two `l`/`L`.
+        // Optional suffix: one `u`/`U` and up to two `l`/`L`, in either
+        // order, as C and `dt_lex.l` both allow — `1ul`, `1lu`, `1ull`,
+        // and `1llu` are all valid.
         let mut suffix = NumberSuffix::NONE;
-        if let Some('u' | 'U') = self.peek1() {
-            self.advance(1);
-            suffix |= NumberSuffix::UNSIGNED;
-        }
-        if let Some('l' | 'L') = self.peek1() {
-            self.advance(1);
-            if let Some('l' | 'L') = self.peek1() {
-                self.advance(1);
-                suffix |= NumberSuffix::LONG_LONG;
-            } else {
-                suffix |= NumberSuffix::LONG;
+        let mut seen_unsigned = false;
+        let mut seen_long = false;
+        loop {
+            match self.peek1() {
+                Some('u' | 'U') if !seen_unsigned => {
+                    seen_unsigned = true;
+                    self.advance(1);
+                    suffix |= NumberSuffix::UNSIGNED;
+                }
+                Some('l' | 'L') if !seen_long => {
+                    seen_long = true;
+                    self.advance(1);
+                    if let Some('l' | 'L') = self.peek1() {
+                        self.advance(1);
+                        suffix |= NumberSuffix::LONG_LONG;
+                    } else {
+                        suffix |= NumberSuffix::LONG;
+                    }
+                }
+                _ => break,
             }
         }
 
@@ -6710,5 +6721,49 @@ mod tests {
                 lexer.errors
             );
         }
+    }
+    #[test]
+    fn test_literal_number_suffix_in_either_order() {
+        // Regression: the scanner accepted `[uU]?` followed by `[lL]{1,2}`
+        // only, so `1LU` lexed as `1L` followed by the identifier `U` and
+        // the enclosing clause failed to parse.
+        let long_unsigned = NumberSuffix::LONG | NumberSuffix::UNSIGNED;
+        let long_long_unsigned = NumberSuffix::LONG_LONG | NumberSuffix::UNSIGNED;
+        for (input, expected) in [
+            ("1u", NumberSuffix::UNSIGNED),
+            ("1l", NumberSuffix::LONG),
+            ("1ll", NumberSuffix::LONG_LONG),
+            ("1ul", long_unsigned),
+            ("1lu", long_unsigned),
+            ("1LU", long_unsigned),
+            ("1UL", long_unsigned),
+            ("1ull", long_long_unsigned),
+            ("1llu", long_long_unsigned),
+            ("1LLU", long_long_unsigned),
+        ] {
+            let mut lexer = Lexer::new(FILE_ID, input);
+            lexer.begin(LexerState::InsideClauseAndExpr);
+            let token = lexer.lex();
+            assert_eq!(
+                token.kind,
+                TokenKind::LiteralNumber(1, expected),
+                "for {input:?}"
+            );
+            assert_eq!(str_from_source(input, token.origin), input, "for {input:?}");
+            assert_eq!(lexer.lex().kind, TokenKind::Eof, "for {input:?}");
+        }
+    }
+
+    #[test]
+    fn test_literal_number_suffix_is_not_repeated() {
+        // `1uu` is `1u` followed by the identifier `u`.
+        let input = "1uu";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        lexer.begin(LexerState::InsideClauseAndExpr);
+        assert_eq!(
+            lexer.lex().kind,
+            TokenKind::LiteralNumber(1, NumberSuffix::UNSIGNED)
+        );
+        assert_eq!(lexer.lex().kind, TokenKind::Identifier);
     }
 }
