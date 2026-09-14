@@ -285,6 +285,37 @@ impl<'a, W: Write> Formatter<'a, W> {
         }
     }
 
+    /// Formats the items of a braced body (`struct`, `union`, `enum`,
+    /// `provider`, translator), one per line.
+    ///
+    /// Like the `Block` arm, each item flushes the annotations that precede
+    /// it and keeps a comment on its own source line attached to it.
+    /// Without that, comments inside the body survived to the next
+    /// top-level flush and were re-attached to the following declaration.
+    fn fmt_body_items(
+        &mut self,
+        node_ids: &[NodeId],
+        indent: usize,
+        comma_separated: bool,
+    ) -> std::io::Result<()> {
+        for (i, id) in node_ids.iter().enumerate() {
+            let item_origin = self.nodes[*id].origin;
+            self.emit_pending_annotations(item_origin.start.byte_offset, indent)?;
+            self.indent(indent)?;
+            self.fmt(*id, indent)?;
+            if comma_separated && i != node_ids.len() - 1 {
+                self.w.write_all(b",")?;
+            }
+            let next_start = node_ids
+                .get(i + 1)
+                .map(|n| self.nodes[*n].origin.start.byte_offset)
+                .unwrap_or(u32::MAX);
+            self.drain_trailing_line_comments(item_origin.end.byte_offset, next_start)?;
+            self.w.write_all(b"\n")?;
+        }
+        Ok(())
+    }
+
     /// Formats an `if`/`else` branch, always emitting surrounding braces. If `node_id`
     /// is already a `Block`, its children are inlined directly to avoid double braces.
     fn fmt_branch(&mut self, node_id: NodeId, indent: usize) -> std::io::Result<()> {
@@ -759,6 +790,8 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.w.write_all(b" {\n")?;
                     // `EnumeratorsDeclaration` adds indentation and newlines for each item.
                     self.fmt(enumerators_id, indent + 2)?;
+                    // Annotations between the last item and the closing brace.
+                    self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
                     self.indent(indent)?;
                     self.w.write_all(b"}")?;
                 }
@@ -774,15 +807,8 @@ impl<'a, W: Write> Formatter<'a, W> {
                 }
             }
             NodeKind::EnumeratorsDeclaration(node_ids) => {
-                for (i, id) in node_ids.iter().enumerate() {
-                    self.indent(indent)?;
-                    self.fmt(*id, indent)?;
-                    // Trailing comma only between items, not after the last one.
-                    if i != node_ids.len() - 1 {
-                        self.w.write_all(b",")?;
-                    }
-                    self.w.write_all(b"\n")?;
-                }
+                // Trailing comma only between items, not after the last one.
+                self.fmt_body_items(&node_ids, indent, true)?;
             }
             NodeKind::UnionDeclaration {
                 name: name_tok,
@@ -796,6 +822,8 @@ impl<'a, W: Write> Formatter<'a, W> {
                 if let Some(fields_id) = decl_list {
                     self.w.write_all(b" {\n")?;
                     self.fmt(fields_id, indent + 2)?;
+                    // Annotations between the last field and the closing brace.
+                    self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
                     self.indent(indent)?;
                     self.w.write_all(b"}")?;
                 }
@@ -812,16 +840,14 @@ impl<'a, W: Write> Formatter<'a, W> {
                 if let Some(fields_id) = decl_list {
                     self.w.write_all(b" {\n")?;
                     self.fmt(fields_id, indent + 2)?;
+                    // Annotations between the last field and the closing brace.
+                    self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
                     self.indent(indent)?;
                     self.w.write_all(b"}")?;
                 }
             }
             NodeKind::StructFieldsDeclaration(node_ids) => {
-                for id in &node_ids {
-                    self.indent(indent)?;
-                    self.fmt(*id, indent)?;
-                    self.w.write_all(b"\n")?;
-                }
+                self.fmt_body_items(&node_ids, indent, false)?;
             }
             NodeKind::StructFieldDeclarator {
                 declarator,
@@ -1027,15 +1053,13 @@ impl<'a, W: Write> Formatter<'a, W> {
                 if let Some(members_id) = members {
                     self.fmt(members_id, indent + 2)?;
                 }
+                // Annotations between the last member and the closing brace.
+                self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
                 self.indent(indent)?;
                 self.w.write_all(b"};\n")?;
             }
             NodeKind::TranslatorMembers(ids) => {
-                for id in &ids {
-                    self.indent(indent)?;
-                    self.fmt(*id, indent)?;
-                    self.w.write_all(b"\n")?;
-                }
+                self.fmt_body_items(&ids, indent, false)?;
             }
             NodeKind::TranslatorMember { ident, expr } => {
                 write!(self.w, "{} = ", ident)?;
@@ -1047,15 +1071,13 @@ impl<'a, W: Write> Formatter<'a, W> {
                 if let Some(probes_id) = probes {
                     self.fmt(probes_id, indent + 2)?;
                 }
+                // Annotations between the last probe and the closing brace.
+                self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
                 self.indent(indent)?;
                 self.w.write_all(b"};\n")?;
             }
             NodeKind::ProviderProbes(ids) => {
-                for id in &ids {
-                    self.indent(indent)?;
-                    self.fmt(*id, indent)?;
-                    self.w.write_all(b"\n")?;
-                }
+                self.fmt_body_items(&ids, indent, false)?;
             }
             NodeKind::ProviderProbe {
                 name,
@@ -2915,5 +2937,43 @@ typedef struct {
     fn test_comment_after_a_directive_is_still_emitted() {
         let out = assert_idempotent("#pragma D option quiet\n/*after*/\n");
         assert_eq!(out.matches("/*after*/").count(), 1, "output: {out:?}");
+    }
+    #[test]
+    fn test_comment_in_a_struct_body_stays_in_the_struct() {
+        // Regression: the body arms never flushed pending annotations, so a
+        // comment inside the braces survived to the next top-level flush and
+        // ended up documenting the following declaration.
+        let out = assert_idempotent("struct S {\n  int a; // a\n};\nint z;\n");
+        let comment_line = out.lines().position(|l| l.contains("// a")).unwrap();
+        let z_line = out.lines().position(|l| l.contains("int z;")).unwrap();
+        assert!(comment_line < z_line, "output: {out:?}");
+        assert!(
+            out.lines().nth(comment_line).unwrap().contains("int a;"),
+            "the comment must stay on the field's line, output: {out:?}"
+        );
+    }
+
+    #[test]
+    fn test_comment_in_an_enum_body_stays_in_the_enum() {
+        let out = assert_idempotent("enum E {\n  A, // a\n  B\n};\nint z;\n");
+        let comment_line = out.lines().position(|l| l.contains("// a")).unwrap();
+        let z_line = out.lines().position(|l| l.contains("int z;")).unwrap();
+        assert!(comment_line < z_line, "output: {out:?}");
+    }
+
+    #[test]
+    fn test_comment_in_a_provider_body_stays_in_the_provider() {
+        let out = assert_idempotent("provider p {\n  probe start(); // s\n};\nint z;\n");
+        let comment_line = out.lines().position(|l| l.contains("// s")).unwrap();
+        let z_line = out.lines().position(|l| l.contains("int z;")).unwrap();
+        assert!(comment_line < z_line, "output: {out:?}");
+    }
+
+    #[test]
+    fn test_comment_before_the_closing_brace_of_a_struct() {
+        let out = assert_idempotent("struct S {\n  int a;\n  // last\n};\nint z;\n");
+        let comment_line = out.lines().position(|l| l.contains("// last")).unwrap();
+        let brace_line = out.lines().position(|l| l.starts_with("};")).unwrap();
+        assert!(comment_line < brace_line, "output: {out:?}");
     }
 }
