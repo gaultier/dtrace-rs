@@ -243,8 +243,6 @@ pub struct Lexer<'a> {
     pub(crate) input: &'a str,
     pub control_directives: Vec<ControlDirective>,
     pub comments: Vec<Comment>,
-    pub(crate) chars: Rc<[char]>,
-    pub(crate) chars_idx: usize,
     pub(crate) attributes: Vec<Attribute>,
     pub(crate) ctx: Rc<RefCell<LexerContext>>,
 }
@@ -608,8 +606,6 @@ impl<'a> Lexer<'a> {
             control_directives: Vec::new(),
             comments: Vec::new(),
             input,
-            chars: input.chars().collect::<Vec<_>>().into(),
-            chars_idx: 0,
             attributes: Vec::new(),
             ctx,
         }
@@ -1327,7 +1323,6 @@ impl<'a> Lexer<'a> {
                     self.position.byte_offset += 1;
                     self.position.column = 1;
                     self.position.line += 1;
-                    self.chars_idx += 1;
 
                     position = self.position;
                 }
@@ -1335,7 +1330,6 @@ impl<'a> Lexer<'a> {
                     let len = c.len_utf8() as u32;
                     self.position.byte_offset += len;
                     self.position.column += len;
-                    self.chars_idx += 1;
                     position = self.position;
                 }
             }
@@ -1343,23 +1337,79 @@ impl<'a> Lexer<'a> {
         (last, position)
     }
 
+    /// The not-yet-lexed remainder of the input.
+    ///
+    /// `position.byte_offset` is the cursor. The lexer used to carry a
+    /// parallel `Rc<[char]>` of the whole input plus a char index into it,
+    /// which cost four bytes per input byte and was by a wide margin the
+    /// largest allocation a compile made — for lookahead that a `&str`
+    /// suffix serves just as well.
+    fn rest(&self) -> &'a str {
+        &self.input[self.position.byte_offset as usize..]
+    }
+
+    /// The byte at `offset` past the cursor when it is ASCII, which is the
+    /// overwhelmingly common case in D source. Taking it as a byte skips
+    /// both the char-boundary check that slicing `input` performs and the
+    /// UTF-8 decode that `chars()` performs. Indexing with `get` rather
+    /// than slicing matters: a slice carries a panic path that stopped the
+    /// callers below from inlining.
+    #[inline]
+    fn ascii_at(&self, offset: usize) -> Option<u8> {
+        self.input
+            .as_bytes()
+            .get(self.position.byte_offset as usize + offset)
+            .copied()
+            .filter(|b| b.is_ascii())
+    }
+
+    // The peeks are the hottest code in the lexer, so each keeps its ASCII
+    // fast path small enough to inline and hands the decode off to an
+    // out-of-line `_slow` twin. Left as one function, the decode made the
+    // whole peek too large for LLVM to inline and cost a third of lexing.
+
+    #[inline]
     fn peek1(&self) -> Option<char> {
-        self.chars.get(self.chars_idx).copied()
+        match self.ascii_at(0) {
+            Some(b) => Some(b as char),
+            None => self.peek1_slow(),
+        }
     }
 
+    #[cold]
+    #[inline(never)]
+    fn peek1_slow(&self) -> Option<char> {
+        self.rest().chars().next()
+    }
+
+    #[inline]
     fn peek2(&self) -> (Option<char>, Option<char>) {
-        (
-            self.chars.get(self.chars_idx).copied(),
-            self.chars.get(self.chars_idx + 1).copied(),
-        )
+        match (self.ascii_at(0), self.ascii_at(1)) {
+            (Some(a), Some(b)) => (Some(a as char), Some(b as char)),
+            _ => self.peek2_slow(),
+        }
     }
 
+    #[cold]
+    #[inline(never)]
+    fn peek2_slow(&self) -> (Option<char>, Option<char>) {
+        let mut it = self.rest().chars();
+        (it.next(), it.next())
+    }
+
+    #[inline]
     fn peek3(&self) -> (Option<char>, Option<char>, Option<char>) {
-        (
-            self.chars.get(self.chars_idx).copied(),
-            self.chars.get(self.chars_idx + 1).copied(),
-            self.chars.get(self.chars_idx + 2).copied(),
-        )
+        match (self.ascii_at(0), self.ascii_at(1), self.ascii_at(2)) {
+            (Some(a), Some(b), Some(c)) => (Some(a as char), Some(b as char), Some(c as char)),
+            _ => self.peek3_slow(),
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn peek3_slow(&self) -> (Option<char>, Option<char>, Option<char>) {
+        let mut it = self.rest().chars();
+        (it.next(), it.next(), it.next())
     }
 
     /// Disambiguates a probe description that starts with punctuation, such
@@ -1372,26 +1422,27 @@ impl<'a> Lexer<'a> {
     /// follows the specifier: only a probe description is followed by an
     /// action block (`{`) or a predicate (`/`).
     fn starts_probe_specifier(&self) -> bool {
-        let mut i = self.chars_idx;
-        while self
-            .chars
-            .get(i)
+        let mut it = self.rest().chars().peekable();
+        let mut consumed = 0usize;
+        while it
+            .peek()
             .is_some_and(|c| is_character_probe_specifier_rest(*c))
         {
-            i += 1;
+            let _ = it.next();
+            consumed += 1;
         }
 
         // A specifier must consume at least the leading character, otherwise
         // this is an operator that merely shares its first character.
-        if i == self.chars_idx {
+        if consumed == 0 {
             return false;
         }
 
-        while self.chars.get(i).is_some_and(|c| c.is_ascii_whitespace()) {
-            i += 1;
+        while it.peek().is_some_and(|c| c.is_ascii_whitespace()) {
+            let _ = it.next();
         }
 
-        matches!(self.chars.get(i), Some('{') | Some('/'))
+        matches!(it.peek(), Some('{') | Some('/'))
     }
 
     pub fn lex(&mut self) -> Token {
@@ -2891,7 +2942,7 @@ impl<'a> Lexer<'a> {
         assert!(self.input[self.position.byte_offset as usize..].starts_with("__attribute__"));
 
         // For rollbacking.
-        let (bck_position, bck_chars_idx) = (self.position, self.chars_idx);
+        let bck_position = self.position;
 
         self.advance("__attribute__".len());
         self.skip_whitespace();
@@ -2900,7 +2951,6 @@ impl<'a> Lexer<'a> {
         } else {
             // Rollback.
             self.position = bck_position;
-            self.chars_idx = bck_chars_idx;
             return None;
         }
 
@@ -2916,7 +2966,6 @@ impl<'a> Lexer<'a> {
                 (Some('\n'), _, _) | (None, _, _) => {
                     // Rollback.
                     self.position = bck_position;
-                    self.chars_idx = bck_chars_idx;
                     return None;
                 }
                 (Some(_), _, _) => {
@@ -2930,7 +2979,7 @@ impl<'a> Lexer<'a> {
         assert!(self.input[self.position.byte_offset as usize..].starts_with("__attribute__"));
 
         // For rollbacking.
-        let (bck_position, bck_chars_idx) = (self.position, self.chars_idx);
+        let bck_position = self.position;
 
         self.advance("__attribute__".len());
         self.skip_whitespace();
@@ -2939,7 +2988,6 @@ impl<'a> Lexer<'a> {
         } else {
             // Rollback.
             self.position = bck_position;
-            self.chars_idx = bck_chars_idx;
             return None;
         }
 
@@ -2955,7 +3003,6 @@ impl<'a> Lexer<'a> {
                 (Some('\n'), _) | (None, _) => {
                     // Rollback.
                     self.position = bck_position;
-                    self.chars_idx = bck_chars_idx;
                     return None;
                 }
                 (Some(_), _) => {
@@ -3011,12 +3058,10 @@ impl<'a> Lexer<'a> {
          * wrong: a type_name followed by ++, --, [, or = is a syntax error.
          */
 
-        let mut it = self.chars[self.chars_idx..]
-            .iter()
-            .filter(|c| !c.is_ascii_whitespace());
+        let mut it = self.rest().chars().filter(|c| !c.is_ascii_whitespace());
         let res = match (it.next(), it.next()) {
             (Some('+'), Some('+')) | (Some('-'), Some('-')) => TokenKind::Identifier,
-            (Some('='), c1) if c1 != Some(&'=') => TokenKind::Identifier,
+            (Some('='), c1) if c1 != Some('=') => TokenKind::Identifier,
             (Some('['), _) => TokenKind::Identifier,
             _ => TokenKind::TypeName,
         };

@@ -281,7 +281,7 @@ const MAX_RECURSION_DEPTH: u32 = 64;
 /// depends on.
 #[derive(Clone, Copy)]
 struct PeekCache {
-    chars_idx: usize,
+    byte_offset: u32,
     state: lex::LexerState,
     /// `id_or_type` resolves an identifier against these two tables, so a
     /// token lexed before either grew may not lex the same way after.
@@ -429,7 +429,7 @@ impl<'a> Parser<'a> {
             (ctx.decls.len(), ctx.identifiers.len())
         };
         if let Some(cached) = self.peek_cache.get()
-            && cached.chars_idx == self.lexer.chars_idx
+            && cached.byte_offset == self.lexer.position.byte_offset
             && cached.state == self.lexer.state
             && cached.decls_len == decls_len
             && cached.identifiers_len == identifiers_len
@@ -442,7 +442,7 @@ impl<'a> Parser<'a> {
         // taken from the state *after* the lex, not before.
         let identifiers_len = self.lexer.ctx.borrow().identifiers.len();
         self.peek_cache.set(Some(PeekCache {
-            chars_idx: self.lexer.chars_idx,
+            byte_offset: self.lexer.position.byte_offset,
             state: self.lexer.state,
             decls_len,
             identifiers_len,
@@ -460,12 +460,10 @@ impl<'a> Parser<'a> {
             comments: Vec::new(),
             errors: Vec::new(),
             attributes: Vec::new(),
-            chars: self.lexer.chars.clone(),
-            chars_idx: self.lexer.chars_idx,
             // Share the lookup tables (decls / globals / identifiers) via
             // the same `Rc<RefCell<_>>`. Cloning is now an `Rc::clone` —
             // not a deep copy of the maps. The peek's own copies of
-            // `state`/`position`/`chars_idx` mean any state mutations
+            // `state` and `position` mean any state mutations
             // during the speculative `lex` stay local; the only shared
             // mutation `id_or_type` may perform is a benign memoising
             // insertion into `identifiers` that the real lex would do
@@ -484,8 +482,6 @@ impl<'a> Parser<'a> {
             comments: Vec::new(),
             errors: Vec::new(),
             attributes: Vec::new(),
-            chars: self.lexer.chars.clone(),
-            chars_idx: self.lexer.chars_idx,
             ctx: self.lexer.ctx.clone(),
         };
         let _ = cpy.lex();
@@ -507,9 +503,9 @@ impl<'a> Parser<'a> {
                     // lexer positioned inside a token, for instance in the
                     // middle of a string literal, which manufactured further
                     // errors out of text that was never wrong.
-                    let before = self.lexer.chars_idx;
+                    let before = self.lexer.position.byte_offset;
                     let _ = self.lexer.lex();
-                    if self.lexer.chars_idx == before {
+                    if self.lexer.position.byte_offset == before {
                         // A token that consumed nothing would loop forever.
                         self.lexer.advance(1);
                     }
@@ -2012,8 +2008,12 @@ impl<'a> Parser<'a> {
         //}
     }
 
-    fn remaining_chars_count(&self) -> usize {
-        self.lexer.chars.len() - self.lexer.chars_idx
+    /// An upper bound on how many more tokens the lexer can produce, used
+    /// to bound the error-recovery loops below. A byte count rather than a
+    /// char count: it is only ever an upper bound, and counting bytes does
+    /// not require the whole input to be decoded up front.
+    fn remaining_bytes_count(&self) -> usize {
+        self.lexer.input.len() - self.lexer.position.byte_offset as usize
     }
 
     fn expect(&mut self, token_kind: TokenKind, context: &str) -> Option<Token> {
@@ -2087,7 +2087,7 @@ impl<'a> Parser<'a> {
             return None;
         }
         let mut stmts = Vec::new();
-        for _ in 0..self.remaining_chars_count() {
+        for _ in 0..self.remaining_bytes_count() {
             // A statement parsed earlier in this loop may have failed and
             // latched `error_mode`, in which case every sub-parser below now
             // returns `None`. The check at the top of the function only
@@ -2400,7 +2400,7 @@ impl<'a> Parser<'a> {
         // Heuristic.
         let mut decls = vec![decl];
 
-        for _i in 0..self.remaining_chars_count() {
+        for _i in 0..self.remaining_bytes_count() {
             if self.is_at_end() {
                 break;
             }
@@ -2410,11 +2410,11 @@ impl<'a> Parser<'a> {
             // paying a full `peek1` at a fixed position. A 276 KB file with
             // one error on its first line cost more than parsing it
             // cleanly, all of it wasted.
-            let before = self.lexer.chars_idx;
+            let before = self.lexer.position.byte_offset;
             if let Some(decl) = self.parse_external_declaration() {
                 decls.push(decl);
             }
-            if self.lexer.chars_idx == before {
+            if self.lexer.position.byte_offset == before {
                 break;
             }
         }
