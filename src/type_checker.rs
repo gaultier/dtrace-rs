@@ -149,11 +149,23 @@ pub fn check_node(
         NodeKind::Identifier(_identifier) => {
             todo!()
         }
+        // Arithmetic and bitwise operators: the result takes the merged type
+        // of the operands.
         NodeKind::BinaryOp {
             lhs,
             op:
                 Token {
-                    kind: TokenKind::Plus | TokenKind::Star | TokenKind::Slash,
+                    kind:
+                        TokenKind::Plus
+                        | TokenKind::Minus
+                        | TokenKind::Star
+                        | TokenKind::Slash
+                        | TokenKind::Percent
+                        | TokenKind::Ampersand
+                        | TokenKind::Pipe
+                        | TokenKind::Caret
+                        | TokenKind::LtLt
+                        | TokenKind::GtGt,
                     ..
                 },
             rhs,
@@ -175,12 +187,21 @@ pub fn check_node(
                 }
             }
         }
+        // Comparisons: the operands must be compatible, and the result is an
+        // `int` regardless of their type.
         NodeKind::BinaryOp {
             lhs,
-            op: Token {
-                kind: TokenKind::EqEq,
-                ..
-            },
+            op:
+                Token {
+                    kind:
+                        TokenKind::EqEq
+                        | TokenKind::BangEq
+                        | TokenKind::Lt
+                        | TokenKind::LtEq
+                        | TokenKind::Gt
+                        | TokenKind::GtEq,
+                    ..
+                },
             rhs,
         } => {
             check_node(*lhs, nodes, errs, node_to_type);
@@ -194,8 +215,29 @@ pub fn check_node(
             }
             node_to_type.insert(node_id, Type::new_int());
         }
-        NodeKind::BinaryOp { .. } => {
-            unreachable!()
+        // Logical operators: the operands are independently tested for
+        // truthiness, so their types need not be compatible with each other,
+        // and the result is an `int`.
+        NodeKind::BinaryOp {
+            lhs,
+            op:
+                Token {
+                    kind: TokenKind::AmpersandAmpersand | TokenKind::PipePipe,
+                    ..
+                },
+            rhs,
+        } => {
+            check_node(*lhs, nodes, errs, node_to_type);
+            check_node(*rhs, nodes, errs, node_to_type);
+            node_to_type.insert(node_id, Type::new_int());
+        }
+        NodeKind::BinaryOp { lhs, rhs, .. } => {
+            // Any operator not listed above, including one added to the
+            // lexer later. Check the operands and fall back to `int` rather
+            // than panicking on a program the parser accepted.
+            check_node(*lhs, nodes, errs, node_to_type);
+            check_node(*rhs, nodes, errs, node_to_type);
+            node_to_type.insert(node_id, Type::new_int());
         }
         NodeKind::If {
             cond,
@@ -311,12 +353,20 @@ pub fn check_node(
     }
 }
 
-pub fn check_nodes(nodes: &[Node], node_to_type: &mut HashMap<NodeId, Type>) -> Vec<Error> {
+/// Type-checks the tree rooted at `root`.
+///
+/// `root` must be the id returned by `Parser::parse`: nodes are created
+/// bottom-up, so `NodeId(0)` is the first leaf, not the root.
+pub fn check_nodes(
+    root: NodeId,
+    nodes: &[Node],
+    node_to_type: &mut HashMap<NodeId, Type>,
+) -> Vec<Error> {
     assert!(!nodes.is_empty());
 
     let mut errs = Vec::new();
 
-    check_node(NodeId(0), nodes, &mut errs, node_to_type);
+    check_node(root, nodes, &mut errs, node_to_type);
 
     errs
 }
@@ -341,5 +391,90 @@ impl Display for Size {
             Size::_64 => "QWORD PTR",
         };
         f.write_str(s)
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lex::{NumberSuffix, Token, TokenKind};
+
+    // Builds `1 <op> 2` directly: the rest of `check_node` is still `todo!()`
+    // for most node kinds, so a whole program cannot be checked yet.
+    fn check_binary_op(op: TokenKind) -> (Vec<Error>, HashMap<NodeId, Type>) {
+        let number = |value| Node {
+            kind: NodeKind::Number {
+                value,
+                suffix: NumberSuffix::NONE,
+            },
+            origin: Origin::new_builtin(),
+        };
+        let nodes = vec![
+            number(1),
+            number(2),
+            Node {
+                kind: NodeKind::BinaryOp {
+                    lhs: NodeId(0),
+                    op: Token {
+                        kind: op,
+                        origin: Origin::new_builtin(),
+                    },
+                    rhs: NodeId(1),
+                },
+                origin: Origin::new_builtin(),
+            },
+        ];
+        let root = NodeId(nodes.len() - 1);
+
+        let mut node_to_type = HashMap::new();
+        // Literal types are filled in before checking.
+        let _ = node_to_type.insert(NodeId(0), Type::new_int());
+        let _ = node_to_type.insert(NodeId(1), Type::new_int());
+
+        let errs = check_nodes(root, &nodes, &mut node_to_type);
+        (errs, node_to_type)
+    }
+
+    #[test]
+    fn test_every_binary_operator_is_handled() {
+        // Regression: the catch-all `BinaryOp` arm was `unreachable!()`, so
+        // every operator other than `+`, `*`, `/`, and `==` panicked.
+        for op in [
+            TokenKind::Plus,
+            TokenKind::Minus,
+            TokenKind::Star,
+            TokenKind::Slash,
+            TokenKind::Percent,
+            TokenKind::Ampersand,
+            TokenKind::Pipe,
+            TokenKind::Caret,
+            TokenKind::LtLt,
+            TokenKind::GtGt,
+            TokenKind::EqEq,
+            TokenKind::BangEq,
+            TokenKind::Lt,
+            TokenKind::LtEq,
+            TokenKind::Gt,
+            TokenKind::GtEq,
+            TokenKind::AmpersandAmpersand,
+            TokenKind::PipePipe,
+        ] {
+            let (errs, node_to_type) = check_binary_op(op);
+            assert!(errs.is_empty(), "errors for {op:?}: {errs:?}");
+            assert!(
+                node_to_type.contains_key(&NodeId(2)),
+                "no type recorded for {op:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_check_nodes_starts_at_the_given_root() {
+        // `NodeId(0)` is the first leaf created, not the root, so the old
+        // signature only ever checked a single literal.
+        let (_, node_to_type) = check_binary_op(TokenKind::Plus);
+        assert!(
+            node_to_type.contains_key(&NodeId(2)),
+            "the root must be visited"
+        );
     }
 }
