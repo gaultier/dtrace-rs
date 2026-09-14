@@ -808,10 +808,15 @@ impl<'a> Parser<'a> {
             } => {
                 let op = self.lexer.lex();
 
-                let node = match self.parse_cast_expr() {
-                    None => self.new_node_unknown(),
-                    Some(n) => n,
-                };
+                let node = self.parse_cast_expr().unwrap_or_else(|| {
+                    self.error(
+                        ErrorKind::MissingExpr,
+                        op.origin,
+                        format!("expected unary expression after {:?}", op.kind,),
+                        &[TokenKind::SemiColon, TokenKind::RightCurly],
+                    );
+                    self.new_node_unknown()
+                });
                 let node_origin = self.origin(node);
                 Some(self.new_node(Node {
                     kind: NodeKind::Unary { op, expr: node },
@@ -2298,6 +2303,27 @@ impl<'a> Parser<'a> {
         self.parse_translation_unit()
     }
 
+    /// A `d_expression` or `d_type` root must cover the whole input.
+    /// Without this check the remaining tokens are silently discarded, so a
+    /// malformed program is happily reduced to its first expression and a
+    /// consumer such as the formatter then rewrites the file down to it.
+    fn expect_eof_after_root(&mut self) {
+        let token = self.peek1();
+        if matches!(token.kind, TokenKind::Eof) {
+            return;
+        }
+
+        self.error(
+            ErrorKind::ParseProgram,
+            token.origin,
+            format!(
+                "expected the end of the input after the program, got {:?}",
+                token.kind
+            ),
+            &[],
+        );
+    }
+
     // program                 → d_expression | d_program | d_type ;
     fn parse_program(&mut self) -> Option<NodeId> {
         assert!(!self.error_mode);
@@ -2323,11 +2349,13 @@ impl<'a> Parser<'a> {
             }
 
             if let Some(typ) = self.parse_type_name() {
+                self.expect_eof_after_root();
                 return Some(typ);
             }
 
             // `d_expression` is the same `expression`.
             if let Some(expr) = self.parse_expr() {
+                self.expect_eof_after_root();
                 return Some(expr);
             }
 
@@ -5293,5 +5321,57 @@ mod tests {
             panic!("expected Identifier");
         };
         assert_eq!(name, "AccessKind");
+    }
+    // Parses the given input as a full D program, tolerating parse failures,
+    // and returns the recorded errors.
+    fn parse_program_errors(input: &str) -> Vec<Error> {
+        let lexer = Lexer::new(FILE_ID, input);
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse();
+        parser.lexer.errors
+    }
+
+    #[test]
+    fn test_unary_operator_without_operand_is_an_error() {
+        let errors = parse_program_errors("*");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingExpr);
+    }
+
+    #[test]
+    fn test_unary_operator_without_operand_is_an_error_for_every_operator() {
+        for input in ["&", "*", "+", "-", "~", "!"] {
+            let errors = parse_program_errors(input);
+            assert!(
+                errors.iter().any(|e| e.kind == ErrorKind::MissingExpr),
+                "no `MissingExpr` error for {input:?}, got {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_program_rejects_trailing_input_after_an_expression_root() {
+        // Regression: the whole probe clause used to be discarded silently,
+        // leaving `*` as the entire program, which made `fmt -i` truncate the
+        // file to one byte.
+        let errors = parse_program_errors("*:::entry\n{\n  trace(probefunc);\n}\n");
+        assert!(!errors.is_empty());
+    }
+
+    #[test]
+    fn test_program_rejects_trailing_input_after_a_complete_expression() {
+        for input in ["-1 zz", "(1) 2"] {
+            let errors = parse_program_errors(input);
+            assert!(
+                errors.iter().any(|e| e.kind == ErrorKind::ParseProgram),
+                "expected a `ParseProgram` error for {input:?}, got {errors:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_program_accepts_an_expression_root_spanning_the_whole_input() {
+        let errors = parse_program_errors("-1");
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
     }
 }
