@@ -87,9 +87,14 @@ impl<'a> Resolver<'a> {
                     if let Some(existing) = existing {
                         self.errors.push(Error {
                             kind: ErrorKind::Redeclaration,
-                            origin: node.origin,
+                            // Point at `enum Name` rather than the whole
+                            // declaration, whose body can span many lines.
+                            origin: Self::tag_origin(node, name.origin),
                             explanation: format!("{} is already defined", s),
-                            related_origin: Some(self.nodes[existing].origin),
+                            related_origin: Some(Self::tag_origin(
+                                &self.nodes[existing],
+                                self.tag_name_origin(existing),
+                            )),
                         });
                     }
                 }
@@ -124,9 +129,14 @@ impl<'a> Resolver<'a> {
                     if let Some(existing) = existing {
                         self.errors.push(Error {
                             kind: ErrorKind::Redeclaration,
-                            origin: node.origin,
+                            // Point at `struct Name` rather than the whole
+                            // declaration, whose body can span many lines.
+                            origin: Self::tag_origin(node, name.origin),
                             explanation: format!("{} is already defined", s),
-                            related_origin: Some(self.nodes[existing].origin),
+                            related_origin: Some(Self::tag_origin(
+                                &self.nodes[existing],
+                                self.tag_name_origin(existing),
+                            )),
                         });
                     }
                 }
@@ -185,9 +195,14 @@ impl<'a> Resolver<'a> {
                     if let Some(existing) = existing {
                         self.errors.push(Error {
                             kind: ErrorKind::Redeclaration,
-                            origin: node.origin,
+                            // Point at `union Name` rather than the whole
+                            // declaration, whose body can span many lines.
+                            origin: Self::tag_origin(node, name.origin),
                             explanation: format!("{} is already defined", s),
-                            related_origin: Some(self.nodes[existing].origin),
+                            related_origin: Some(Self::tag_origin(
+                                &self.nodes[existing],
+                                self.tag_name_origin(existing),
+                            )),
                         });
                     }
                 }
@@ -196,6 +211,28 @@ impl<'a> Resolver<'a> {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// The origin of `struct Name` / `union Name` / `enum Name`: from the
+    /// start of the declaration (the keyword) through the end of the tag.
+    fn tag_origin(node: &Node, name_origin: crate::origin::Origin) -> crate::origin::Origin {
+        node.origin.start.extend_to_inclusive(name_origin.end)
+    }
+
+    /// The origin of the tag name of a previously recorded declaration.
+    fn tag_name_origin(&self, node_id: NodeId) -> crate::origin::Origin {
+        match &self.nodes[node_id].kind {
+            crate::ast::NodeKind::StructDeclaration {
+                name: Some(name), ..
+            }
+            | crate::ast::NodeKind::UnionDeclaration {
+                name: Some(name), ..
+            }
+            | crate::ast::NodeKind::EnumDeclaration {
+                name: Some(name), ..
+            } => name.origin,
+            _ => self.nodes[node_id].origin,
         }
     }
 

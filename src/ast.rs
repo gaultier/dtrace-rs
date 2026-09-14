@@ -4113,6 +4113,12 @@ mod tests {
         (parser, root_id)
     }
 
+    // Runs the full pipeline, including name resolution, which is where tag
+    // redeclarations are reported.
+    fn compile_errors(input: &str) -> Vec<Error> {
+        crate::compile(input, FILE_ID).errors
+    }
+
     fn origin_str<'a>(input: &'a str, parser: &Parser<'_>, node_id: NodeId) -> &'a str {
         lex::str_from_source(input, parser.nodes[node_id].origin)
     }
@@ -4861,15 +4867,11 @@ mod tests {
         // Redefining a struct with a body is a redeclaration error. The error origin must span
         // the second `struct Name` (the offending site), and `related_origin` must span the
         // first `struct Name` (the original declaration), so the diagnostics can point to both.
-        let input = "struct Person { int age; }\nstruct Person { int id; }";
-        let mut lexer = Lexer::new(FILE_ID, input);
-        lexer.begin(lex::LexerState::InsideClauseAndExpr);
-        let mut parser = Parser::new(lexer);
-        parser.parse_struct_or_union_specifier();
-        parser.parse_struct_or_union_specifier();
+        let input = "struct Person { int age; };\nstruct Person { int id; };";
+        let errors = compile_errors(input);
 
-        assert_eq!(parser.lexer.errors.len(), 1);
-        let err = &parser.lexer.errors[0];
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        let err = &errors[0];
         assert_eq!(err.kind, ErrorKind::Redeclaration);
         // Error origin: second `struct Person`, on line 2.
         assert_eq!(err.origin.start.line, 2);
@@ -4882,15 +4884,11 @@ mod tests {
 
     #[test]
     fn test_union_redeclaration_produces_error() {
-        let input = "union Data { int i; }\nunion Data { char c; }";
-        let mut lexer = Lexer::new(FILE_ID, input);
-        lexer.begin(lex::LexerState::InsideClauseAndExpr);
-        let mut parser = Parser::new(lexer);
-        parser.parse_struct_or_union_specifier();
-        parser.parse_struct_or_union_specifier();
+        let input = "union Data { int i; };\nunion Data { char c; };";
+        let errors = compile_errors(input);
 
-        assert_eq!(parser.lexer.errors.len(), 1);
-        let err = &parser.lexer.errors[0];
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        let err = &errors[0];
         assert_eq!(err.kind, ErrorKind::Redeclaration);
         assert_eq!(err.origin.start.line, 2);
         assert_eq!(lex::str_from_source(input, err.origin), "union Data");
@@ -4901,15 +4899,11 @@ mod tests {
 
     #[test]
     fn test_enum_redeclaration_produces_error() {
-        let input = "enum Color { Red }\nenum Color { Blue }";
-        let mut lexer = Lexer::new(FILE_ID, input);
-        lexer.begin(lex::LexerState::InsideClauseAndExpr);
-        let mut parser = Parser::new(lexer);
-        parser.parse_enum_specifier();
-        parser.parse_enum_specifier();
+        let input = "enum Color { Red };\nenum Color { Blue };";
+        let errors = compile_errors(input);
 
-        assert_eq!(parser.lexer.errors.len(), 1);
-        let err = &parser.lexer.errors[0];
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        let err = &errors[0];
         assert_eq!(err.kind, ErrorKind::Redeclaration);
         assert_eq!(err.origin.start.line, 2);
         assert_eq!(lex::str_from_source(input, err.origin), "enum Color");
@@ -4922,17 +4916,11 @@ mod tests {
     fn test_forward_decl_then_redeclaration_produces_error() {
         // Defining a struct twice after a forward declaration: the forward decl upgrades
         // silently, but the second full definition is a redeclaration error.
-        let input = "struct Person;\nstruct Person { int age; }\nstruct Person { int id; }";
-        let mut lexer = Lexer::new(FILE_ID, input);
-        lexer.begin(lex::LexerState::InsideClauseAndExpr);
-        let mut parser = Parser::new(lexer);
-        parser.parse_struct_or_union_specifier();
-        parser.lexer.lex(); // skip `;`
-        parser.parse_struct_or_union_specifier();
-        parser.parse_struct_or_union_specifier();
+        let input = "struct Person;\nstruct Person { int age; };\nstruct Person { int id; };";
+        let errors = compile_errors(input);
 
-        assert_eq!(parser.lexer.errors.len(), 1);
-        let err = &parser.lexer.errors[0];
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        let err = &errors[0];
         assert_eq!(err.kind, ErrorKind::Redeclaration);
         // Error on the third declaration (line 3), related to the second (line 2).
         assert_eq!(err.origin.start.line, 3);
@@ -4945,28 +4933,19 @@ mod tests {
         // Two forward declarations with the same name but different kinds are valid in DTrace:
         // `struct Person; enum Person` compiles without errors.
         let input = "struct Person;\nenum Person;";
-        let mut lexer = Lexer::new(FILE_ID, input);
-        lexer.begin(lex::LexerState::InsideClauseAndExpr);
-        let mut parser = Parser::new(lexer);
-        parser.parse_struct_or_union_specifier();
-        parser.lexer.lex(); // skip `;`
-        parser.parse_enum_specifier();
+        let errors = compile_errors(input);
 
-        assert!(parser.lexer.errors.is_empty());
+        assert!(errors.is_empty(), "{errors:?}");
     }
 
     #[test]
     fn test_same_name_different_kind_is_allowed() {
         // DTrace allows the same tag name for different type kinds:
         // `struct Person{int x;}; enum Person{ORANGE}` is valid.
-        let input = "struct Person { int x; }\nenum Person { ORANGE }";
-        let mut lexer = Lexer::new(FILE_ID, input);
-        lexer.begin(lex::LexerState::InsideClauseAndExpr);
-        let mut parser = Parser::new(lexer);
-        parser.parse_struct_or_union_specifier();
-        parser.parse_enum_specifier();
+        let input = "struct Person { int x; };\nenum Person { ORANGE };";
+        let errors = compile_errors(input);
 
-        assert!(parser.lexer.errors.is_empty());
+        assert!(errors.is_empty(), "{errors:?}");
     }
 
     #[test]
@@ -4978,16 +4957,11 @@ mod tests {
         //   enum Color { Purple };   <- first enum Color, no error
         //   struct Color { int x; }; <- different kind, allowed
         //   enum Color { Orange };   <- redeclaration of enum Color (same kind as line 1)
-        let input = "enum Color { Purple }\nstruct Color { int x; }\nenum Color { Orange }";
-        let mut lexer = Lexer::new(FILE_ID, input);
-        lexer.begin(lex::LexerState::InsideClauseAndExpr);
-        let mut parser = Parser::new(lexer);
-        parser.parse_enum_specifier();
-        parser.parse_struct_or_union_specifier();
-        parser.parse_enum_specifier();
+        let input = "enum Color { Purple };\nstruct Color { int x; };\nenum Color { Orange };";
+        let errors = compile_errors(input);
 
-        assert_eq!(parser.lexer.errors.len(), 1);
-        let err = &parser.lexer.errors[0];
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        let err = &errors[0];
         assert_eq!(err.kind, ErrorKind::Redeclaration);
         // The offending declaration is the second `enum Color` on line 3.
         assert_eq!(err.origin.start.line, 3);
@@ -5520,5 +5494,32 @@ mod tests {
                 .any(|n| matches!(n.kind, NodeKind::AbstractDeclarator { .. })),
             "expected an abstract declarator node"
         );
+    }
+    #[test]
+    fn test_tag_redeclaration_is_reported_only_once() {
+        // Regression: `Resolver::resolve` had no `TranslationUnit` arm, so it
+        // returned immediately and every check in it was unreachable. Wiring
+        // it up must not double up with the parser's own reporting.
+        for input in [
+            "struct S { int a; };\nstruct S { int b; };\n",
+            "union U { int a; };\nunion U { int b; };\n",
+            "enum E { A };\nenum E { B };\n",
+        ] {
+            let errors = compile_errors(input);
+            assert_eq!(errors.len(), 1, "for {input:?}: {errors:?}");
+            assert_eq!(errors[0].kind, ErrorKind::Redeclaration);
+        }
+    }
+
+    #[test]
+    fn test_forward_declarations_may_repeat() {
+        for input in [
+            "struct S;\nstruct S;\n",
+            "struct S;\nstruct S { int a; };\n",
+            "enum E;\nenum E { A };\n",
+        ] {
+            let errors = compile_errors(input);
+            assert!(errors.is_empty(), "for {input:?}: {errors:?}");
+        }
     }
 }
