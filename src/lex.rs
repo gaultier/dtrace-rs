@@ -422,11 +422,13 @@ pub(crate) fn str_from_source(src: &str, origin: Origin) -> &str {
     &src[Range::from(origin)]
 }
 
-pub(crate) fn quoted_string_from_source(src: &str, origin: Origin) -> (&str, Origin) {
+/// Strips the surrounding double quotes from the source of a string
+/// literal. Returns `None` when the literal is not terminated, which the
+/// lexer still reports as a `LiteralString` token at end of input.
+pub(crate) fn quoted_string_from_source(src: &str, origin: Origin) -> Option<(&str, Origin)> {
     let s = str_from_source(src, origin);
-    assert_eq!(s.chars().next().unwrap(), '"');
-    assert_eq!(s.chars().nth(s.len() - 1).unwrap(), '"');
-    (&s[1..s.len() - 1], origin.forwards(1).backwards(1))
+    let inner = s.strip_prefix('"')?.strip_suffix('"')?;
+    Some((inner, origin.forwards(1).backwards(1)))
 }
 
 #[derive(Serialize, Debug, Copy, Clone, PartialEq, Eq)]
@@ -2456,7 +2458,15 @@ impl<'a> Lexer<'a> {
                     origin: origin2,
                 },
             ] => {
-                let (version_str, version_origin) = quoted_string_from_source(self.input, *origin1);
+                let Some((version_str, version_origin)) =
+                    quoted_string_from_source(self.input, *origin1)
+                else {
+                    return Err(Error::new(
+                        ErrorKind::InvalidControlDirective,
+                        *origin1,
+                        String::from("unterminated string literal in pragma binding"),
+                    ));
+                };
                 let version = version_str2num(version_str, version_origin)?;
                 let identifier = str_from_source(self.input, *origin2).to_owned();
 
@@ -3129,8 +3139,8 @@ mod tests {
     use crate::{
         error::ErrorKind,
         lex::{
-            ControlDirectiveKind, Lexer, LexerState, NumberSuffix, PragmaDependsOnKind, TokenKind,
-            str_from_source,
+            ControlDirective, ControlDirectiveKind, Lexer, LexerState, NumberSuffix,
+            PragmaDependsOnKind, TokenKind, str_from_source,
         },
         origin::{Position, PositionKind},
     };
@@ -6601,5 +6611,48 @@ mod tests {
             !lexer.errors.is_empty(),
             "expected an error for non-ASCII whitespace"
         );
+    }
+    #[test]
+    fn test_pragma_binding_with_a_non_ascii_string() {
+        // Regression: the quotes were stripped with `chars().nth(s.len() - 1)`,
+        // which mixes a byte length with a character index, so any multi-byte
+        // character in the literal panicked.
+        let input = "#pragma D binding \"\u{e9}\" foo";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        while lexer.lex().kind != TokenKind::Eof {}
+        assert!(
+            lexer
+                .errors
+                .iter()
+                .all(|e| e.kind != ErrorKind::InvalidControlDirective),
+            "unexpected directive errors: {:?}",
+            lexer.errors
+        );
+    }
+
+    #[test]
+    fn test_pragma_binding_with_an_unterminated_string() {
+        let input = "#pragma D binding \"1.0";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        while lexer.lex().kind != TokenKind::Eof {}
+        assert!(
+            !lexer.errors.is_empty(),
+            "expected an error for an unterminated version string"
+        );
+    }
+
+    #[test]
+    fn test_pragma_binding_is_still_parsed() {
+        let input = "#pragma D binding \"1.6.1\" my_probe\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        while lexer.lex().kind != TokenKind::Eof {}
+        assert!(lexer.errors.is_empty(), "errors: {:?}", lexer.errors);
+        assert!(matches!(
+            lexer.control_directives.as_slice(),
+            [ControlDirective {
+                kind: ControlDirectiveKind::PragmaBinding { .. },
+                ..
+            }]
+        ));
     }
 }
