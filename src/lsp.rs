@@ -161,7 +161,10 @@ impl Message {
         Message::write_payload(writer, &j)
     }
 
-    fn read_payload(reader: &mut dyn BufRead) -> std::io::Result<String> {
+    /// Reads one LSP message. Returns `Ok(None)` at end of input, which the
+    /// caller must distinguish from a message: retrying a closed stream
+    /// never makes progress.
+    fn read_payload(reader: &mut dyn BufRead) -> std::io::Result<Option<String>> {
         let mut buf = String::with_capacity(8192);
         let mut size: Option<usize> = None;
 
@@ -169,7 +172,7 @@ impl Message {
             buf.clear();
 
             if reader.read_line(&mut buf)? == 0 {
-                return Ok(String::new());
+                return Ok(None);
             }
 
             if !buf.ends_with("\r\n") {
@@ -221,7 +224,7 @@ impl Message {
         reader.read_exact(&mut buf)?;
         let buf = String::from_utf8(buf)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid utf8"))?;
-        Ok(buf)
+        Ok(Some(buf))
     }
 }
 
@@ -633,10 +636,15 @@ pub fn run(reader: &mut dyn BufRead, writer: &mut impl Write) {
     let mut state = State::Initial;
     loop {
         let payload = match Message::read_payload(reader) {
-            Ok(s) => s,
+            Ok(Some(s)) => s,
+            // The client closed its end of the connection.
+            Ok(None) => break,
+            // A header error means the stream is out of sync: the bytes of
+            // the offending message were not consumed, so reading again
+            // would fail the same way forever.
             Err(err) => {
                 eprintln!("failed to read message: {:?}", err);
-                continue;
+                break;
             }
         };
         let msg: Message = match serde_json::from_str(&payload) {
@@ -656,5 +664,50 @@ pub fn run(reader: &mut dyn BufRead, writer: &mut impl Write) {
                 eprintln!("handle error={}", err);
             }
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn read_payload(input: &str) -> std::io::Result<Option<String>> {
+        let mut reader = std::io::BufReader::new(input.as_bytes());
+        Message::read_payload(&mut reader)
+    }
+
+    #[test]
+    fn test_read_payload_at_end_of_input() {
+        // Regression: EOF returned `Ok("")`, which the run loop could not
+        // tell apart from a message. It logged "malformed LSP payload" and
+        // retried forever at 100% CPU.
+        assert!(read_payload("").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_read_payload_reads_a_message() {
+        let payload = read_payload("Content-Length: 2\r\n\r\n{}").unwrap();
+        assert_eq!(payload.as_deref(), Some("{}"));
+    }
+
+    #[test]
+    fn test_read_payload_truncated_headers() {
+        assert!(read_payload("Content-Length: 2\r\n").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_run_returns_at_end_of_input() {
+        // Before the fix this looped forever.
+        let mut reader = std::io::BufReader::new(&b""[..]);
+        let mut writer = Vec::new();
+        run(&mut reader, &mut writer);
+        assert!(writer.is_empty());
+    }
+
+    #[test]
+    fn test_run_returns_after_the_client_disconnects() {
+        let input = b"Content-Length: 2\r\n\r\n{}";
+        let mut reader = std::io::BufReader::new(&input[..]);
+        let mut writer = Vec::new();
+        run(&mut reader, &mut writer);
     }
 }
