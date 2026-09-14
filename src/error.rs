@@ -52,6 +52,7 @@ pub enum ErrorKind {
     InvalidStability,
     InvalidClass,
     NestedComment,
+    UnterminatedComment,
     UnsupportedLiteralFloatNumber,
     UnexpectedPeriod,
     ShebangMustComeFirst,

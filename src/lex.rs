@@ -2678,6 +2678,15 @@ impl<'a> Lexer<'a> {
                     self.advance(1);
                 }
                 (None, _) => {
+                    // Reaching end of input without `*/` means the rest of
+                    // the file was swallowed by the comment. Reporting it
+                    // stops the formatter, which would otherwise rewrite the
+                    // file as if the missing text had never been there.
+                    self.add_error(
+                        ErrorKind::UnterminatedComment,
+                        origin.extend_to_inclusive(self.position),
+                        "unterminated block comment, expected `*/` before the end of the input",
+                    );
                     break;
                 }
             }
@@ -6670,5 +6679,36 @@ mod tests {
         while lexer.lex().kind != TokenKind::Eof {}
         assert_eq!(lexer.comments.len(), 1);
         assert!(lexer.errors.is_empty(), "errors: {:?}", lexer.errors);
+    }
+    #[test]
+    fn test_unterminated_block_comment_is_an_error() {
+        // Regression: the comment swallowed the rest of the file silently,
+        // so the formatter happily rewrote the file without the swallowed
+        // text and grew it by two blank lines on every pass.
+        for input in ["/* foo", "/* foo\nBEGIN { x = 1; }\n", "N{}/*"] {
+            let mut lexer = Lexer::new(FILE_ID, input);
+            while lexer.lex().kind != TokenKind::Eof {}
+            assert!(
+                lexer
+                    .errors
+                    .iter()
+                    .any(|e| e.kind == ErrorKind::UnterminatedComment),
+                "expected an `UnterminatedComment` error for {input:?}, got {:?}",
+                lexer.errors
+            );
+        }
+    }
+
+    #[test]
+    fn test_terminated_block_comment_is_not_an_error() {
+        for input in ["/* foo */", "/* foo\n   bar */\nBEGIN { }\n", "/**/"] {
+            let mut lexer = Lexer::new(FILE_ID, input);
+            while lexer.lex().kind != TokenKind::Eof {}
+            assert!(
+                lexer.errors.is_empty(),
+                "errors for {input:?}: {:?}",
+                lexer.errors
+            );
+        }
     }
 }
