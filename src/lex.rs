@@ -2162,11 +2162,22 @@ impl<'a> Lexer<'a> {
         };
 
         let line_src = str_from_source(self.input, line.origin);
-        let file_src = file.map(|f| {
-            let s = str_from_source(self.input, f.origin);
-            // Without the double quotes.
-            s[1..s.len() - 1].to_owned()
-        });
+        let file_src = match file {
+            None => None,
+            Some(f) => {
+                // An unterminated `"` at end of input still produces a
+                // `LiteralString` token, of length one, so stripping the
+                // quotes by slicing `1..len - 1` panicked on `#5"`.
+                let Some((inner, _)) = quoted_string_from_source(self.input, f.origin) else {
+                    return Err(Error::new(
+                        ErrorKind::InvalidControlDirective,
+                        f.origin,
+                        String::from("unterminated file name in #line directive"),
+                    ));
+                };
+                Some(inner.to_owned())
+            }
+        };
         let line_num: usize = match str::parse::<usize>(line_src) {
             Err(err) => {
                 return Err(Error::new(
@@ -6772,5 +6783,31 @@ mod tests {
             TokenKind::LiteralNumber(1, NumberSuffix::UNSIGNED)
         );
         assert_eq!(lexer.lex().kind, TokenKind::Identifier);
+    }
+    #[test]
+    fn test_line_directive_with_an_unterminated_file_name() {
+        // Regression: an unterminated `"` at end of input still produces a
+        // `LiteralString` token of length one, so stripping the quotes by
+        // slicing `1..len - 1` panicked. `#5"` is three bytes.
+        for input in ["#5\"", "#line 5 \"", "#5 \"abc"] {
+            let mut lexer = Lexer::new(FILE_ID, input);
+            while lexer.lex().kind != TokenKind::Eof {}
+            assert!(!lexer.errors.is_empty(), "expected an error for {input:?}");
+        }
+    }
+
+    #[test]
+    fn test_line_directive_with_a_file_name_is_still_parsed() {
+        let input = "#line 5 \"foo.d\"\n";
+        let mut lexer = Lexer::new(FILE_ID, input);
+        while lexer.lex().kind != TokenKind::Eof {}
+        assert!(lexer.errors.is_empty(), "errors: {:?}", lexer.errors);
+        assert!(matches!(
+            lexer.control_directives.as_slice(),
+            [ControlDirective {
+                kind: ControlDirectiveKind::Line { .. },
+                ..
+            }]
+        ));
     }
 }

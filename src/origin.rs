@@ -151,12 +151,69 @@ impl Origin {
         }
     }
 
+    /// The kind of the origin's start position.
+    ///
+    /// An origin whose two ends disagree — which error recovery can produce,
+    /// e.g. a `Builtin` start with a `File` end — used to trip an assertion
+    /// here and abort the process while printing a diagnostic. The start
+    /// wins: it is the position a reader is directed to.
     pub fn kind(&self) -> PositionKind {
-        assert_eq!(self.start.kind, self.end.kind);
         self.start.kind
     }
 
+    /// The length of the origin in bytes, or zero if its ends are inverted.
+    ///
+    /// Error recovery can produce an origin whose end precedes its start. A
+    /// plain subtraction panicked in debug and, with overflow checks off in
+    /// release, wrapped to roughly `usize::MAX` — which the hover handler
+    /// silently took as the *smallest* enclosing node.
     pub fn len(&self) -> usize {
-        self.end.byte_offset as usize - self.start.byte_offset as usize
+        (self.end.byte_offset as usize).saturating_sub(self.start.byte_offset as usize)
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn position(byte_offset: u32, kind: PositionKind) -> Position {
+        Position {
+            line: 1,
+            column: byte_offset + 1,
+            byte_offset,
+            kind,
+        }
+    }
+
+    #[test]
+    fn test_len_of_an_inverted_origin_is_zero() {
+        // Regression: error recovery can produce an origin whose end
+        // precedes its start. The subtraction panicked in debug and wrapped
+        // to roughly `usize::MAX` in release, which the hover handler then
+        // took as the smallest enclosing node.
+        let origin = Origin {
+            start: position(10, PositionKind::File(1)),
+            end: position(4, PositionKind::File(1)),
+        };
+        assert_eq!(origin.len(), 0);
+    }
+
+    #[test]
+    fn test_len_of_an_ordinary_origin() {
+        let origin = Origin {
+            start: position(4, PositionKind::File(1)),
+            end: position(10, PositionKind::File(1)),
+        };
+        assert_eq!(origin.len(), 6);
+    }
+
+    #[test]
+    fn test_kind_of_an_origin_whose_ends_disagree() {
+        // Regression: this asserted, aborting the process while a diagnostic
+        // was being printed.
+        let origin = Origin {
+            start: position(0, PositionKind::Builtin),
+            end: position(3, PositionKind::File(1)),
+        };
+        assert_eq!(origin.kind(), PositionKind::Builtin);
     }
 }
