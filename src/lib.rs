@@ -4,7 +4,7 @@ pub mod fmt;
 pub mod lex;
 pub mod lsp;
 mod name_resolution;
-mod origin;
+pub mod origin;
 mod type_checker;
 
 use serde::Serialize;

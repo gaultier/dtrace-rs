@@ -12,7 +12,10 @@ use lsp_types::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{CompileResult, compile, fmt, origin::Origin};
+use crate::{
+    CompileResult, compile, fmt,
+    origin::{LineIndex, Origin},
+};
 
 enum State {
     Initial,
@@ -125,18 +128,20 @@ pub enum Message {
     Notification(Notification),
 }
 
-fn origin_to_lsp_range(origin: Origin) -> lsp_types::Range {
-    // `Origin` counts lines and columns from one and LSP counts from zero.
-    // A zero from a synthesised or recovered origin would underflow, so the
-    // conversion saturates rather than wrapping to `u32::MAX`.
+fn origin_to_lsp_range(origin: Origin, line_index: &LineIndex) -> lsp_types::Range {
+    // An `Origin` is a byte range, and LSP wants zero-based line and
+    // character. `character` is a byte offset within the line because the
+    // server negotiates UTF-8 position encoding.
+    let (start_line, start_character) = line_index.line_character(origin.start);
+    let (end_line, end_character) = line_index.line_character(origin.end);
     lsp_types::Range {
         start: lsp_types::Position {
-            line: origin.start.line.saturating_sub(1),
-            character: origin.start.column.saturating_sub(1),
+            line: start_line,
+            character: start_character,
         },
         end: lsp_types::Position {
-            line: origin.end.line.saturating_sub(1),
-            character: origin.end.column.saturating_sub(1),
+            line: end_line,
+            character: end_character,
         },
     }
 }
@@ -307,61 +312,48 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
         ))?;
 
     let pos = params.text_document_position_params.position;
-    // LSP positions are (line, character) where `character` is a UTF-8 byte offset
-    // within the line (since we negotiate UTF-8 encoding). Convert to a file-level
-    // byte offset so it can be compared against `Origin::byte_offset`.
-    let line_start_byte: u32 = text
-        .split('\n')
-        .take(pos.line as usize)
-        .map(|l| l.len() as u32 + 1) // +1 for the '\n'
-        .sum();
-    // `pos.character` comes from the client and is not validated against the
-    // line's length, so a hostile or buggy value must not wrap.
+    let line_index = LineIndex::new(text);
+    // LSP positions are (line, character) where `character` is a UTF-8 byte
+    // offset within the line (since we negotiate UTF-8 encoding). Convert to
+    // a file-level byte offset so it can be compared against an `Origin`.
+    // Both come from the client and are unvalidated, so a line past the end
+    // of the file clamps and a character past the end of its line must not
+    // wrap.
+    let line_start_byte = line_index.line_start(pos.line).unwrap_or(text.len() as u32);
     let cursor_byte = line_start_byte.saturating_add(pos.character);
     // FIXME: No need to allocate all the strings before we have picked the most specific (i.e.
     // inner-most) element.
     let found = compiled
         .ast_nodes
         .iter()
-        .filter(|x| {
-            x.origin.start.byte_offset <= cursor_byte && cursor_byte < x.origin.end.byte_offset
-        })
+        .filter(|x| x.origin.start <= cursor_byte && cursor_byte < x.origin.end)
         .map(|x| (x.origin, format!("ast node: {:?}", x.kind)))
         .chain(
             compiled
                 .control_directives
                 .iter()
-                .filter(|x| {
-                    x.origin.start.byte_offset <= cursor_byte
-                        && cursor_byte < x.origin.end.byte_offset
-                })
+                .filter(|x| x.origin.start <= cursor_byte && cursor_byte < x.origin.end)
                 .map(|x| (x.origin, format!("control directive: {:?}", x.kind))),
         )
         .chain(
             compiled
                 .attributes
                 .iter()
-                .filter(|x| {
-                    x.origin.start.byte_offset <= cursor_byte
-                        && cursor_byte < x.origin.end.byte_offset
-                })
+                .filter(|x| x.origin.start <= cursor_byte && cursor_byte < x.origin.end)
                 .map(|x| (x.origin, String::from("attribute"))),
         )
         .chain(
             compiled
                 .comments
                 .iter()
-                .filter(|x| {
-                    x.origin.start.byte_offset <= cursor_byte
-                        && cursor_byte < x.origin.end.byte_offset
-                })
+                .filter(|x| x.origin.start <= cursor_byte && cursor_byte < x.origin.end)
                 .map(|x| (x.origin, format!("comment: {:?}", x.kind))),
         )
         .min_by(|(a, _): &(Origin, _), (b, _): &(Origin, _)| a.len().cmp(&b.len()));
     let resp = if let Some((origin, marked_string)) = found {
         let hover = Hover {
             contents: HoverContents::Scalar(MarkedString::String(marked_string)),
-            range: Some(origin_to_lsp_range(origin)),
+            range: Some(origin_to_lsp_range(origin, &line_index)),
         };
         serde_json::to_value(&hover).map_err(|err| {
             io::Error::new(
@@ -388,7 +380,11 @@ fn hover(state: &State, id: RequestId, params: serde_json::Value) -> io::Result<
 //   2. A HINT at the original site with `relatedInformation` pointing back to the offending
 //      site, so that editors that do not underline `relatedInformation` locations still mark
 //      the original declaration.
-fn errors_to_diagnostics(errors: &[crate::error::Error], uri: &Uri) -> Vec<Diagnostic> {
+fn errors_to_diagnostics(
+    errors: &[crate::error::Error],
+    uri: &Uri,
+    line_index: &LineIndex,
+) -> Vec<Diagnostic> {
     errors
         .iter()
         .flat_map(|e| {
@@ -399,7 +395,7 @@ fn errors_to_diagnostics(errors: &[crate::error::Error], uri: &Uri) -> Vec<Diagn
             };
 
             let main = Diagnostic {
-                range: origin_to_lsp_range(e.origin),
+                range: origin_to_lsp_range(e.origin, line_index),
                 severity: Some(DiagnosticSeverity::ERROR),
                 message: message.clone(),
                 // FIXME: This assumes that the related origin is in the same file.
@@ -407,7 +403,7 @@ fn errors_to_diagnostics(errors: &[crate::error::Error], uri: &Uri) -> Vec<Diagn
                     vec![DiagnosticRelatedInformation {
                         location: Location {
                             uri: uri.clone(),
-                            range: origin_to_lsp_range(rel),
+                            range: origin_to_lsp_range(rel, line_index),
                         },
                         message: String::from("First declared here"),
                     }]
@@ -418,13 +414,13 @@ fn errors_to_diagnostics(errors: &[crate::error::Error], uri: &Uri) -> Vec<Diagn
             // Emit a secondary hint at the original declaration so that editors which do not
             // underline `relatedInformation` locations still highlight it.
             let hint = e.related_origin.map(|rel| Diagnostic {
-                range: origin_to_lsp_range(rel),
+                range: origin_to_lsp_range(rel, line_index),
                 severity: Some(DiagnosticSeverity::HINT),
                 message,
                 related_information: Some(vec![DiagnosticRelatedInformation {
                     location: Location {
                         uri: uri.clone(),
-                        range: origin_to_lsp_range(e.origin),
+                        range: origin_to_lsp_range(e.origin, line_index),
                     },
                     message: String::from("Redeclared here"),
                 }]),
@@ -454,7 +450,11 @@ fn did_open(state: &mut State, params: serde_json::Value) -> io::Result<Option<M
     let compiled = compile(&params.text_document.text, 1);
     let resp = PublishDiagnosticsParams {
         uri: params.text_document.uri.clone(),
-        diagnostics: errors_to_diagnostics(&compiled.errors, &params.text_document.uri),
+        diagnostics: errors_to_diagnostics(
+            &compiled.errors,
+            &params.text_document.uri,
+            &LineIndex::new(&params.text_document.text),
+        ),
         version: Some(params.text_document.version),
     };
     docs.insert(
@@ -521,7 +521,11 @@ fn did_change(state: &mut State, params: serde_json::Value) -> Result<Option<Mes
     let compiled = compile(&text, 1);
     let resp = PublishDiagnosticsParams {
         uri: params.text_document.uri.clone(),
-        diagnostics: errors_to_diagnostics(&compiled.errors, &params.text_document.uri),
+        diagnostics: errors_to_diagnostics(
+            &compiled.errors,
+            &params.text_document.uri,
+            &LineIndex::new(&text),
+        ),
         version: Some(params.text_document.version),
     };
     let _ = docs.insert(params.text_document.uri.clone(), (text, compiled));

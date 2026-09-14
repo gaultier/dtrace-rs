@@ -39,7 +39,7 @@ pub struct Declaration {
 pub(crate) enum LexerState {
     // S2.
     ProgramOuterScope,
-    InsideControlDirective(u32 /* line */),
+    InsideControlDirective,
     // S0.
     InsideClauseAndExpr,
 }
@@ -113,10 +113,14 @@ pub struct ControlDirective {
     pub kind: ControlDirectiveKind,
 }
 impl ControlDirective {
-    pub fn log(&self, file_id_to_name: &std::collections::HashMap<u32, String>) {
+    pub fn log(
+        &self,
+        file_id_to_name: &std::collections::HashMap<crate::origin::FileId, String>,
+        line_index: &crate::origin::LineIndex,
+    ) {
         info!(
             "{}: control directive {:?}",
-            self.origin.display(file_id_to_name),
+            self.origin.display(file_id_to_name, line_index),
             self.kind
         );
     }
@@ -141,10 +145,14 @@ pub struct Comment {
     pub kind: CommentKind,
 }
 impl Comment {
-    pub fn log(&self, file_id_to_name: &std::collections::HashMap<u32, String>) {
+    pub fn log(
+        &self,
+        file_id_to_name: &std::collections::HashMap<crate::origin::FileId, String>,
+        line_index: &crate::origin::LineIndex,
+    ) {
         info!(
             "{}: comment {:?}",
-            self.origin.display(file_id_to_name),
+            self.origin.display(file_id_to_name, line_index),
             self.kind
         );
     }
@@ -598,8 +606,8 @@ impl<'a> Lexer<'a> {
     pub fn with_ctx(file_id: FileId, input: &'a str, ctx: Rc<RefCell<LexerContext>>) -> Self {
         Self {
             position: Position {
+                byte_offset: 0,
                 kind: PositionKind::File(file_id),
-                ..Position::default()
             },
             errors: Vec::new(),
             state: LexerState::ProgramOuterScope,
@@ -624,7 +632,7 @@ impl<'a> Lexer<'a> {
             // In outer declarations, keywords are lexed as identifiers, but they never contain backtick.
             // Backtick can appear only inside probe specifiers (via `is_character_probe_specifier_rest`).
             LexerState::ProgramOuterScope => c.is_ascii_alphanumeric() || c == '_',
-            LexerState::InsideControlDirective(_) => !(c.is_ascii_whitespace() || c == '"'),
+            LexerState::InsideControlDirective => !(c.is_ascii_whitespace() || c == '"'),
         }
     }
 
@@ -637,7 +645,7 @@ impl<'a> Lexer<'a> {
             // In outer declarations, a leading backtick is a syntax error per the DTrace reference lexer
             // (`RGX_PSPEC` first-char class excludes backtick; `<S2>. yyerror(...)`).
             LexerState::ProgramOuterScope => c.is_ascii_alphanumeric() || c == '_' || c == '@',
-            LexerState::InsideControlDirective(_) => !(c.is_ascii_whitespace() || c == '"'),
+            LexerState::InsideControlDirective => !(c.is_ascii_whitespace() || c == '"'),
         }
     }
 
@@ -1312,29 +1320,14 @@ impl<'a> Lexer<'a> {
 
     pub(crate) fn advance(&mut self, count: usize) -> (Option<char>, Position) {
         let mut last = None;
-        let mut position = self.position;
         for _ in 0..count {
             last = self.peek1();
-            match last {
-                None => {
-                    break;
-                }
-                Some('\n') => {
-                    self.position.byte_offset += 1;
-                    self.position.column = 1;
-                    self.position.line += 1;
-
-                    position = self.position;
-                }
-                Some(c) => {
-                    let len = c.len_utf8() as u32;
-                    self.position.byte_offset += len;
-                    self.position.column += len;
-                    position = self.position;
-                }
-            }
+            let Some(c) = last else {
+                break;
+            };
+            self.position.byte_offset += c.len_utf8() as u32;
         }
-        (last, position)
+        (last, self.position)
     }
 
     /// The not-yet-lexed remainder of the input.
@@ -1367,6 +1360,12 @@ impl<'a> Lexer<'a> {
     // fast path small enough to inline and hands the decode off to an
     // out-of-line `_slow` twin. Left as one function, the decode made the
     // whole peek too large for LLVM to inline and cost a third of lexing.
+
+    /// Whether the cursor sits at the first byte of a line.
+    fn at_line_start(&self) -> bool {
+        let offset = self.position.byte_offset as usize;
+        offset == 0 || self.input.as_bytes()[offset - 1] == b'\n'
+    }
 
     #[inline]
     fn peek1(&self) -> Option<char> {
@@ -1455,7 +1454,7 @@ impl<'a> Lexer<'a> {
             // terminator the outer `#…` loop watches for. Returning `Eof`
             // here (without consuming the `\n`) signals that loop to stop,
             // and the caller still owns the `\n` for state restoration.
-            ((Some('\n'), _, _), LexerState::InsideControlDirective(_)) => Token {
+            ((Some('\n'), _, _), LexerState::InsideControlDirective) => Token {
                 kind: TokenKind::Eof,
                 origin: self.position.into(),
             },
@@ -1472,7 +1471,7 @@ impl<'a> Lexer<'a> {
             // `#define`, `#include`, etc. across multiple physical lines.
             // The official toolchain runs `cpp` before D parsing; we don't,
             // so we collapse the continuation here.
-            ((Some('\\'), Some('\n'), _), LexerState::InsideControlDirective(_)) => {
+            ((Some('\\'), Some('\n'), _), LexerState::InsideControlDirective) => {
                 self.advance(2);
                 self.lex()
             }
@@ -1489,7 +1488,11 @@ impl<'a> Lexer<'a> {
                 {
                     self.add_error(
                         ErrorKind::ShebangMustComeFirst,
-                        Position::default().extend_to_inclusive(self.position),
+                        Origin {
+                            start: 0,
+                            end: self.position.byte_offset,
+                            kind: self.position.kind,
+                        },
                         "only horizontal whitespace (space, tab, form feed, vertical tab) is allowed before #! on the same line",
                     );
                 }
@@ -1516,7 +1519,7 @@ impl<'a> Lexer<'a> {
                 // the prior lexer state is restored after the directive's
                 // trailing newline.
                 let saved_state = *prior_state;
-                self.state = LexerState::InsideControlDirective(self.position.line);
+                self.state = LexerState::InsideControlDirective;
                 let start = self.position;
                 self.advance(1);
                 let mut tokens = Vec::with_capacity(8);
@@ -2029,7 +2032,7 @@ impl<'a> Lexer<'a> {
             (
                 (Some('_'), Some('_'), Some('a')),
                 LexerState::ProgramOuterScope | LexerState::InsideClauseAndExpr,
-            ) if self.position.column == 1
+            ) if self.at_line_start()
                 && self.input[self.position.byte_offset as usize + 3..]
                     .starts_with("ttribute__") =>
             {
@@ -2047,7 +2050,7 @@ impl<'a> Lexer<'a> {
                     // It was not a real attribute after all, fall back to normal token lexing.
                     match self.state {
                         LexerState::ProgramOuterScope => self.lex_probe_specifier(),
-                        LexerState::InsideControlDirective(_) => self.lex_pragma_identifier(),
+                        LexerState::InsideControlDirective => self.lex_pragma_identifier(),
                         LexerState::InsideClauseAndExpr => self.lex_identifier(),
                     }
                 }
@@ -2067,7 +2070,7 @@ impl<'a> Lexer<'a> {
                     // It was not a real attribute after all, fall back to normal token lexing.
                     match self.state {
                         LexerState::ProgramOuterScope => self.lex_probe_specifier(),
-                        LexerState::InsideControlDirective(_) => self.lex_pragma_identifier(),
+                        LexerState::InsideControlDirective => self.lex_pragma_identifier(),
                         LexerState::InsideClauseAndExpr => self.lex_identifier(),
                     }
                 }
@@ -2077,7 +2080,7 @@ impl<'a> Lexer<'a> {
                 self.advance(1);
                 self.lex()
             }
-            ((Some(c), _, _), LexerState::InsideControlDirective(_))
+            ((Some(c), _, _), LexerState::InsideControlDirective)
                 if !c.is_ascii_whitespace() && c != '"' =>
             {
                 self.lex_pragma_identifier()
@@ -2142,16 +2145,14 @@ impl<'a> Lexer<'a> {
                     // Ignore any #ident or #pragma ident lines.
                     "pragma" if tokens.len() == 1 => Ok(ControlDirective {
                         kind: ControlDirectiveKind::Ignored,
-                        origin: origin.start.extend_to_inclusive(
-                            tokens.last().map_or(origin.end, |t| t.origin.end),
-                        ),
+                        origin: origin
+                            .extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
                     }),
 
                     "ident" => Ok(ControlDirective {
                         kind: ControlDirectiveKind::Ignored,
-                        origin: origin.start.extend_to_inclusive(
-                            tokens.last().map_or(origin.end, |t| t.origin.end),
-                        ),
+                        origin: origin
+                            .extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
                     }),
                     // C-preprocessor directives are handled by `cpp` in the
                     // official `dtrace(1)` toolchain before D parsing. We
@@ -2163,25 +2164,20 @@ impl<'a> Lexer<'a> {
                     "include" | "define" | "undef" | "if" | "ifdef" | "ifndef" | "else"
                     | "elif" | "endif" | "warning" => Ok(ControlDirective {
                         kind: ControlDirectiveKind::Ignored,
-                        origin: origin.start.extend_to_inclusive(
-                            tokens.last().map_or(origin.end, |t| t.origin.end),
-                        ),
+                        origin: origin
+                            .extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
                     }),
                     "error" => self.control_directive_error(&tokens[1..], origin),
                     _ => Err(Error::new(
                         ErrorKind::InvalidControlDirective,
-                        origin.start.extend_to_inclusive(
-                            tokens.last().map_or(origin.end, |t| t.origin.end),
-                        ),
+                        origin.extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
                         String::new(),
                     )),
                 }
             }
             Some(_) => Err(Error::new(
                 ErrorKind::InvalidControlDirective,
-                origin
-                    .start
-                    .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
+                origin.extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
                 String::new(),
             )),
         }
@@ -2280,9 +2276,7 @@ impl<'a> Lexer<'a> {
         };
 
         Ok(ControlDirective {
-            origin: origin
-                .start
-                .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
+            origin: origin.extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
             kind: ControlDirectiveKind::Line {
                 line_num,
                 file: file_src,
@@ -2351,8 +2345,7 @@ impl<'a> Lexer<'a> {
             _ => Ok(ControlDirective {
                 kind: ControlDirectiveKind::Ignored,
                 origin: origin
-                    .start
-                    .extend_to_inclusive(tokens.last().map_or(origin.end, |last| last.origin.end)),
+                    .extended_to(tokens.last().map_or(origin.end, |last| last.origin.end)),
             }),
         }
     }
@@ -2369,18 +2362,16 @@ impl<'a> Lexer<'a> {
         // dropped the first word of the message (e.g. `#error foo bar`
         // emitted msg=`bar`).
         let src = match (tokens.first(), tokens.last()) {
-            (Some(start), Some(end)) => self.input
-                [start.origin.start.byte_offset as usize..end.origin.end.byte_offset as usize]
-                .to_owned(),
+            (Some(start), Some(end)) => {
+                self.input[start.origin.start as usize..end.origin.end as usize].to_owned()
+            }
             _ => String::new(),
         };
 
         Ok(ControlDirective {
             // Span the full directive line, from `#` through the last
             // message token, so the formatter can emit it verbatim.
-            origin: origin
-                .start
-                .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
+            origin: origin.extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
             kind: ControlDirectiveKind::PragmaError(src),
         })
     }
@@ -2409,9 +2400,7 @@ impl<'a> Lexer<'a> {
             _ => {
                 return Err(Error::new(
                     ErrorKind::InvalidControlDirective,
-                    origin
-                        .start
-                        .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
+                    origin.extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
                     String::from("expected pragma attributes of the form: identifier identifier"),
                 ));
             }
@@ -2424,21 +2413,8 @@ impl<'a> Lexer<'a> {
         if let Some(trailing) = trailing {
             return Err(Error {
                 kind: ErrorKind::InvalidControlDirective,
-                origin: {
-                    let skip = (s1.len() - trailing.len()) as u32;
-                    let n = trailing.len() as u32;
-                    let _start = crate::origin::Position {
-                        byte_offset: origin_identifier_first.start.byte_offset + skip,
-                        column: origin_identifier_first.start.column + skip,
-                        ..origin_identifier_first.start
-                    };
-                    let _end = crate::origin::Position {
-                        byte_offset: _start.byte_offset + n,
-                        column: _start.column + n,
-                        .._start
-                    };
-                    _start.extend_to_inclusive(_end)
-                },
+                origin: origin_identifier_first
+                    .slice((s1.len() - trailing.len()) as u32, trailing.len() as u32),
                 explanation: String::from(
                     "expected up to 3 parts in attribute but found an extraneous part",
                 ),
@@ -2449,15 +2425,7 @@ impl<'a> Lexer<'a> {
             .map(|s| {
                 Stability::try_from(*s).map_err(|kind| Error {
                     kind,
-                    origin: {
-                        let n = s.len() as u32;
-                        let _s = origin_identifier_first.start;
-                        _s.extend_to_inclusive(crate::origin::Position {
-                            byte_offset: _s.byte_offset + n,
-                            column: _s.column + n,
-                            .._s
-                        })
-                    },
+                    origin: origin_identifier_first.slice(0, s.len() as u32),
                     explanation: format!(
                         "invalid stability, possible values are: {}",
                         STABILITY_POSSIBLE_VALUES,
@@ -2472,20 +2440,7 @@ impl<'a> Lexer<'a> {
             .map(|s| {
                 Stability::try_from(*s).map_err(|kind| Error {
                     kind,
-                    origin: {
-                        let n = s.len() as u32;
-                        let sk = skip as u32;
-                        let _start = crate::origin::Position {
-                            byte_offset: origin_identifier_first.start.byte_offset + sk,
-                            column: origin_identifier_first.start.column + sk,
-                            ..origin_identifier_first.start
-                        };
-                        _start.extend_to_inclusive(crate::origin::Position {
-                            byte_offset: _start.byte_offset + n,
-                            column: _start.column + n,
-                            .._start
-                        })
-                    },
+                    origin: origin_identifier_first.slice(skip as u32, s.len() as u32),
                     explanation: format!(
                         "invalid stability, possible values are: {}",
                         STABILITY_POSSIBLE_VALUES,
@@ -2501,20 +2456,7 @@ impl<'a> Lexer<'a> {
             .map(|s| {
                 Class::try_from(*s).map_err(|kind| Error {
                     kind,
-                    origin: {
-                        let n = s.len() as u32;
-                        let sk = skip as u32;
-                        let _start = crate::origin::Position {
-                            byte_offset: origin_identifier_first.start.byte_offset + sk,
-                            column: origin_identifier_first.start.column + sk,
-                            ..origin_identifier_first.start
-                        };
-                        _start.extend_to_inclusive(crate::origin::Position {
-                            byte_offset: _start.byte_offset + n,
-                            column: _start.column + n,
-                            .._start
-                        })
-                    },
+                    origin: origin_identifier_first.slice(skip as u32, s.len() as u32),
                     explanation: format!(
                         "invalid class, possible values are: {}",
                         CLASS_POSSIBLE_VALUES
@@ -2532,9 +2474,7 @@ impl<'a> Lexer<'a> {
                 // cases.
                 name: s2.to_owned(),
             },
-            origin: origin
-                .start
-                .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
+            origin: origin.extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
         })
     }
 
@@ -2568,9 +2508,7 @@ impl<'a> Lexer<'a> {
                 let identifier = str_from_source(self.input, *origin2).to_owned();
 
                 Ok(ControlDirective {
-                    origin: origin
-                        .start
-                        .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
+                    origin: origin.extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
                     kind: ControlDirectiveKind::PragmaBinding {
                         version,
                         identifier,
@@ -2579,9 +2517,7 @@ impl<'a> Lexer<'a> {
             }
             _ => Err(Error::new(
                 ErrorKind::InvalidControlDirective,
-                origin
-                    .start
-                    .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
+                origin.extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
                 String::from("expected pragma binding of the form: \"version\" identifier"),
             )),
         }
@@ -2615,9 +2551,8 @@ impl<'a> Lexer<'a> {
                                 name: key.to_owned(),
                                 value: Some(value.to_owned()),
                             },
-                            origin: origin.start.extend_to_inclusive(
-                                tokens.last().map_or(origin.end, |t| t.origin.end),
-                            ),
+                            origin: origin
+                                .extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
                         })
                     }
                 } else {
@@ -2626,17 +2561,14 @@ impl<'a> Lexer<'a> {
                             name: s.to_owned(),
                             value: None,
                         },
-                        origin: origin.start.extend_to_inclusive(
-                            tokens.last().map_or(origin.end, |t| t.origin.end),
-                        ),
+                        origin: origin
+                            .extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
                     })
                 }
             }
             other => Err(Error {
                 kind: ErrorKind::InvalidControlDirective,
-                origin: origin
-                    .start
-                    .extend_to_inclusive(other.last().map_or(origin.end, |t| t.origin.end)),
+                origin: origin.extended_to(other.last().map_or(origin.end, |t| t.origin.end)),
                 explanation: String::from("expected pragma option of the form key=value"),
                 related_origin: None,
             }),
@@ -2667,9 +2599,7 @@ impl<'a> Lexer<'a> {
             _ => {
                 return Err(Error::new(
                     ErrorKind::InvalidControlDirective,
-                    origin
-                        .start
-                        .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
+                    origin.extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
                     String::from("expected pragma depends_on of the form: identifier identifier"),
                 ));
             }
@@ -2696,9 +2626,7 @@ impl<'a> Lexer<'a> {
                 kind,
                 name: name.to_owned(),
             },
-            origin: origin
-                .start
-                .extend_to_inclusive(tokens.last().map_or(origin.end, |t| t.origin.end)),
+            origin: origin.extended_to(tokens.last().map_or(origin.end, |t| t.origin.end)),
         })
     }
 
@@ -2763,11 +2691,8 @@ impl<'a> Lexer<'a> {
                 (Some('/'), Some('*')) => {
                     self.errors.push(Error {
                         kind: ErrorKind::NestedComment,
-                        origin: self.position.extend_to_inclusive(crate::origin::Position {
-                            byte_offset: self.position.byte_offset + 2,
-                            column: self.position.column + 2,
-                            ..self.position
-                        }),
+                        origin: Origin::from(self.position)
+                            .extended_to(self.position.byte_offset + 2),
                         explanation: String::from("nested comment"),
                         related_origin: None,
                     });
@@ -2938,7 +2863,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_attribute_line(&mut self) -> Option<Attribute> {
-        assert_eq!(self.position.column, 1);
+        assert!(self.at_line_start());
         assert!(self.input[self.position.byte_offset as usize..].starts_with("__attribute__"));
 
         // For rollbacking.
@@ -3091,21 +3016,10 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
     if let Some(trailing) = trailing {
         return Err(Error {
             kind: ErrorKind::InvalidControlDirective,
-            origin: {
-                let skip = (version_str.len() - trailing.len()) as u32;
-                let n = trailing.len() as u32;
-                let _start = crate::origin::Position {
-                    byte_offset: origin.start.byte_offset + skip,
-                    column: origin.start.column + skip,
-                    ..origin.start
-                };
-                let _end = crate::origin::Position {
-                    byte_offset: _start.byte_offset + n,
-                    column: _start.column + n,
-                    .._start
-                };
-                _start.extend_to_inclusive(_end)
-            },
+            origin: origin.slice(
+                (version_str.len() - trailing.len()) as u32,
+                trailing.len() as u32,
+            ),
             explanation: String::from(
                 "expected up to 3 parts in version string but found an extraneous part",
             ),
@@ -3115,15 +3029,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
 
     let major = str::parse::<u8>(major_str).map_err(|err| Error {
         kind: ErrorKind::InvalidVersionString,
-        origin: {
-            let n = major_str.len() as u32;
-            let _s = origin.start;
-            _s.extend_to_inclusive(crate::origin::Position {
-                byte_offset: _s.byte_offset + n,
-                column: _s.column + n,
-                .._s
-            })
-        },
+        origin: origin.slice(0, major_str.len() as u32),
         explanation: format!(
             "invalid major version in version string, expected a number up to 255: {}",
             err
@@ -3134,15 +3040,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
     let origin = origin.forwards(major_str.len() + 1);
     let minor = str::parse::<u16>(minor_str).map_err(|err| Error {
         kind: ErrorKind::InvalidVersionString,
-        origin: {
-            let n = minor_str.len() as u32;
-            let _s = origin.start;
-            _s.extend_to_inclusive(crate::origin::Position {
-                byte_offset: _s.byte_offset + n,
-                column: _s.column + n,
-                .._s
-            })
-        },
+        origin: origin.slice(0, minor_str.len() as u32),
         explanation: format!(
             "invalid minor version in version string, expected a number: {}",
             err
@@ -3152,15 +3050,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
     if minor > 0xfff {
         return Err(Error {
             kind: ErrorKind::InvalidVersionString,
-            origin: {
-                let n = minor_str.len() as u32;
-                let _s = origin.start;
-                _s.extend_to_inclusive(crate::origin::Position {
-                    byte_offset: _s.byte_offset + n,
-                    column: _s.column + n,
-                    .._s
-                })
-            },
+            origin: origin.slice(0, minor_str.len() as u32),
             explanation: String::from(
                 "minor version too high in version string, expected a number up to 4095",
             ),
@@ -3172,15 +3062,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
     let patch = if let Some(patch_str) = patch_str {
         let num = str::parse::<u16>(patch_str).map_err(|err| Error {
             kind: ErrorKind::InvalidVersionString,
-            origin: {
-                let n = patch_str.len() as u32;
-                let _s = origin.start;
-                _s.extend_to_inclusive(crate::origin::Position {
-                    byte_offset: _s.byte_offset + n,
-                    column: _s.column + n,
-                    .._s
-                })
-            },
+            origin: origin.slice(0, patch_str.len() as u32),
             explanation: format!(
                 "invalid patch version in version string, expected a number: {}",
                 err
@@ -3190,15 +3072,7 @@ fn version_str2num(version_str: &str, origin: Origin) -> Result<Version, Error> 
         if num > 0xfff {
             return Err(Error {
                 kind: ErrorKind::InvalidVersionString,
-                origin: {
-                    let n = patch_str.len() as u32;
-                    let _s = origin.start;
-                    _s.extend_to_inclusive(crate::origin::Position {
-                        byte_offset: _s.byte_offset + n,
-                        column: _s.column + n,
-                        .._s
-                    })
-                },
+                origin: origin.slice(0, patch_str.len() as u32),
                 explanation: String::from(
                     "patch version too high in version string, expected a number up to 4095",
                 ),
@@ -3229,15 +3103,6 @@ mod tests {
     };
 
     const FILE_ID: u32 = 1;
-
-    fn pos(line: u32, column: u32, byte_offset: u32) -> Position {
-        Position {
-            line,
-            column,
-            byte_offset,
-            kind: PositionKind::File(FILE_ID),
-        }
-    }
 
     #[test]
     fn test_probe_specifier_with_hyphen() {
@@ -3682,8 +3547,8 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
-        assert_eq!(token.origin.start, pos(1, 1, 0));
-        assert_eq!(token.origin.end, pos(1, 2, 1));
+        assert_eq!(token.origin.start, 0);
+        assert_eq!(token.origin.end, 1);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(
             lexer.errors.is_empty(),
@@ -3698,8 +3563,8 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::PlusPlus);
-        assert_eq!(token.origin.start, pos(1, 1, 0));
-        assert_eq!(token.origin.end, pos(1, 3, 2));
+        assert_eq!(token.origin.start, 0);
+        assert_eq!(token.origin.end, 2);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(
             lexer.errors.is_empty(),
@@ -3714,8 +3579,8 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
-        assert_eq!(token.origin.start, pos(1, 4, 3));
-        assert_eq!(token.origin.end, pos(1, 5, 4));
+        assert_eq!(token.origin.start, 3);
+        assert_eq!(token.origin.end, 4);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(
             lexer.errors.is_empty(),
@@ -3730,8 +3595,8 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::Plus);
-        assert_eq!(token.origin.start, pos(2, 1, 1));
-        assert_eq!(token.origin.end, pos(2, 2, 2));
+        assert_eq!(token.origin.start, 1);
+        assert_eq!(token.origin.end, 2);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(
             lexer.errors.is_empty(),
@@ -3746,8 +3611,8 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::ProbeSpecifier);
-        assert_eq!(token.origin.start, pos(1, 1, 0));
-        assert_eq!(token.origin.end, pos(1, 6, 5));
+        assert_eq!(token.origin.start, 0);
+        assert_eq!(token.origin.end, 5);
         assert_eq!(lexer.lex().kind, TokenKind::LeftCurly);
         assert_eq!(lexer.lex().kind, TokenKind::RightCurly);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
@@ -3764,8 +3629,8 @@ mod tests {
         let mut lexer = Lexer::new(FILE_ID, input);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::ProbeSpecifier);
-        assert_eq!(token.origin.start, pos(2, 1, 1));
-        assert_eq!(token.origin.end, pos(2, 6, 6));
+        assert_eq!(token.origin.start, 1);
+        assert_eq!(token.origin.end, 6);
         assert_eq!(lexer.lex().kind, TokenKind::LeftCurly);
         assert_eq!(lexer.lex().kind, TokenKind::RightCurly);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
@@ -3783,8 +3648,8 @@ mod tests {
         lexer.begin(LexerState::InsideClauseAndExpr);
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::LiteralString);
-        assert_eq!(token.origin.start, pos(1, 1, 0));
-        assert_eq!(token.origin.end, pos(1, 8, 7));
+        assert_eq!(token.origin.start, 0);
+        assert_eq!(token.origin.end, 7);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(
             lexer.errors.is_empty(),
@@ -3802,8 +3667,8 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::LiteralString);
         assert_eq!(str_from_source(input, token.origin), input);
-        assert_eq!(token.origin.start, pos(1, 1, 0));
-        assert_eq!(token.origin.end, pos(1, 55, 54));
+        assert_eq!(token.origin.start, 0);
+        assert_eq!(token.origin.end, 54);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(
             lexer.errors.is_empty(),
@@ -3823,8 +3688,8 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralString);
             assert_eq!(str_from_source(input, token.origin), "\"hello\nworld\"");
-            assert_eq!(token.origin.start, pos(1, 1, 0));
-            assert_eq!(token.origin.end, pos(2, 7, 13));
+            assert_eq!(token.origin.start, 0);
+            assert_eq!(token.origin.end, 13);
             assert_eq!(lexer.errors.len(), 1, "expected 1 error(s)");
             assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralString);
         }
@@ -3832,8 +3697,8 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralNumber(42, NumberSuffix::NONE));
             assert_eq!(str_from_source(input, token.origin), "42");
-            assert_eq!(token.origin.start, pos(2, 8, 14));
-            assert_eq!(token.origin.end, pos(2, 10, 16));
+            assert_eq!(token.origin.start, 14);
+            assert_eq!(token.origin.end, 16);
             assert_eq!(lexer.errors.len(), 1, "expected 1 error(s), no new error");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
@@ -3851,8 +3716,8 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralString);
             assert_eq!(str_from_source(input, token.origin), "\"hello\\\nworld\"");
-            assert_eq!(token.origin.start, pos(1, 1, 0));
-            assert_eq!(token.origin.end, pos(2, 7, 14));
+            assert_eq!(token.origin.start, 0);
+            assert_eq!(token.origin.end, 14);
             assert_eq!(lexer.errors.len(), 1, "expected 1 error(s)");
             assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralString);
         }
@@ -3860,8 +3725,8 @@ mod tests {
             let token = lexer.lex();
             assert_eq!(token.kind, TokenKind::LiteralNumber(42, NumberSuffix::NONE));
             assert_eq!(str_from_source(input, token.origin), "42");
-            assert_eq!(token.origin.start, pos(2, 8, 15));
-            assert_eq!(token.origin.end, pos(2, 10, 17));
+            assert_eq!(token.origin.start, 15);
+            assert_eq!(token.origin.end, 17);
             assert_eq!(lexer.errors.len(), 1, "expected 1 error(s), no new error");
         }
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
@@ -3877,8 +3742,8 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::LiteralString);
         assert_eq!(str_from_source(input, token.origin), "\"hello");
-        assert_eq!(token.origin.start, pos(1, 1, 0));
-        assert_eq!(token.origin.end, pos(1, 7, 6));
+        assert_eq!(token.origin.start, 0);
+        assert_eq!(token.origin.end, 6);
         assert_eq!(lexer.errors.len(), 1, "expected 1 error(s)");
         assert_eq!(lexer.errors[0].kind, ErrorKind::InvalidLiteralString);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
@@ -3894,8 +3759,8 @@ mod tests {
         let token = lexer.lex();
         assert_eq!(token.kind, TokenKind::LiteralString);
         assert_eq!(str_from_source(input, token.origin), input);
-        assert_eq!(token.origin.start, pos(1, 1, 0));
-        assert_eq!(token.origin.end, pos(1, 15, 14));
+        assert_eq!(token.origin.start, 0);
+        assert_eq!(token.origin.end, 14);
         assert!(
             lexer.errors.is_empty(),
             "unexpected errors: {:?}",
@@ -3914,8 +3779,8 @@ mod tests {
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(lexer.comments.len(), 1);
         let comment = &lexer.comments[0];
-        assert_eq!(comment.origin.start, pos(1, 1, 0));
-        assert_eq!(comment.origin.end, pos(1, 6, 5));
+        assert_eq!(comment.origin.start, 0);
+        assert_eq!(comment.origin.end, 5);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(
             lexer.errors.is_empty(),
@@ -3933,9 +3798,9 @@ mod tests {
         assert_eq!(token.kind, TokenKind::Plus);
         assert_eq!(lexer.comments.len(), 1);
         let comment = &lexer.comments[0];
-        assert_eq!(comment.origin.start, pos(1, 1, 0));
+        assert_eq!(comment.origin.start, 0);
         // After consuming "/* hi\nworld */": line=2, column=9, byte_offset=14
-        assert_eq!(comment.origin.end, pos(2, 9, 14));
+        assert_eq!(comment.origin.end, 14);
         assert_eq!(lexer.lex().kind, TokenKind::Eof);
         assert!(
             lexer.errors.is_empty(),

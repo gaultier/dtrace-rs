@@ -423,7 +423,7 @@ mod tests {
                 origin: Origin::new_builtin(),
             },
         ];
-        let root = NodeId(nodes.len() - 1);
+        let root = NodeId(nodes.len() as u32 - 1);
 
         let mut node_to_type = HashMap::new();
         // Literal types are filled in before checking.

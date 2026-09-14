@@ -1,7 +1,7 @@
 use std::{collections::HashMap, io::Write};
 
 use argh::FromArgs;
-use compiler_rs_lib::compile;
+use compiler_rs_lib::{compile, origin::LineIndex};
 use log::{LevelFilter, Log, info};
 use markdown::mdast::Node;
 use walkdir::WalkDir;
@@ -85,15 +85,34 @@ fn init_logger(level: LevelFilter) {
 /// Compile `source` and write the formatted output to `out`. Returns `false`
 /// if compilation produced errors (which are written to stderr); in that case
 /// `out` is not written to.
-fn format_dtrace(out: &mut impl Write, source: &str, file_name: &str, offset_line: usize) -> bool {
+///
+/// Diagnostics are reported against `enclosing`, in which `source` begins at
+/// byte `source_offset`. For a `.d` file the two are the same text at offset
+/// zero. For a fenced block inside a markdown file they differ, and shifting
+/// the origins is what lets a diagnostic name a line — and show an excerpt —
+/// in terms of the markdown file rather than the block.
+fn format_dtrace(
+    out: &mut impl Write,
+    source: &str,
+    enclosing: &str,
+    source_offset: usize,
+    file_name: &str,
+) -> bool {
     let mut file_id_to_name = HashMap::new();
     file_id_to_name.insert(1, file_name.to_owned());
 
     let mut compiled = compile(source, 1);
 
+    let line_index = LineIndex::new(enclosing);
+    let shift = source_offset as u32;
     for err in &mut compiled.errors {
-        err.origin.start.line += offset_line as u32;
-        err.write(&mut std::io::stderr(), source, &file_id_to_name)
+        err.origin.start += shift;
+        err.origin.end += shift;
+        if let Some(related) = &mut err.related_origin {
+            related.start += shift;
+            related.end += shift;
+        }
+        err.write(&mut std::io::stderr(), &line_index, &file_id_to_name)
             .unwrap();
         eprintln!()
     }
@@ -115,17 +134,12 @@ fn format_dtrace(out: &mut impl Write, source: &str, file_name: &str, offset_lin
 
 /// Recursively collect `(start_offset, end_offset, value)` for every fenced
 /// code block whose info string starts with `dtrace`.
-fn collect_dtrace_blocks<'a>(node: &'a Node, out: &mut Vec<(usize, usize, &'a str, usize)>) {
+fn collect_dtrace_blocks<'a>(node: &'a Node, out: &mut Vec<(usize, usize, &'a str)>) {
     if let Node::Code(code) = node
         && code.lang.as_deref() == Some("dtrace")
         && let Some(pos) = &code.position
     {
-        out.push((
-            pos.start.offset,
-            pos.end.offset,
-            code.value.as_str(),
-            pos.start.line,
-        ));
+        out.push((pos.start.offset, pos.end.offset, code.value.as_str()));
         return;
     }
     if let Some(children) = node.children() {
@@ -142,12 +156,12 @@ fn format_markdown(content: &str, file_name: &str) -> Option<String> {
     let tree = markdown::to_mdast(content, &markdown::ParseOptions::default()).unwrap();
     let mut blocks = Vec::new();
     collect_dtrace_blocks(&tree, &mut blocks);
-    blocks.sort_by_key(|(start, _, _, _)| *start);
+    blocks.sort_by_key(|(start, _, _)| *start);
 
     let mut out = String::with_capacity(content.len());
     let mut cursor = 0;
     let mut had_error = false;
-    for (start, end, value, start_line) in blocks {
+    for (start, end, value) in blocks {
         out.push_str(&content[cursor..start]);
         let block_text = &content[start..end];
         // `value` is the inner code text, present verbatim in the block —
@@ -159,7 +173,13 @@ fn format_markdown(content: &str, file_name: &str) -> Option<String> {
             continue;
         };
         let mut formatted = Vec::new();
-        if !format_dtrace(&mut formatted, value, file_name, start_line) {
+        if !format_dtrace(
+            &mut formatted,
+            value,
+            content,
+            start + value_offset,
+            file_name,
+        ) {
             had_error = true;
             out.push_str(block_text);
             cursor = end;
@@ -194,31 +214,41 @@ fn main() {
             file_id_to_name.insert(1, file.clone());
 
             let compiled = compile(&file_content, 1);
+            let line_index = LineIndex::new(&file_content);
 
             for err in &compiled.errors {
-                err.write(&mut std::io::stderr(), &file_content, &file_id_to_name)
+                err.write(&mut std::io::stderr(), &line_index, &file_id_to_name)
                     .unwrap();
                 eprintln!()
             }
             for ctrl in &compiled.control_directives {
-                ctrl.log(&file_id_to_name);
+                ctrl.log(&file_id_to_name, &line_index);
             }
             for comm in &compiled.comments {
-                comm.log(&file_id_to_name);
+                comm.log(&file_id_to_name, &line_index);
             }
             for attr in &compiled.attributes {
-                info!("{}: attribute", attr.origin.display(&file_id_to_name));
+                info!(
+                    "{}: attribute",
+                    attr.origin.display(&file_id_to_name, &line_index)
+                );
             }
             for (name, decl) in &compiled.declarations {
                 info!(
                     "{}: declaration: name={} kind={:?}",
-                    decl.origin.display(&file_id_to_name),
+                    decl.origin.display(&file_id_to_name, &line_index),
                     name,
                     decl.kind
                 );
             }
             if let Some(root) = compiled.ast_root {
-                compiler_rs_lib::ast::log(&compiled.ast_nodes, root, 0, &file_id_to_name);
+                compiler_rs_lib::ast::log(
+                    &compiled.ast_nodes,
+                    root,
+                    0,
+                    &file_id_to_name,
+                    &line_index,
+                );
             } else {
                 info!("no root node, nothing to log: {:#?}", &compiled);
             }
@@ -356,8 +386,9 @@ fn verify_formatted(formatted: &[u8], file_path: &str) -> Result<(), String> {
 
     let mut file_id_to_name = HashMap::new();
     file_id_to_name.insert(1, file_path.to_owned());
+    let line_index = LineIndex::new(text);
     for err in &compiled.errors {
-        err.write(&mut std::io::stderr(), text, &file_id_to_name)
+        err.write(&mut std::io::stderr(), &line_index, &file_id_to_name)
             .unwrap();
         eprintln!();
     }
@@ -367,7 +398,7 @@ fn verify_formatted(formatted: &[u8], file_path: &str) -> Result<(), String> {
 fn fmt_file(file_path: &String, in_place: bool, file_content: String) {
     if in_place {
         let mut buf = Vec::new();
-        if !format_dtrace(&mut buf, &file_content, file_path, 0) {
+        if !format_dtrace(&mut buf, &file_content, &file_content, 0, file_path) {
             std::process::exit(1);
         }
         if let Err(err) = verify_formatted(&buf, file_path) {
@@ -377,7 +408,7 @@ fn fmt_file(file_path: &String, in_place: bool, file_content: String) {
         std::fs::write(file_path, &buf).unwrap();
     } else {
         let mut stdout = buffered_stdout();
-        if !format_dtrace(&mut stdout, &file_content, file_path, 0) {
+        if !format_dtrace(&mut stdout, &file_content, &file_content, 0, file_path) {
             std::process::exit(1);
         }
         stdout.flush().unwrap();

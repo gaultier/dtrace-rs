@@ -50,17 +50,17 @@ impl<'a, W: Write> Formatter<'a, W> {
         let next_comment_in = self
             .comments
             .get(self.comment_idx)
-            .map(|c| in_range(c.origin.start.byte_offset))
+            .map(|c| in_range(c.origin.start))
             .unwrap_or(false);
         let next_directive_in = self
             .directives
             .get(self.directive_idx)
-            .map(|d| in_range(d.origin.start.byte_offset))
+            .map(|d| in_range(d.origin.start))
             .unwrap_or(false);
         let next_attribute_in = self
             .attributes
             .get(self.attribute_idx)
-            .map(|a| in_range(a.origin.start.byte_offset))
+            .map(|a| in_range(a.origin.start))
             .unwrap_or(false);
         next_comment_in || next_directive_in || next_attribute_in
     }
@@ -73,7 +73,7 @@ impl<'a, W: Write> Formatter<'a, W> {
     /// input, every further format pass adds another copy.
     fn discard_comments_within(&mut self, from: u32, to: u32) {
         while let Some(c) = self.comments.get(self.comment_idx) {
-            let start = c.origin.start.byte_offset;
+            let start = c.origin.start;
             if start < from || start >= to {
                 break;
             }
@@ -121,10 +121,7 @@ impl<'a, W: Write> Formatter<'a, W> {
         self.w.write_all(text.as_bytes())?;
         self.w.write_all(b"\n")?;
 
-        self.discard_comments_within(
-            directive.origin.start.byte_offset,
-            directive.origin.end.byte_offset,
-        );
+        self.discard_comments_within(directive.origin.start, directive.origin.end);
         self.directive_idx += 1;
         Ok(())
     }
@@ -148,17 +145,17 @@ impl<'a, W: Write> Formatter<'a, W> {
             let next_comment = self
                 .comments
                 .get(self.comment_idx)
-                .map(|c| c.origin.start.byte_offset)
+                .map(|c| c.origin.start)
                 .unwrap_or(u32::MAX);
             let next_directive = self
                 .directives
                 .get(self.directive_idx)
-                .map(|d| d.origin.start.byte_offset)
+                .map(|d| d.origin.start)
                 .unwrap_or(u32::MAX);
             let next_attribute = self
                 .attributes
                 .get(self.attribute_idx)
-                .map(|a| a.origin.start.byte_offset)
+                .map(|a| a.origin.start)
                 .unwrap_or(u32::MAX);
             let next = next_comment.min(next_directive).min(next_attribute);
             if next >= before_byte {
@@ -178,17 +175,15 @@ impl<'a, W: Write> Formatter<'a, W> {
             if next_comment <= next_directive && next_comment <= next_attribute {
                 last_was_multiline_comment =
                     self.comments[self.comment_idx].kind == CommentKind::MultiLine;
-                last_annotation_end = Some(self.comments[self.comment_idx].origin.end.byte_offset);
+                last_annotation_end = Some(self.comments[self.comment_idx].origin.end);
                 self.emit_one_comment(indent)?;
             } else if next_directive <= next_attribute {
                 last_was_multiline_comment = false;
-                last_annotation_end =
-                    Some(self.directives[self.directive_idx].origin.end.byte_offset);
+                last_annotation_end = Some(self.directives[self.directive_idx].origin.end);
                 self.emit_one_directive(indent)?;
             } else {
                 last_was_multiline_comment = false;
-                last_annotation_end =
-                    Some(self.attributes[self.attribute_idx].origin.end.byte_offset);
+                last_annotation_end = Some(self.attributes[self.attribute_idx].origin.end);
                 self.emit_one_attribute(indent)?;
             }
         }
@@ -197,7 +192,7 @@ impl<'a, W: Write> Formatter<'a, W> {
         // node, preserve it in the output.  Multi-line comments are excluded because
         // `emit_one_comment` already appends a blank line unconditionally.
         if !last_was_multiline_comment && let Some(end) = last_annotation_end {
-            // `origin.end.byte_offset` is the exclusive end (one past the last
+            // `origin.end` is the exclusive end (one past the last
             // content byte), so the gap starts directly at `end`.
             let gap_start = end as usize;
             let gap_end = (before_byte as usize).min(self.input.len());
@@ -217,7 +212,7 @@ impl<'a, W: Write> Formatter<'a, W> {
     /// require a newline that would break inline contexts.
     fn drain_inline_comments_before(&mut self, before_byte: u32) -> std::io::Result<()> {
         while let Some(c) = self.comments.get(self.comment_idx) {
-            if c.origin.start.byte_offset >= before_byte || c.kind != CommentKind::MultiLine {
+            if c.origin.start >= before_byte || c.kind != CommentKind::MultiLine {
                 break;
             }
             let text = lex::str_from_source(self.input, c.origin);
@@ -247,7 +242,7 @@ impl<'a, W: Write> Formatter<'a, W> {
             .unwrap_or(self.input.len() as u32);
         let limit = line_end.min(max_byte);
         while let Some(c) = self.comments.get(self.comment_idx) {
-            if c.origin.start.byte_offset >= limit {
+            if c.origin.start >= limit {
                 break;
             }
             let text = lex::str_from_source(self.input, c.origin);
@@ -263,7 +258,7 @@ impl<'a, W: Write> Formatter<'a, W> {
     /// leading space instead of suffixed by one.
     fn drain_inline_comments_before_close(&mut self, before_byte: u32) -> std::io::Result<()> {
         while let Some(c) = self.comments.get(self.comment_idx) {
-            if c.origin.start.byte_offset >= before_byte || c.kind != CommentKind::MultiLine {
+            if c.origin.start >= before_byte || c.kind != CommentKind::MultiLine {
                 break;
             }
             let text = lex::str_from_source(self.input, c.origin);
@@ -304,7 +299,7 @@ impl<'a, W: Write> Formatter<'a, W> {
     ) -> std::io::Result<()> {
         for (i, id) in node_ids.iter().enumerate() {
             let item_origin = self.nodes[*id].origin;
-            self.emit_pending_annotations(item_origin.start.byte_offset, indent)?;
+            self.emit_pending_annotations(item_origin.start, indent)?;
             self.indent(indent)?;
             self.fmt(*id, indent)?;
             if comma_separated && i != node_ids.len() - 1 {
@@ -312,9 +307,9 @@ impl<'a, W: Write> Formatter<'a, W> {
             }
             let next_start = node_ids
                 .get(i + 1)
-                .map(|n| self.nodes[*n].origin.start.byte_offset)
+                .map(|n| self.nodes[*n].origin.start)
                 .unwrap_or(u32::MAX);
-            self.drain_trailing_line_comments(item_origin.end.byte_offset, next_start)?;
+            self.drain_trailing_line_comments(item_origin.end, next_start)?;
             self.w.write_all(b"\n")?;
         }
         Ok(())
@@ -324,7 +319,7 @@ impl<'a, W: Write> Formatter<'a, W> {
     /// is already a `Block`, its children are inlined directly to avoid double braces.
     fn fmt_branch(&mut self, node_id: NodeId, indent: usize) -> std::io::Result<()> {
         let (children, block_end) = match self.nodes[node_id].kind.clone() {
-            NodeKind::Block(children) => (children, self.nodes[node_id].origin.end.byte_offset),
+            NodeKind::Block(children) => (children, self.nodes[node_id].origin.end),
             _ => {
                 self.w.write_all(b"{\n")?;
                 self.indent(indent + 2)?;
@@ -338,23 +333,20 @@ impl<'a, W: Write> Formatter<'a, W> {
         self.w.write_all(b"{")?;
         // Same-line trailing comment after `{` — `if (foo) { // remark`.
         // Capped at the first statement, see the `Block` arm.
-        let block_start = self.nodes[node_id].origin.start.byte_offset;
+        let block_start = self.nodes[node_id].origin.start;
         let block_trailing_max = children
             .first()
-            .map(|id| self.nodes[*id].origin.start.byte_offset)
+            .map(|id| self.nodes[*id].origin.start)
             .unwrap_or(u32::MAX);
         self.drain_trailing_line_comments(block_start + 1, block_trailing_max)?;
         self.w.write_all(b"\n")?;
         for child_id in children {
-            let start_byte = self.nodes[child_id].origin.start.byte_offset;
+            let start_byte = self.nodes[child_id].origin.start;
             self.emit_pending_annotations(start_byte, indent + 2)?;
             self.indent(indent + 2)?;
             self.fmt(child_id, indent + 2)?;
             // Same-line trailing comments stay with the statement.
-            self.drain_trailing_line_comments(
-                self.nodes[child_id].origin.end.byte_offset,
-                u32::MAX,
-            )?;
+            self.drain_trailing_line_comments(self.nodes[child_id].origin.end, u32::MAX)?;
             self.w.write_all(b"\n")?;
         }
         // Flush comments/directives between the last statement and `}` so
@@ -382,7 +374,7 @@ impl<'a, W: Write> Formatter<'a, W> {
         // inline drain there to avoid double-emitting (and to keep top-level
         // multi-line comments on their own line).
         if !matches!(kind, NodeKind::TranslationUnit(_) | NodeKind::Block(_)) {
-            self.drain_inline_comments_before(origin.start.byte_offset)?;
+            self.drain_inline_comments_before(origin.start)?;
         }
 
         match kind {
@@ -399,16 +391,13 @@ impl<'a, W: Write> Formatter<'a, W> {
                 // for the probe specifier.
                 let block_trailing_max = node_ids
                     .first()
-                    .map(|id| self.nodes[*id].origin.start.byte_offset)
+                    .map(|id| self.nodes[*id].origin.start)
                     .unwrap_or(u32::MAX);
-                self.drain_trailing_line_comments(
-                    origin.start.byte_offset + 1,
-                    block_trailing_max,
-                )?;
+                self.drain_trailing_line_comments(origin.start + 1, block_trailing_max)?;
                 self.w.write_all(b"\n")?;
                 let mut prev_end: Option<u32> = None;
                 for id in node_ids {
-                    let start_byte = self.nodes[*id].origin.start.byte_offset;
+                    let start_byte = self.nodes[*id].origin.start;
                     // Preserve a blank line between two consecutive statements
                     // when the source had one. Two-or-more newlines in the
                     // gap means at least one empty line was there — unless a
@@ -436,15 +425,12 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.fmt(*id, indent + 2)?;
                     // Keep any comment that sits on the same source line as
                     // this statement attached to it — `stmt; // remark`.
-                    self.drain_trailing_line_comments(
-                        self.nodes[*id].origin.end.byte_offset,
-                        u32::MAX,
-                    )?;
+                    self.drain_trailing_line_comments(self.nodes[*id].origin.end, u32::MAX)?;
                     self.w.write_all(b"\n")?;
-                    prev_end = Some(self.nodes[*id].origin.end.byte_offset);
+                    prev_end = Some(self.nodes[*id].origin.end);
                 }
                 // Flush any annotations between the last statement and the closing `}`.
-                self.emit_pending_annotations(origin.end.byte_offset + 1, indent + 2)?;
+                self.emit_pending_annotations(origin.end + 1, indent + 2)?;
                 self.indent(indent)?;
                 self.w.write_all(b"}")?;
             }
@@ -461,10 +447,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                 // the same source line isn't pulled out.
                 let probe_trailing_max = pred
                     .or(*actions)
-                    .map(|n| self.nodes[n].origin.start.byte_offset)
+                    .map(|n| self.nodes[n].origin.start)
                     .unwrap_or(u32::MAX);
                 self.drain_trailing_line_comments(
-                    self.nodes[*probe].origin.end.byte_offset,
+                    self.nodes[*probe].origin.end,
                     probe_trailing_max,
                 )?;
                 self.w.write_all(b"\n")?;
@@ -474,7 +460,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                     // specifier and the `/.../` predicate so they land on
                     // their own lines (rather than getting picked up by an
                     // inner expression's `//`-after-op drain).
-                    let pred_start = self.nodes[*pred_id].origin.start.byte_offset;
+                    let pred_start = self.nodes[*pred_id].origin.start;
                     self.emit_pending_annotations(pred_start, indent)?;
                     self.w.write_all(b"/ ")?;
                     self.fmt(*pred_id, indent)?;
@@ -484,10 +470,10 @@ impl<'a, W: Write> Formatter<'a, W> {
                     // comment that lives inside `{ … }` on the same line
                     // isn't pulled out.
                     let pred_trailing_max = actions
-                        .map(|n| self.nodes[n].origin.start.byte_offset)
+                        .map(|n| self.nodes[n].origin.start)
                         .unwrap_or(u32::MAX);
                     self.drain_trailing_line_comments(
-                        self.nodes[*pred_id].origin.end.byte_offset,
+                        self.nodes[*pred_id].origin.end,
                         pred_trailing_max,
                     )?;
                     self.w.write_all(b"\n")?;
@@ -496,7 +482,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                 if let Some(actions_id) = actions {
                     // Same idea between the probe spec / predicate and the
                     // action body `{ ... }`.
-                    let actions_start = self.nodes[*actions_id].origin.start.byte_offset;
+                    let actions_start = self.nodes[*actions_id].origin.start;
                     self.emit_pending_annotations(actions_start, indent)?;
                     self.fmt(*actions_id, indent)?;
                 }
@@ -522,10 +508,9 @@ impl<'a, W: Write> Formatter<'a, W> {
                 // rest of the expression lands on the next line (aligning
                 // roughly under the opening token of the enclosing
                 // construct, e.g. `if (`).
-                let rhs_start = self.nodes[*rhs].origin.start.byte_offset;
+                let rhs_start = self.nodes[*rhs].origin.start;
                 while let Some(c) = self.comments.get(self.comment_idx) {
-                    if c.origin.start.byte_offset >= rhs_start || c.kind != CommentKind::SingleLine
-                    {
+                    if c.origin.start >= rhs_start || c.kind != CommentKind::SingleLine {
                         break;
                     }
                     let text = lex::str_from_source(self.input, c.origin);
@@ -551,14 +536,14 @@ impl<'a, W: Write> Formatter<'a, W> {
                 // Comments between `)` and `{` — `if (cond) /* x */ {` —
                 // are drained before delegating to `fmt_branch`, so the
                 // brace is preceded by them.
-                let then_start = self.nodes[*then_block].origin.start.byte_offset;
+                let then_start = self.nodes[*then_block].origin.start;
                 self.drain_inline_comments_before(then_start)?;
                 self.fmt_branch(*then_block, indent)?;
 
                 if let Some(else_id) = else_block {
                     self.w.write_all(b" else ")?;
                     // Same idea between `else` and the `{` or `if`.
-                    let else_start = self.nodes[*else_id].origin.start.byte_offset;
+                    let else_start = self.nodes[*else_id].origin.start;
                     self.drain_inline_comments_before(else_start)?;
                     // `else if` chains are not wrapped in an extra set of braces.
                     if matches!(self.nodes[*else_id].kind, NodeKind::If { .. }) {
@@ -571,7 +556,7 @@ impl<'a, W: Write> Formatter<'a, W> {
             NodeKind::TranslationUnit(decls) => {
                 let mut prev_end: Option<u32> = None;
                 for (i, decl) in decls.iter().enumerate() {
-                    let start_byte = self.nodes[*decl].origin.start.byte_offset;
+                    let start_byte = self.nodes[*decl].origin.start;
                     // Separate top-level declarations with a blank line so
                     // the output matches conventional C/D style — unless a
                     // control directive or `__attribute__` annotation sits
@@ -586,7 +571,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                     }
                     self.emit_pending_annotations(start_byte, indent)?;
                     self.fmt(*decl, indent)?;
-                    prev_end = Some(self.nodes[*decl].origin.end.byte_offset);
+                    prev_end = Some(self.nodes[*decl].origin.end);
                 }
                 // Flush any trailing annotations that appear after the last declaration.
                 self.emit_pending_annotations(u32::MAX, indent)?;
@@ -599,8 +584,8 @@ impl<'a, W: Write> Formatter<'a, W> {
                 // The type name is written from its captured source, which
                 // already contains any comment inside the parentheses.
                 self.discard_comments_within(
-                    self.nodes[node_id].origin.start.byte_offset,
-                    self.nodes[*inner].origin.start.byte_offset,
+                    self.nodes[node_id].origin.start,
+                    self.nodes[*inner].origin.start,
                 );
                 self.fmt(*inner, indent)?;
             }
@@ -803,7 +788,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                     // `EnumeratorsDeclaration` adds indentation and newlines for each item.
                     self.fmt(*enumerators_id, indent + 2)?;
                     // Annotations between the last item and the closing brace.
-                    self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
+                    self.emit_pending_annotations(origin.end, indent + 2)?;
                     self.indent(indent)?;
                     self.w.write_all(b"}")?;
                 }
@@ -835,7 +820,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.w.write_all(b" {\n")?;
                     self.fmt(*fields_id, indent + 2)?;
                     // Annotations between the last field and the closing brace.
-                    self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
+                    self.emit_pending_annotations(origin.end, indent + 2)?;
                     self.indent(indent)?;
                     self.w.write_all(b"}")?;
                 }
@@ -853,7 +838,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.w.write_all(b" {\n")?;
                     self.fmt(*fields_id, indent + 2)?;
                     // Annotations between the last field and the closing brace.
-                    self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
+                    self.emit_pending_annotations(origin.end, indent + 2)?;
                     self.indent(indent)?;
                     self.w.write_all(b"}")?;
                 }
@@ -968,7 +953,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                 }
                 // Drain any `/* */` comments between the last child and `]`,
                 // e.g. `arr[uintptr_t /* data ptr */]`.
-                self.drain_inline_comments_before_close(origin.end.byte_offset)?;
+                self.drain_inline_comments_before_close(origin.end)?;
                 self.w.write_all(b"]")?;
             }
             NodeKind::Parameters(node_ids) => {
@@ -1066,7 +1051,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.fmt(*members_id, indent + 2)?;
                 }
                 // Annotations between the last member and the closing brace.
-                self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
+                self.emit_pending_annotations(origin.end, indent + 2)?;
                 self.indent(indent)?;
                 self.w.write_all(b"};\n")?;
             }
@@ -1084,7 +1069,7 @@ impl<'a, W: Write> Formatter<'a, W> {
                     self.fmt(*probes_id, indent + 2)?;
                 }
                 // Annotations between the last probe and the closing brace.
-                self.emit_pending_annotations(origin.end.byte_offset, indent + 2)?;
+                self.emit_pending_annotations(origin.end, indent + 2)?;
                 self.indent(indent)?;
                 self.w.write_all(b"};\n")?;
             }

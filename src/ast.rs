@@ -16,9 +16,15 @@ use crate::{
 use log::trace;
 use serde::Serialize;
 
-// TODO: u32?
+/// An index into the parser's node table.
+///
+/// A `u32` rather than a `usize`: it is the payload of most `NodeKind`
+/// variants, several of which hold two or three, and halving it is what
+/// takes the widest variant — and so every node — from 72 bytes to 64. A
+/// table of more than four billion nodes is not reachable from an input
+/// whose byte offsets are themselves `u32`.
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub struct NodeId(pub(crate) usize);
+pub struct NodeId(pub(crate) u32);
 
 #[derive(Serialize, Clone, PartialEq, Eq, Debug)]
 pub enum NodeKind {
@@ -235,7 +241,7 @@ pub struct Node {
 
 impl IndexMut<NodeId> for [Node] {
     fn index_mut(&mut self, index: NodeId) -> &mut Self::Output {
-        &mut self[index.0]
+        &mut self[index.0 as usize]
     }
 }
 
@@ -243,13 +249,13 @@ impl Index<NodeId> for [Node] {
     type Output = Node;
 
     fn index(&self, index: NodeId) -> &Self::Output {
-        &self[index.0]
+        &self[index.0 as usize]
     }
 }
 
 impl IndexMut<NodeId> for Vec<Node> {
     fn index_mut(&mut self, index: NodeId) -> &mut Self::Output {
-        &mut self[index.0]
+        &mut self[index.0 as usize]
     }
 }
 
@@ -257,7 +263,7 @@ impl Index<NodeId> for Vec<Node> {
     type Output = Node;
 
     fn index(&self, index: NodeId) -> &Self::Output {
-        &self[index.0]
+        &self[index.0 as usize]
     }
 }
 
@@ -420,7 +426,7 @@ impl<'a> Parser<'a> {
 
     fn new_node(&mut self, node: Node) -> NodeId {
         self.nodes.push(node);
-        NodeId(self.nodes.len() - 1)
+        NodeId(self.nodes.len() as u32 - 1)
     }
 
     fn peek1(&self) -> Token {
@@ -1904,8 +1910,8 @@ impl<'a> Parser<'a> {
                     "closing parenthesis in if expression",
                 );
                 let cond_close_paren_byte = right_paren
-                    .map(|t| t.origin.start.byte_offset)
-                    .unwrap_or_else(|| self.origin(cond).end.byte_offset);
+                    .map(|t| t.origin.start)
+                    .unwrap_or_else(|| self.origin(cond).end);
                 let then_block = self.parse_statement_or_block().unwrap_or_else(|| {
                     self.error(
                         ErrorKind::MissingStatementOrBlock,
@@ -3855,12 +3861,13 @@ pub fn log(
     node_id: NodeId,
     indent: usize,
     file_id_to_name: &HashMap<FileId, String>,
+    line_index: &crate::origin::LineIndex,
 ) {
     let node = &nodes[node_id];
     trace!(
         "{:indent$}{}: id={} kind={:?}",
         "",
-        node.origin.display(file_id_to_name),
+        node.origin.display(file_id_to_name, line_index),
         node_id.0,
         node.kind,
         indent = indent.min(MAX_LOG_INDENT)
@@ -3869,7 +3876,7 @@ pub fn log(
         NodeKind::Unknown => {}
         NodeKind::Block(node_ids) => {
             for id in node_ids {
-                log(nodes, *id, indent + 2, file_id_to_name);
+                log(nodes, *id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::ProbeDefinition {
@@ -3877,19 +3884,19 @@ pub fn log(
             predicate: pred,
             action: actions,
         } => {
-            log(nodes, *probe, indent + 2, file_id_to_name);
+            log(nodes, *probe, indent + 2, file_id_to_name, line_index);
             if let Some(pred) = pred {
-                log(nodes, *pred, indent + 2, file_id_to_name);
+                log(nodes, *pred, indent + 2, file_id_to_name, line_index);
             }
 
             if let Some(actions) = actions {
-                log(nodes, *actions, indent + 2, file_id_to_name);
+                log(nodes, *actions, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::Number { .. } | NodeKind::Identifier(_) | NodeKind::ProbeSpecifier(_) => {}
         NodeKind::Assignment { lhs, rhs, .. } | NodeKind::BinaryOp { lhs, rhs, .. } => {
-            log(nodes, *lhs, indent + 2, file_id_to_name);
-            log(nodes, *rhs, indent + 2, file_id_to_name);
+            log(nodes, *lhs, indent + 2, file_id_to_name, line_index);
+            log(nodes, *rhs, indent + 2, file_id_to_name, line_index);
         }
         NodeKind::If {
             cond,
@@ -3897,15 +3904,15 @@ pub fn log(
             else_block,
             ..
         } => {
-            log(nodes, *cond, indent + 2, file_id_to_name);
-            log(nodes, *then_block, indent + 2, file_id_to_name);
+            log(nodes, *cond, indent + 2, file_id_to_name, line_index);
+            log(nodes, *then_block, indent + 2, file_id_to_name, line_index);
             if let Some(else_block) = else_block {
-                log(nodes, *else_block, indent + 2, file_id_to_name);
+                log(nodes, *else_block, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::TranslationUnit(decls) => {
             for decl in decls {
-                log(nodes, *decl, indent + 2, file_id_to_name);
+                log(nodes, *decl, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::PrimaryToken(_) => {}
@@ -3913,32 +3920,36 @@ pub fn log(
         NodeKind::Aggregation => {}
         NodeKind::ProbeSpecifiers(node_ids) | NodeKind::CommaExpr(node_ids) => {
             for node in node_ids {
-                log(nodes, *node, indent + 2, file_id_to_name);
+                log(nodes, *node, indent + 2, file_id_to_name, line_index);
             }
         }
-        NodeKind::Sizeof { expr: node_id, .. } => log(nodes, *node_id, indent + 2, file_id_to_name),
+        NodeKind::Sizeof { expr: node_id, .. } => {
+            log(nodes, *node_id, indent + 2, file_id_to_name, line_index)
+        }
         NodeKind::StringofExpr { expr: node_id, .. } => {
-            log(nodes, *node_id, indent + 2, file_id_to_name)
+            log(nodes, *node_id, indent + 2, file_id_to_name, line_index)
         }
         NodeKind::PostfixIncDecrement { expr: node_id, .. } => {
-            log(nodes, *node_id, indent + 2, file_id_to_name)
+            log(nodes, *node_id, indent + 2, file_id_to_name, line_index)
         }
-        NodeKind::ExprStmt(node_id) => log(nodes, *node_id, indent + 2, file_id_to_name),
+        NodeKind::ExprStmt(node_id) => {
+            log(nodes, *node_id, indent + 2, file_id_to_name, line_index)
+        }
         NodeKind::EmptyStmt => {}
         NodeKind::PostfixArrayAccess {
             array: primary,
             index: args,
         } => {
-            log(nodes, *primary, indent + 2, file_id_to_name);
-            log(nodes, *args, indent + 2, file_id_to_name);
+            log(nodes, *primary, indent + 2, file_id_to_name, line_index);
+            log(nodes, *args, indent + 2, file_id_to_name, line_index);
         }
         NodeKind::PostfixArguments {
             callee: primary,
             args,
         } => {
-            log(nodes, *primary, indent + 2, file_id_to_name);
+            log(nodes, *primary, indent + 2, file_id_to_name, line_index);
             if let Some(args) = args {
-                log(nodes, *args, indent + 2, file_id_to_name);
+                log(nodes, *args, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::TernaryExpr {
@@ -3946,46 +3957,58 @@ pub fn log(
             then_expr: mhs,
             else_expr: rhs,
         } => {
-            log(nodes, *lhs, indent + 2, file_id_to_name);
-            log(nodes, *mhs, indent + 2, file_id_to_name);
-            log(nodes, *rhs, indent + 2, file_id_to_name);
+            log(nodes, *lhs, indent + 2, file_id_to_name, line_index);
+            log(nodes, *mhs, indent + 2, file_id_to_name, line_index);
+            log(nodes, *rhs, indent + 2, file_id_to_name, line_index);
         }
         NodeKind::FieldAccess { expr: node_id, .. } => {
-            log(nodes, *node_id, indent + 2, file_id_to_name);
+            log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
         }
         NodeKind::TypeName {
             specifiers: specifier,
             abstract_declarator: declarator,
         } => {
-            log(nodes, *specifier, indent + 2, file_id_to_name);
+            log(nodes, *specifier, indent + 2, file_id_to_name, line_index);
             if let Some(declarator) = declarator {
-                log(nodes, *declarator, indent + 2, file_id_to_name);
+                log(nodes, *declarator, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::OffsetOf { typ: node_id, .. } => {
-            log(nodes, *node_id, indent + 2, file_id_to_name);
+            log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
         }
         NodeKind::Declaration {
             specifiers: decl_specifiers,
             declarators: init_declarator_list,
         } => {
-            log(nodes, *decl_specifiers, indent + 2, file_id_to_name);
+            log(
+                nodes,
+                *decl_specifiers,
+                indent + 2,
+                file_id_to_name,
+                line_index,
+            );
             if let Some(init_declarator_list) = init_declarator_list {
-                log(nodes, *init_declarator_list, indent + 2, file_id_to_name);
+                log(
+                    nodes,
+                    *init_declarator_list,
+                    indent + 2,
+                    file_id_to_name,
+                    line_index,
+                );
             }
         }
         NodeKind::DeclarationSpecifiers(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::DirectDeclarator {
             ident: base,
             suffix,
         } => {
-            log(nodes, *base, indent + 2, file_id_to_name);
+            log(nodes, *base, indent + 2, file_id_to_name, line_index);
             if let Some(node_id) = suffix {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::Declarator {
@@ -3993,13 +4016,13 @@ pub fn log(
             direct: declarator,
         } => {
             if let Some(ptr) = ptr {
-                log(nodes, *ptr, indent + 2, file_id_to_name);
+                log(nodes, *ptr, indent + 2, file_id_to_name, line_index);
             }
-            log(nodes, *declarator, indent + 2, file_id_to_name);
+            log(nodes, *declarator, indent + 2, file_id_to_name, line_index);
         }
         NodeKind::InitDeclarators(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::TypeQualifier(_)
@@ -4011,17 +4034,17 @@ pub fn log(
             ..
         } => {
             if let Some(node_id) = node_id {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::EnumeratorDeclaration { value: node_id, .. } => {
             if let Some(node_id) = node_id {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::EnumeratorsDeclaration(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::UnionDeclaration {
@@ -4031,21 +4054,21 @@ pub fn log(
             fields: node_id, ..
         } => {
             if let Some(node_id) = node_id {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::StructFieldsDeclaration(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::StructFieldDeclarator {
             declarator,
             bit_field: const_expr,
         } => {
-            log(nodes, *declarator, indent + 2, file_id_to_name);
+            log(nodes, *declarator, indent + 2, file_id_to_name, line_index);
             if let Some(node_id) = const_expr {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::StructFieldDeclaration {
@@ -4057,58 +4080,59 @@ pub fn log(
                 *specifier_qualifier_list,
                 indent + 2,
                 file_id_to_name,
+                line_index,
             );
             if let Some(node_id) = declarator_list {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::StructFieldDeclaratorList(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::SpecifierQualifierList(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::Xlate {
             typ: type_name,
             expr,
         } => {
-            log(nodes, *type_name, indent + 2, file_id_to_name);
-            log(nodes, *expr, indent + 2, file_id_to_name);
+            log(nodes, *type_name, indent + 2, file_id_to_name, line_index);
+            log(nodes, *expr, indent + 2, file_id_to_name, line_index);
         }
         NodeKind::DirectAbstractDeclarator(node_id) => {
-            log(nodes, *node_id, indent + 2, file_id_to_name);
+            log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
         }
         NodeKind::DirectAbstractArray {
             inner: base,
             size: suffix,
         } => {
             if let Some(base) = base {
-                log(nodes, *base, indent + 2, file_id_to_name);
+                log(nodes, *base, indent + 2, file_id_to_name, line_index);
             }
-            log(nodes, *suffix, indent + 2, file_id_to_name);
+            log(nodes, *suffix, indent + 2, file_id_to_name, line_index);
         }
         NodeKind::DirectAbstractFunction {
             inner: base,
             params: suffix,
         } => {
             if let Some(base) = base {
-                log(nodes, *base, indent + 2, file_id_to_name);
+                log(nodes, *base, indent + 2, file_id_to_name, line_index);
             }
-            log(nodes, *suffix, indent + 2, file_id_to_name);
+            log(nodes, *suffix, indent + 2, file_id_to_name, line_index);
         }
         NodeKind::AbstractDeclarator {
             pointer: ptr,
             direct: abstract_decl,
         } => {
             if let Some(node_id) = ptr {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
             if let Some(node_id) = abstract_decl {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::Pointer {
@@ -4116,64 +4140,78 @@ pub fn log(
             inner: ptr,
         } => {
             for node_id in type_qualifiers {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
             if let Some(node_id) = ptr {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::Array(params) => {
             if let Some(node_id) = params {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::ParamEllipsis => {}
         NodeKind::Parameters(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::ParameterDeclarationSpecifiers(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
-        NodeKind::Unary { expr: node_id, .. } => log(nodes, *node_id, indent + 2, file_id_to_name),
+        NodeKind::Unary { expr: node_id, .. } => {
+            log(nodes, *node_id, indent + 2, file_id_to_name, line_index)
+        }
         NodeKind::Character(_) => {}
         NodeKind::InlineDefinition {
             typ: decl_specifiers,
             declarator,
             expr,
         } => {
-            log(nodes, *decl_specifiers, indent + 2, file_id_to_name);
-            log(nodes, *declarator, indent + 2, file_id_to_name);
-            log(nodes, *expr, indent + 2, file_id_to_name);
+            log(
+                nodes,
+                *decl_specifiers,
+                indent + 2,
+                file_id_to_name,
+                line_index,
+            );
+            log(nodes, *declarator, indent + 2, file_id_to_name, line_index);
+            log(nodes, *expr, indent + 2, file_id_to_name, line_index);
         }
         NodeKind::ArgumentsExpr(node_ids) => {
             for node_id in node_ids {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::ParameterTypeList { params, ellipsis } => {
             if let Some(params) = params {
-                log(nodes, *params, indent + 2, file_id_to_name);
+                log(nodes, *params, indent + 2, file_id_to_name, line_index);
             }
             if let Some(ellipsis) = ellipsis {
-                log(nodes, *ellipsis, indent + 2, file_id_to_name);
+                log(nodes, *ellipsis, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::ArgumentsDeclaration(node_id) => {
             if let Some(node_id) = node_id {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::ParameterDeclaration {
             param_decl_specifiers,
             declarator,
         } => {
-            log(nodes, *param_decl_specifiers, indent + 2, file_id_to_name);
+            log(
+                nodes,
+                *param_decl_specifiers,
+                indent + 2,
+                file_id_to_name,
+                line_index,
+            );
             if let Some(node_id) = declarator {
-                log(nodes, *node_id, indent + 2, file_id_to_name);
+                log(nodes, *node_id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::TranslatorDefinition {
@@ -4182,31 +4220,31 @@ pub fn log(
             members,
             ..
         } => {
-            log(nodes, *from_type, indent + 2, file_id_to_name);
-            log(nodes, *to_type, indent + 2, file_id_to_name);
+            log(nodes, *from_type, indent + 2, file_id_to_name, line_index);
+            log(nodes, *to_type, indent + 2, file_id_to_name, line_index);
             if let Some(m) = members {
-                log(nodes, *m, indent + 2, file_id_to_name);
+                log(nodes, *m, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::TranslatorMembers(ids) | NodeKind::ProviderProbes(ids) => {
             for id in ids {
-                log(nodes, *id, indent + 2, file_id_to_name);
+                log(nodes, *id, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::TranslatorMember { expr, .. } => {
-            log(nodes, *expr, indent + 2, file_id_to_name);
+            log(nodes, *expr, indent + 2, file_id_to_name, line_index);
         }
         NodeKind::ProviderDefinition { probes, .. } => {
             if let Some(p) = probes {
-                log(nodes, *p, indent + 2, file_id_to_name);
+                log(nodes, *p, indent + 2, file_id_to_name, line_index);
             }
         }
         NodeKind::ProviderProbe {
             args, return_args, ..
         } => {
-            log(nodes, *args, indent + 2, file_id_to_name);
+            log(nodes, *args, indent + 2, file_id_to_name, line_index);
             if let Some(r) = return_args {
-                log(nodes, *r, indent + 2, file_id_to_name);
+                log(nodes, *r, indent + 2, file_id_to_name, line_index);
             }
         }
     }
@@ -4216,6 +4254,13 @@ pub fn log(
 mod tests {
     use super::*;
     use crate::lex::{self, Lexer};
+    use crate::origin::LineIndex;
+
+    /// The one-based line a byte offset falls on. Origins are byte ranges,
+    /// so a test that cares which line a diagnostic points at maps it back.
+    fn line_of(input: &str, byte_offset: u32) -> u32 {
+        LineIndex::new(input).line_column(byte_offset).0
+    }
 
     const FILE_ID: u32 = 1;
 
@@ -4948,7 +4993,7 @@ mod tests {
 
         // The origin must point to the full `struct Person` span in the full definition (line 2),
         // not in the forward declaration (line 1).
-        assert_eq!(lookup.origin.start.line, 2);
+        assert_eq!(line_of(input, lookup.origin.start), 2);
         assert_eq!(lex::str_from_source(input, lookup.origin), "struct Person");
     }
 
@@ -4965,7 +5010,7 @@ mod tests {
         let lookup =
             lookup_type(&parser.lexer.ctx.borrow(), "Color", DeclarationKind::Enum).unwrap();
         assert!(!lookup.is_forward);
-        assert_eq!(lookup.origin.start.line, 2);
+        assert_eq!(line_of(input, lookup.origin.start), 2);
         assert_eq!(lex::str_from_source(input, lookup.origin), "enum Color");
     }
 
@@ -4983,7 +5028,7 @@ mod tests {
         .unwrap();
         assert!(!lookup.is_forward);
         // Origin must still point to the full definition on line 1.
-        assert_eq!(lookup.origin.start.line, 1);
+        assert_eq!(line_of(input, lookup.origin.start), 1);
         assert_eq!(lex::str_from_source(input, lookup.origin), "struct Person");
     }
 
@@ -4999,11 +5044,11 @@ mod tests {
         let err = &errors[0];
         assert_eq!(err.kind, ErrorKind::Redeclaration);
         // Error origin: second `struct Person`, on line 2.
-        assert_eq!(err.origin.start.line, 2);
+        assert_eq!(line_of(input, err.origin.start), 2);
         assert_eq!(lex::str_from_source(input, err.origin), "struct Person");
         // Related origin: first `struct Person`, on line 1.
         let related = err.related_origin.unwrap();
-        assert_eq!(related.start.line, 1);
+        assert_eq!(line_of(input, related.start), 1);
         assert_eq!(lex::str_from_source(input, related), "struct Person");
     }
 
@@ -5015,10 +5060,10 @@ mod tests {
         assert_eq!(errors.len(), 1, "{errors:?}");
         let err = &errors[0];
         assert_eq!(err.kind, ErrorKind::Redeclaration);
-        assert_eq!(err.origin.start.line, 2);
+        assert_eq!(line_of(input, err.origin.start), 2);
         assert_eq!(lex::str_from_source(input, err.origin), "union Data");
         let related = err.related_origin.unwrap();
-        assert_eq!(related.start.line, 1);
+        assert_eq!(line_of(input, related.start), 1);
         assert_eq!(lex::str_from_source(input, related), "union Data");
     }
 
@@ -5030,10 +5075,10 @@ mod tests {
         assert_eq!(errors.len(), 1, "{errors:?}");
         let err = &errors[0];
         assert_eq!(err.kind, ErrorKind::Redeclaration);
-        assert_eq!(err.origin.start.line, 2);
+        assert_eq!(line_of(input, err.origin.start), 2);
         assert_eq!(lex::str_from_source(input, err.origin), "enum Color");
         let related = err.related_origin.unwrap();
-        assert_eq!(related.start.line, 1);
+        assert_eq!(line_of(input, related.start), 1);
         assert_eq!(lex::str_from_source(input, related), "enum Color");
     }
 
@@ -5048,9 +5093,9 @@ mod tests {
         let err = &errors[0];
         assert_eq!(err.kind, ErrorKind::Redeclaration);
         // Error on the third declaration (line 3), related to the second (line 2).
-        assert_eq!(err.origin.start.line, 3);
+        assert_eq!(line_of(input, err.origin.start), 3);
         let related = err.related_origin.unwrap();
-        assert_eq!(related.start.line, 2);
+        assert_eq!(line_of(input, related.start), 2);
     }
 
     #[test]
@@ -5089,9 +5134,9 @@ mod tests {
         let err = &errors[0];
         assert_eq!(err.kind, ErrorKind::Redeclaration);
         // The offending declaration is the second `enum Color` on line 3.
-        assert_eq!(err.origin.start.line, 3);
+        assert_eq!(line_of(input, err.origin.start), 3);
         // The related origin points back to the first `enum Color` on line 1.
-        assert_eq!(err.related_origin.unwrap().start.line, 1);
+        assert_eq!(line_of(input, err.related_origin.unwrap().start), 1);
     }
 
     #[test]
@@ -5207,8 +5252,10 @@ mod tests {
         ));
         assert_eq!(origin_str(input, &parser, assign_id), "a = 1");
         // `a` is at line 2, column 3.
-        assert_eq!(parser.nodes[assign_id].origin.start.line, 2);
-        assert_eq!(parser.nodes[assign_id].origin.start.column, 3);
+        assert_eq!(
+            LineIndex::new(input).line_column(parser.nodes[assign_id].origin.start),
+            (2, 3)
+        );
     }
 
     #[test]

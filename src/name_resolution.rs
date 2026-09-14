@@ -217,7 +217,7 @@ impl<'a> Resolver<'a> {
     /// The origin of `struct Name` / `union Name` / `enum Name`: from the
     /// start of the declaration (the keyword) through the end of the tag.
     fn tag_origin(node: &Node, name_origin: crate::origin::Origin) -> crate::origin::Origin {
-        node.origin.start.extend_to_inclusive(name_origin.end)
+        node.origin.merge(name_origin)
     }
 
     /// The origin of the tag name of a previously recorded declaration.

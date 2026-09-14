@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::{
     lex::TokenKind,
-    origin::{FileId, Origin},
+    origin::{FileId, LineIndex, Origin},
     type_checker::Type,
 };
 
@@ -110,13 +110,14 @@ impl Error {
     pub fn write<W: Write>(
         &self,
         w: &mut W,
-        input: &str,
+        line_index: &LineIndex,
         file_id_to_name: &HashMap<FileId, String>,
     ) -> std::io::Result<()> {
+        let input = line_index.input();
         write!(
             w,
             "{}: Error {:?}",
-            self.origin.display(file_id_to_name),
+            self.origin.display(file_id_to_name, line_index),
             self.kind,
         )?;
         if !self.explanation.is_empty() {
@@ -127,7 +128,11 @@ impl Error {
         write_excerpt(w, input, self.origin)?;
 
         if let Some(related_origin) = self.related_origin {
-            write!(w, "\nHere: {}: ", related_origin.display(file_id_to_name))?;
+            write!(
+                w,
+                "\nHere: {}: ",
+                related_origin.display(file_id_to_name, line_index)
+            )?;
 
             write_excerpt(w, input, related_origin)?;
         }
@@ -137,8 +142,8 @@ impl Error {
 }
 
 pub fn write_excerpt<W: Write>(w: &mut W, input: &str, origin: Origin) -> std::io::Result<()> {
-    let start = origin.start.byte_offset as usize;
-    let end = origin.end.byte_offset as usize;
+    let start = origin.start as usize;
+    let end = origin.end as usize;
 
     // TODO: limit context length.
     let mut excerpt_start = start;
@@ -171,27 +176,17 @@ pub fn write_excerpt<W: Write>(w: &mut W, input: &str, origin: Origin) -> std::i
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::origin::Position;
 
     const FILE_ID: u32 = 1;
 
-    fn origin_of(input: &str, start: usize, end: usize) -> Origin {
-        let position = |byte_offset: usize| Position {
-            line: 1,
-            column: byte_offset as u32 + 1,
-            byte_offset: byte_offset as u32,
+    fn excerpt(input: &str, start: usize, end: usize) -> String {
+        let origin = Origin {
+            start: start as u32,
+            end: end as u32,
             kind: crate::origin::PositionKind::File(FILE_ID),
         };
-        let _ = input;
-        Origin {
-            start: position(start),
-            end: position(end),
-        }
-    }
-
-    fn excerpt(input: &str, start: usize, end: usize) -> String {
         let mut buf = Vec::new();
-        write_excerpt(&mut buf, input, origin_of(input, start, end)).unwrap();
+        write_excerpt(&mut buf, input, origin).unwrap();
         String::from_utf8(buf).unwrap()
     }
 
