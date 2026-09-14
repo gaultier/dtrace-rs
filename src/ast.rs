@@ -1974,6 +1974,14 @@ impl<'a> Parser<'a> {
         }
         let mut stmts = Vec::new();
         for _ in 0..self.remaining_chars_count() {
+            // A statement parsed earlier in this loop may have failed and
+            // latched `error_mode`, in which case every sub-parser below now
+            // returns `None`. The check at the top of the function only
+            // covers entry.
+            if self.error_mode {
+                return None;
+            }
+
             match self.peek1().kind {
                 TokenKind::RightCurly => {
                     let origin = if stmts.is_empty() {
@@ -1989,7 +1997,9 @@ impl<'a> Parser<'a> {
                     }));
                 }
                 TokenKind::KeywordIf => {
-                    let stmt = self.parse_statement().unwrap();
+                    let Some(stmt) = self.parse_statement() else {
+                        return None;
+                    };
                     stmts.push(stmt);
                 }
                 TokenKind::Eof => {
@@ -5392,6 +5402,26 @@ mod tests {
     #[test]
     fn test_program_accepts_an_expression_root_spanning_the_whole_input() {
         let errors = parse_program_errors("-1");
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+    }
+    #[test]
+    fn test_statement_list_after_a_failed_statement_does_not_panic() {
+        // Regression: `parse_statement_list` checked `error_mode` only on
+        // entry, so a failure earlier in the loop made `parse_statement`
+        // return `None` and the `if` arm unwrapped it.
+        for input in [
+            "BEGIN { x = ; if (1) { y = 2; } }",
+            "BEGIN { ) ; if (1) {} }",
+            "y/p/{if(x){=}if",
+        ] {
+            let errors = parse_program_errors(input);
+            assert!(!errors.is_empty(), "expected an error for {input:?}");
+        }
+    }
+
+    #[test]
+    fn test_statement_list_with_a_valid_if_statement() {
+        let errors = parse_program_errors("BEGIN { if (1) { y = 2; } }");
         assert!(errors.is_empty(), "unexpected errors: {errors:?}");
     }
 }
