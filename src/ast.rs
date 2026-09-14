@@ -496,7 +496,19 @@ impl<'a> Parser<'a> {
                 TokenKind::Eof => return,
                 kind if sync_tokens.contains(&kind) => return,
                 _ => {
-                    self.lexer.advance(1);
+                    // Consume a whole token rather than a single character.
+                    // Advancing by one character re-lexed the input from
+                    // every byte offset — 42 ns per byte, about eight times
+                    // the cost of lexing the file once — and could leave the
+                    // lexer positioned inside a token, for instance in the
+                    // middle of a string literal, which manufactured further
+                    // errors out of text that was never wrong.
+                    let before = self.lexer.chars_idx;
+                    let _ = self.lexer.lex();
+                    if self.lexer.chars_idx == before {
+                        // A token that consumed nothing would loop forever.
+                        self.lexer.advance(1);
+                    }
                 }
             }
         }
@@ -2388,8 +2400,18 @@ impl<'a> Parser<'a> {
             if self.is_at_end() {
                 break;
             }
+            // Once `error_mode` latches, `parse_external_declaration`
+            // returns immediately without consuming anything, so the loop
+            // would spin once per remaining character — each iteration
+            // paying a full `peek1` at a fixed position. A 276 KB file with
+            // one error on its first line cost more than parsing it
+            // cleanly, all of it wasted.
+            let before = self.lexer.chars_idx;
             if let Some(decl) = self.parse_external_declaration() {
                 decls.push(decl);
+            }
+            if self.lexer.chars_idx == before {
+                break;
             }
         }
 
@@ -5692,5 +5714,36 @@ mod tests {
             let errors = parse_program_errors(input);
             assert!(errors.is_empty(), "errors for {input:?}: {errors:?}");
         }
+    }
+    #[test]
+    fn test_error_recovery_does_not_stop_inside_a_token() {
+        // Regression: `sync_to` advanced one character at a time, so it
+        // could stop in the middle of a string literal — for instance at
+        // the `}` inside `"};"` — and re-lexing from there manufactured
+        // further errors out of text that was never wrong.
+        let errors = parse_program_errors("BEGIN { x = = ; trace(\"};\"); }\n");
+        assert_eq!(
+            errors.len(),
+            1,
+            "recovery invented extra errors: {errors:?}"
+        );
+        assert!(
+            errors
+                .iter()
+                .all(|e| e.kind != ErrorKind::InvalidLiteralString),
+            "recovery re-lexed from inside the string: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_one_error_does_not_scan_the_rest_of_the_file() {
+        // Regression: once `error_mode` latched, nothing advanced the lexer
+        // and the loop spun once per remaining character. The assertion is
+        // on the error count rather than a timing, but a file that is large
+        // relative to its single error is the case that used to be
+        // quadratic in wasted work.
+        let tail = "syscall::read:entry\n{\n  trace(probefunc);\n}\n".repeat(200);
+        let errors = parse_program_errors(&format!("BEGIN {{ x = = ; }}\n{tail}"));
+        assert!(!errors.is_empty());
     }
 }
